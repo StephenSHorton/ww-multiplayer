@@ -251,6 +251,21 @@ type CoopRoom struct {
 	Pieces, PiecesTaken            int
 	Rewards, Given, Untracked      int
 	MaxLife                        int // quarter hearts
+	// Dungeons is the seven dungeons in story order (FF, DRC, FW, TotG,
+	// ET, WT, GT) and their mDungeonItem flags.
+	Dungeons []CoopDungeon
+}
+
+// CoopDungeon is one dungeon's save table as the world holds it
+// (mods/coop/roomitems.Dungeon): Short ("DRC") and Name, Keys its vanilla
+// small-key count (0: no small keys), and its map, compass, big key, boss
+// beaten and heart container taken.
+type CoopDungeon struct {
+	Table                 int
+	Short, Name           string
+	Keys                  int
+	Map, Compass, BossKey bool
+	Boss, HeartContainer  bool
 }
 
 // CoopRoomItem is one slot, song or pearl: Name the world's best variant

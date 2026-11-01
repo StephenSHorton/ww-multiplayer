@@ -209,11 +209,41 @@ func TestMemberCoop(t *testing.T) {
 
 // TestRoomView: whole hearts and the quarters past them.
 func TestRoomView(t *testing.T) {
-	if roomView(nil) != nil {
+	if roomView(nil, nil) != nil {
 		t.Error("nil room")
 	}
-	v := roomView(&session.CoopRoom{Items: []session.CoopRoomItem{{Slot: "bow", Name: "the bow", Have: true}}, Hearts: true, MaxLife: 22, ChartsTotal: 49})
+	v := roomView(&session.CoopRoom{Items: []session.CoopRoomItem{{Slot: "bow", Name: "the bow", Have: true}}, Hearts: true, MaxLife: 22, ChartsTotal: 49}, nil)
 	if v.MaxHearts != 5 || v.MaxQuarters != 2 || len(v.Items) != 1 || !v.Items[0].Have || v.ChartsTotal != 49 || v.Songs == nil {
 		t.Errorf("room view %+v", v)
+	}
+}
+
+// TestRoomDungeons (wind#56): each dungeon row carries its flags, and the
+// partners whose last place is one of its stages.
+func TestRoomDungeons(t *testing.T) {
+	r := &session.CoopRoom{Dungeons: []session.CoopDungeon{
+		{Table: 2, Short: "FF", Name: "Forsaken Fortress", Boss: true},
+		{Table: 3, Short: "DRC", Name: "Dragon Roost Cavern", Keys: 4, Map: true, BossKey: true},
+		{Table: 8, Short: "GT", Name: "Ganon's Tower"},
+	}}
+	cs := session.CoopStatus{Partners: []session.CoopPartner{{Name: "Blake", Stage: "M_NewD2", Room: 3}, {Name: "Sam", Stage: "sea"}, {Name: "Ana", Stage: "Xboss0"}}}
+	v := roomView(r, partnersHere(cs))
+	if len(v.Dungeons) != 3 {
+		t.Fatalf("dungeons %+v", v.Dungeons)
+	}
+	ff, drc, gt := v.Dungeons[0], v.Dungeons[1], v.Dungeons[2]
+	if !ff.Boss || ff.Keys != 0 || len(ff.Here) != 0 {
+		t.Errorf("FF %+v", ff)
+	}
+	if drc.Keys != 4 || !drc.Map || !drc.BossKey || drc.Compass || !slices.Equal(drc.Here, []string{"Blake"}) {
+		t.Errorf("DRC %+v", drc)
+	}
+	if !slices.Equal(gt.Here, []string{"Ana"}) {
+		t.Errorf("GT %+v", gt)
+	}
+	// One partner known only by PartnerStage.
+	one := partnersHere(session.CoopStatus{PartnerStage: "kindan", PartnerRoom: 2})
+	if !slices.Equal(one[4], []string{"Partner"}) || len(one) != 1 {
+		t.Errorf("one partner: %v", one)
 	}
 }

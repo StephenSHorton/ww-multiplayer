@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/roomitems"
 	"slices"
 	"strings"
 
@@ -225,6 +226,26 @@ type CoopRoomView struct {
 	Untracked       int    `json:"untracked"`
 	MaxHearts       int    `json:"maxHearts"`
 	MaxQuarters     int    `json:"maxQuarters"`
+	// Dungeons is the seven dungeons in story order; the card draws each
+	// one's small keys (the progress card's CoopKeyView of the same
+	// Short) inside its row.
+	Dungeons []CoopDungeonView `json:"dungeons"`
+}
+
+// CoopDungeonView is one dungeon's row: its map, compass, big key, boss
+// beaten and heart container taken (from the world), Keys its vanilla
+// small-key count (0: no small keys, no key pips), and Here the partners
+// whose last place is one of its stages.
+type CoopDungeonView struct {
+	Short          string   `json:"short"`
+	Name           string   `json:"name"`
+	Keys           int      `json:"keys"`
+	Map            bool     `json:"map"`
+	Compass        bool     `json:"compass"`
+	BossKey        bool     `json:"bossKey"`
+	Boss           bool     `json:"boss"`
+	HeartContainer bool     `json:"heartContainer"`
+	Here           []string `json:"here,omitempty"`
 }
 
 // CoopRoomItemView is one slot, song or pearl.
@@ -234,8 +255,28 @@ type CoopRoomItemView struct {
 	Have bool   `json:"have"`
 }
 
-// roomView is r as the card shows it; nil for nil.
-func roomView(r *session.CoopRoom) *CoopRoomView {
+// partnersHere maps a dungeon save table to the partners whose last
+// place (PRESENCE, cs.Partners; with one partner and no names,
+// PartnerStage as "Partner") is one of its stages.
+func partnersHere(cs session.CoopStatus) map[int][]string {
+	here := map[int][]string{}
+	add := func(name, stage string) {
+		if t, ok := roomitems.DungeonOfStage(stage); ok {
+			here[t] = append(here[t], name)
+		}
+	}
+	for _, p := range cs.Partners {
+		add(p.Name, p.Stage)
+	}
+	if len(cs.Partners) == 0 && cs.PartnerStage != "" {
+		add("Partner", cs.PartnerStage)
+	}
+	return here
+}
+
+// roomView is r as the card shows it, with here's partners on their
+// dungeons' rows; nil for nil.
+func roomView(r *session.CoopRoom, here map[int][]string) *CoopRoomView {
 	if r == nil {
 		return nil
 	}
@@ -246,8 +287,14 @@ func roomView(r *session.CoopRoom) *CoopRoomView {
 		}
 		return out
 	}
+	dungeons := make([]CoopDungeonView, 0, len(r.Dungeons))
+	for _, d := range r.Dungeons {
+		dungeons = append(dungeons, CoopDungeonView{Short: d.Short, Name: d.Name, Keys: d.Keys, Map: d.Map, Compass: d.Compass,
+			BossKey: d.BossKey, Boss: d.Boss, HeartContainer: d.HeartContainer, Here: here[d.Table]})
+	}
 	return &CoopRoomView{
-		Items: items(r.Items), Equip: items(r.Equip), Songs: items(r.Songs), Pearls: items(r.Pearls), Shards: r.Shards,
+		Dungeons: dungeons,
+		Items:    items(r.Items), Equip: items(r.Equip), Songs: items(r.Songs), Pearls: items(r.Pearls), Shards: r.Shards,
 		Charts: r.Charts, ChartsTotal: r.ChartsTotal, Salvaged: r.Salvaged, TriforceCharts: r.TriforceCharts,
 		Wallet: r.Wallet, Quiver: r.Quiver, BombBag: r.BombBag, Magic: r.Magic,
 		Hearts: r.Hearts, HeartsWhy: r.HeartsWhy, Containers: r.Containers, ContainersTaken: r.ContainersTaken,

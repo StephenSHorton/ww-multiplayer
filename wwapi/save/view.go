@@ -153,6 +153,29 @@ func (v View) KeyNum(t int) int {
 	return int(v.image(addr.OffMemBit(t) + addr.MemBitOffKeyNum))
 }
 
+// DungeonItems are a save table's mDungeonItem flags (dSv_memBit_c,
+// d_save.h:639-646): the map, the compass, the big key, the boss beaten
+// (STAGE_BOSS_ENEMY), the heart container taken (STAGE_LIFE) and the
+// boss intro seen (STAGE_BOSS_DEMO).
+type DungeonItems struct {
+	Map, Compass, BossKey, Boss, HeartContainer, BossDemo bool
+}
+
+// DungeonItems returns table t's mDungeonItem flags, the saved slot's
+// ORed with the live copy's when t is loaded (isDungeonItem, d_save.cpp:
+// 1147-1150); none for a table out of range.
+func (v View) DungeonItems(t int) DungeonItems {
+	if !addr.ValidTable(t) {
+		return DungeonItems{}
+	}
+	b := v.memBit(t, addr.MemBitOffDungeonItem)
+	on := func(i int) bool { return b&(1<<i) != 0 }
+	return DungeonItems{
+		Map: on(addr.DungeonItemMap), Compass: on(addr.DungeonItemCompass), BossKey: on(addr.DungeonItemBossKey),
+		Boss: on(addr.DungeonItemStageBossEnemy), HeartContainer: on(addr.DungeonItemStageLife), BossDemo: on(addr.DungeonItemStageBossDemo),
+	}
+}
+
 // MaxLife is mMaxLife, in quarter hearts.
 func (v View) MaxLife() int {
 	return int(binary.BigEndian.Uint16(v.s.Save[addr.InfoOffSavedata+addr.OffMaxLife:]))

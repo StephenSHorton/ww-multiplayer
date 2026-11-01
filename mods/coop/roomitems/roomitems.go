@@ -79,6 +79,9 @@ type Items struct {
 	// is then why (derive.LifeEnabled).
 	Hearts    *Hearts
 	HeartsWhy string
+	// Dungeons is the seven dungeons in story order (FF, DRC, FW, TotG,
+	// ET, WT, GT): map, compass, big key, boss and heart container.
+	Dungeons []Dungeon
 }
 
 // ChartsTotal is getCollectMapNum's most: charts 1-51 but 35 and 36.
@@ -139,6 +142,7 @@ func Of(img *save.Image, h *hearts.Result) Items {
 	it.Quiver, it.BombBag = int(img[addr.OffArrowMax]), int(img[addr.OffBombMax])
 	v := viewOf(img)
 	it.Magic = derive.CountMagic(v).Derived()
+	it.Dungeons = dungeons(v)
 	if ok, why := derive.LifeEnabled(h); !ok {
 		it.HeartsWhy = why
 	} else {

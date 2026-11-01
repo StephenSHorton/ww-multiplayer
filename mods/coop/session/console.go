@@ -492,6 +492,10 @@ func coopRoomOf(it *roomitems.Items) *session.CoopRoom {
 		Shards: it.Shards, TriforceCharts: it.TriforceCharts, Charts: it.Charts, ChartsTotal: roomitems.ChartsTotal, Salvaged: it.Salvaged,
 		Wallet: it.Wallet, Quiver: it.Quiver, BombBag: it.BombBag, Magic: it.Magic, HeartsWhy: it.HeartsWhy,
 	}
+	for _, d := range it.Dungeons {
+		r.Dungeons = append(r.Dungeons, session.CoopDungeon{Table: d.Table, Short: d.Short, Name: d.Name, Keys: d.Keys,
+			Map: d.Map, Compass: d.Compass, BossKey: d.BossKey, Boss: d.Boss, HeartContainer: d.HeartContainer})
+	}
 	if h := it.Hearts; h != nil {
 		r.Hearts = true
 		r.Containers, r.ContainersTaken, r.Pieces, r.PiecesTaken = h.Containers, h.ContainersTaken, h.Pieces, h.PiecesTaken
