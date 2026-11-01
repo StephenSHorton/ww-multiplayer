@@ -3,6 +3,7 @@ package replica
 import (
 	"fmt"
 	"maps"
+	"math"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
@@ -222,6 +223,30 @@ func (t *refreshTick) linkFar(pos [3]float32) string {
 		return fmt.Sprintf("Link within %d units", linkRefreshRange)
 	}
 	return ""
+}
+
+// linkFar3D returns why Link is too near pos for the actor_refresh relay,
+// or "": the REL's own gate (inject/rel/refresh.c, WWRF_LINK_FAR in
+// include/wwrefresh.h) measures a 3D distance, so the relay asks the same
+// and never holds an actor Link stands far above or below (another floor),
+// which the REL would take. Tier 1's lock writer and Tier 2's death-switch
+// shrink keep the x-z farFrom, which holds more.
+func (t *refreshTick) linkFar3D(pos [3]float32) string {
+	switch {
+	case !t.linkOK:
+		return "no Link"
+	case !farFrom3D(t.link, pos):
+		return fmt.Sprintf("Link within %d units (3D, as the REL's gate)", linkRefreshRange)
+	}
+	return ""
+}
+
+// farFrom3D reports whether p and q are more than linkRefreshRange apart
+// in 3D; a NaN distance is not far, as in the REL ("not > far^2").
+func farFrom3D(p, q [3]float32) bool {
+	dx, dy, dz := float64(p[0]-q[0]), float64(p[1]-q[1]), float64(p[2]-q[2])
+	d := dx*dx + dy*dy + dz*dz
+	return !math.IsNaN(d) && d > linkRefreshRange*linkRefreshRange
 }
 
 // switchByteIn returns the byte and mask of switch no, of an actor of
