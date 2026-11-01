@@ -81,7 +81,6 @@ These tests are known to fail now and then on timing, without a code change behi
 |---|---|---|
 | `TestControllerQuestions` (`mods/coop/session/controller_test.go`) | macOS CI | The co-op controller's question flow under a slow runner. |
 | `TestLobbyKickClosesLobbyAndPlayerConns`, `TestLobbyKickSticks` (`mods/multiplayer/net`) | any | Loopback connections closing around the kick. |
-| `TestUpdateInstall` (`internal/gui`) | any | Failed once with "new version didn't start (file not found)" on a branch that did not touch `internal/gui`, then passed three reruns. Cause not found. |
 | `TestCoopSessionM4` (`mods/coop/session`) | macOS CI | Failed once on the `/status` max hearts line, then passed on the rerun. Cause not found. |
 
 Any other failure that passes on a rerun is a new flake: report it, do not just rerun it away.
