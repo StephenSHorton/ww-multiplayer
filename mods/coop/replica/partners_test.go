@@ -190,3 +190,32 @@ func TestPlacedKillsAnyPartner(t *testing.T) {
 		t.Fatal("Tetra came to room 5: no partner in the room")
 	}
 }
+
+// TestChestScopeAnyPartner: M9's chest hold (#233) asks for any partner
+// in the same stage, table and room (or a room -1), as the rest of co-op
+// for three or more does.
+func TestChestScopeAnyPartner(t *testing.T) {
+	rr := newRecRig(t, Config{}, proto.FeatureImage)
+	st, _ := wire.MakeStage("M_NewD2")
+	scope := func() bool {
+		rr.r.mu.Lock()
+		defer rr.r.mu.Unlock()
+		rr.r.presence = &wire.Presence{Stage: st, Table: 3, Room: 5, Layer: -1, Flags: wire.PresenceInGame}
+		return rr.r.anyPartnerInChestScope()
+	}
+	if scope() {
+		t.Fatal("no partners: in scope")
+	}
+	say(t, rr.r, down(t, 2, "Tetra", "sea", 0, 44, 0, inGame), down(t, 3, "Medli", "M_NewD2", 3, 5, 0, inGame))
+	if !scope() {
+		t.Fatal("Medli in the same room, Tetra at sea: not in scope")
+	}
+	say(t, rr.r, down(t, 3, "Medli", "M_NewD2", 3, 4, 0, inGame))
+	if scope() {
+		t.Fatal("nobody in room 5: in scope")
+	}
+	say(t, rr.r, down(t, 2, "Tetra", "M_NewD2", 3, -1, 0, inGame))
+	if !scope() {
+		t.Fatal("Tetra at a stage start (room -1) in the same stage and table: not in scope")
+	}
+}

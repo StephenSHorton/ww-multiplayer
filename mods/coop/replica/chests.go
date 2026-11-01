@@ -271,6 +271,19 @@ func partnerInScope(me, partner *wire.Presence) bool {
 	return me.Room == partner.Room || me.Room == -1 || partner.Room == -1
 }
 
+// anyPartnerInChestScope reports whether any partner could open the same
+// chests as this game (partnerInScope): with three or more players a
+// chest is held for a claim while any of them is there, as the scoped
+// stores and placed kills ask (docs/08 Appendix C item 171).
+func (r *Replica) anyPartnerInChestScope() bool {
+	for _, v := range r.partners {
+		if partnerInScope(r.presence, &v.p.Presence) {
+			return true
+		}
+	}
+	return false
+}
+
 // chestInput is what one tick's chest decisions rest on.
 type chestInput struct {
 	on      bool // armed, chest claims granted, writes possible
@@ -483,7 +496,7 @@ func (r *Replica) reconcileChests(o *obs, armed bool, out *outbox) {
 		off := addr.OffMemBit(int(s.Table)) + addr.MemBitOffTbox
 		in.world = binary.BigEndian.Uint32(r.view[off : off+4])
 	}
-	in.scope = on && partnerInScope(r.presence, r.partner)
+	in.scope = on && r.anyPartnerInChestScope()
 	if p, err := linkpos.NewLink(r.m).Position(); err == nil {
 		in.link, in.linkOK = [3]float32{p.PosX, p.PosY, p.PosZ}, true
 	}
