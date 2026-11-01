@@ -292,6 +292,7 @@ type chestInput struct {
 	link    [3]float32
 	linkOK  bool
 	ordered bool // an event order is queued
+	idle    bool // the tick's gates let a hold through (IDLE, STABLE, settled: CanWriteIdle)
 	room    int8
 	chests  []ChestActor
 	bits    uint32 // the live memBit's mTbox
@@ -376,7 +377,12 @@ func (s *chestState) decide(in chestInput, send func(*wire.Claim)) *ChestPlan {
 				break
 			}
 			delete(s.farSince, c.Key)
-			s.ask(c.Key, in, d, send)
+			// A granted chest is renewed whatever the distance until it
+			// is released: a lease left to expire is granted to the
+			// partner, and then both games would offer the prompt (live
+			// 2026-11-01: the grantee stood 464 units off, past
+			// ChestClaimRange, and stopped renewing).
+			s.renew(c.Key, in, send)
 		default:
 			if holding {
 				s.ask(c.Key, in, d, send)
@@ -397,7 +403,16 @@ func (s *chestState) decide(in chestInput, send func(*wire.Claim)) *ChestPlan {
 
 // canHold is the hold gates the tick's reads answer.
 func (s *chestState) canHold(c ChestActor, in chestInput, d float64) bool {
-	return c.Word == c.OpenWait() && !c.Busy() && in.linkOK && d > ChestHoldFar && !in.ordered
+	return in.idle && c.Word == c.OpenWait() && !c.Busy() && in.linkOK && d > ChestHoldFar && !in.ordered
+}
+
+// renew sends CLAIM for a granted k at most every ChestAskEvery.
+func (s *chestState) renew(k ChestKey, in chestInput, send func(*wire.Claim)) {
+	if t, ok := s.askedAt[k]; ok && in.now.Sub(t) < ChestAskEvery {
+		return
+	}
+	s.askedAt[k] = in.now
+	send(&wire.Claim{Op: wire.ClaimAsk, Table: k.Table, No: k.No, Room: in.room})
 }
 
 // ask sends CLAIM for k when Link is in range, at most every ChestAskEvery.
@@ -497,6 +512,11 @@ func (r *Replica) reconcileChests(o *obs, armed bool, out *outbox) {
 		in.world = binary.BigEndian.Uint32(r.view[off : off+4])
 	}
 	in.scope = on && r.anyPartnerInChestScope()
+	// A hold is planned only when the guard will take it: a refused write
+	// counts toward the Breaker (a room entry's settling ticks refused
+	// every hold and turned co-op off, live 2026-11-01). Restores need no
+	// gate.
+	in.idle = o.st.CanWriteIdle()
 	if p, err := linkpos.NewLink(r.m).Position(); err == nil {
 		in.link, in.linkOK = [3]float32{p.PosX, p.PosY, p.PosZ}, true
 	}
