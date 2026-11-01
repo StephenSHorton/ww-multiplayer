@@ -3,6 +3,7 @@ package inject
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -40,5 +41,40 @@ func TestImageFormat(t *testing.T) {
 	}
 	if _, err := ImageFormat(filepath.Join(dir, "missing")); err == nil {
 		t.Error("missing file: no error")
+	}
+}
+
+// TestConvertStepsMac: Dolphin for macOS ships no DolphinTool, so the Mac
+// advice says so and gives the Mac's steps; elsewhere it is unchanged.
+func TestConvertStepsMac(t *testing.T) {
+	old := hostOS
+	t.Cleanup(func() { hostOS = old })
+	for _, c := range []struct {
+		goos      string
+		want, not []string
+	}{
+		{"darwin", []string{"comes without DolphinTool", "Control-click", "Convert File... > Format: ISO", "under Paths", "patch the .iso it writes"}, nil},
+		{"windows", []string{"right-click the game > Convert File... > Format: ISO", "patch the .iso it writes"}, []string{"macOS", "Control-click"}},
+		{"linux", []string{"right-click the game"}, []string{"macOS"}},
+	} {
+		hostOS = c.goos
+		got := (&UnsupportedFormatError{Format: "RVZ"}).Error()
+		if !strings.HasPrefix(got, "iso: this is a compressed RVZ image, not a plain ISO. ") || got != "iso: this is a compressed RVZ image, not a plain ISO. "+ConvertSteps(c.goos) {
+			t.Errorf("%s: %s", c.goos, got)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(got, w) {
+				t.Errorf("%s: no %q in %s", c.goos, w, got)
+			}
+		}
+		for _, w := range c.not {
+			if strings.Contains(got, w) {
+				t.Errorf("%s: %q in %s", c.goos, w, got)
+			}
+		}
+	}
+	hostOS = "darwin"
+	if got := (&UnsupportedFormatError{Format: "NKit"}).Error(); strings.Contains(got, "DolphinTool") {
+		t.Errorf("NKit takes the NKit advice on a Mac too: %s", got)
 	}
 }

@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -51,6 +52,9 @@ func TestApplyPatchLineConvert(t *testing.T) {
 }
 
 func TestPatchErrorConvert(t *testing.T) {
+	old := setupOS
+	t.Cleanup(func() { setupOS = old })
+	setupOS = "windows" // the Mac wording is TestPatchErrorConvertMac
 	nt := &patch.NoDolphinToolError{Format: &inject.UnsupportedFormatError{Format: "WIA"}, Dolphin: `C:\D\Dolphin.exe`}
 	if s := patchError(fmt.Errorf("x: %w", nt)); !strings.Contains(s, "compressed WIA image") || !strings.Contains(s, `none beside C:\D\Dolphin.exe`) || !strings.Contains(s, "Convert File") {
 		t.Errorf("no tool: %s", s)
@@ -62,6 +66,30 @@ func TestPatchErrorConvert(t *testing.T) {
 	low := fmt.Errorf("%w: converting needs about 2.8 GB free in C:\\g and it has 1.0 GB", patch.ErrLowSpace)
 	if s := patchError(low); !strings.HasPrefix(s, "There isn't enough free space next to your disc to convert it (converting needs about 2.8 GB") || strings.Contains(s, "not enough free space to convert") {
 		t.Errorf("low space: %s", s)
+	}
+}
+
+// TestPatchErrorConvertMac: on a Mac, where Dolphin ships no DolphinTool,
+// the Setup error gives the convert steps in Dolphin and doesn't send the
+// player to set Dolphin up; a DolphinTool found but unusable keeps the
+// general wording, which says why.
+func TestPatchErrorConvertMac(t *testing.T) {
+	old := setupOS
+	t.Cleanup(func() { setupOS = old })
+	setupOS = "darwin"
+	nt := &patch.NoDolphinToolError{Format: &inject.UnsupportedFormatError{Format: "RVZ"}, Dolphin: "/Applications/Dolphin.app/Contents/MacOS/Dolphin"}
+	s := patchError(fmt.Errorf("x: %w", nt))
+	for _, w := range []string{"compressed RVZ image", "comes without DolphinTool", "Control-click", "Convert File... > Format: ISO", "choose the .iso it writes here"} {
+		if !strings.Contains(s, w) {
+			t.Errorf("no %q in %s", w, s)
+		}
+	}
+	if strings.Contains(s, "Set up Dolphin") || strings.Contains(s, "patch the .iso") {
+		t.Errorf("mac: %s", s)
+	}
+	nt.Unusable = []error{errors.New("this DolphinTool has no convert command")}
+	if s := patchError(nt); !strings.Contains(s, "can't be used (this DolphinTool has no convert command)") {
+		t.Errorf("mac, unusable: %s", s)
 	}
 }
 
