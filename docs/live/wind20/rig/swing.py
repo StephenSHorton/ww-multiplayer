@@ -11,6 +11,8 @@ ACT = int(sys.argv[1], 16)
 SWINGS = int(sys.argv[2]) if len(sys.argv) > 2 else 6
 DIST = float(sys.argv[3]) if len(sys.argv) > 3 else 90.0
 DY = float(sys.argv[4]) if len(sys.argv) > 4 else 0.0
+BTN = os.environ.get("SWING_BTN", "0x0200")  # B (sword); X = 0x0400 for an item on X (wind#42: the Skull Hammer)
+WAIT = float(os.environ.get("SWING_WAIT", "0.8"))
 PLAYER_PTR = 0x803CA754
 
 def run(*a):
@@ -36,5 +38,5 @@ for i in range(SWINGS):
     run(MAIN, "warp", "%.1f" % tx, "%.1f" % (ap[1] + DY), "%.1f" % tz)
     run(WWDEV, "poke-u32", "%X" % (link + 0x204), "%X" % ang)
     run(WWDEV, "poke-u32", "%X" % (link + 0x20C), "%X" % ang)
-    run(WWDEV, "input", "0x0200", "0", "0", "120"); time.sleep(0.8)
+    run(WWDEV, "input", BTN, "0", "0", "120"); time.sleep(WAIT)
 run(WWDEV, "input-release")
