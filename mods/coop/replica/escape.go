@@ -175,6 +175,7 @@ type entryKey struct {
 // planned and made after this tick's writes (Replica.escNow).
 type escapeReq struct {
 	kind   EscapeKind
+	target string            // a warp's partner: its name, "" for the one partner
 	done   chan EscapeResult // nil for a warp's second step
 	fields []Field
 	did    string
@@ -184,11 +185,12 @@ type escapeReq struct {
 // followWarp is the second step of a warp that changed stage: once Link
 // is in stage, warp onto the partner.
 type followWarp struct {
-	stage string
-	until time.Time
+	stage  string
+	target string // the partner's name, resolved when the warp began
+	until  time.Time
 }
 
-// partnerTrack follows the partner's PRESENCE to learn the room each
+// partnerTrack follows one partner's PRESENCE to learn the room each
 // entrance it comes in by starts in (learnPartner), and since when it has
 // been in its stage (notePartnerRest).
 type partnerTrack struct {
@@ -217,7 +219,13 @@ type presencePlace struct {
 // writes are off and while another escape waits; the rest on the next
 // tick, or ErrStopped if Run returns first. A new escape drops the second step of
 // a warp still waiting for its stage change.
-func (r *Replica) Escape(k EscapeKind) <-chan EscapeResult {
+func (r *Replica) Escape(k EscapeKind) <-chan EscapeResult { return r.escape(k, "") }
+
+// WarpTo is Escape(EscapeWarp) to partner name, for a session of three or
+// more; "" is the one partner, as Escape's warp.
+func (r *Replica) WarpTo(name string) <-chan EscapeResult { return r.escape(EscapeWarp, name) }
+
+func (r *Replica) escape(k EscapeKind, target string) <-chan EscapeResult {
 	ch := make(chan EscapeResult, 1)
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -239,7 +247,7 @@ func (r *Replica) Escape(k EscapeKind) <-chan EscapeResult {
 		return ch
 	}
 	r.follow = nil
-	r.esc = &escapeReq{kind: k, done: ch}
+	r.esc = &escapeReq{kind: k, target: target, done: ch}
 	return ch
 }
 
@@ -251,7 +259,7 @@ func (r *Replica) escapeTick(o *obs, armed bool) {
 	r.learnOwn(o)
 	if q := r.esc; q != nil {
 		r.esc = nil
-		fs, did, follow, err := r.planEscape(o, armed, q.kind)
+		fs, did, follow, err := r.planEscape(o, armed, q.kind, q.target)
 		if err != nil {
 			q.done <- EscapeResult{Kind: q.kind, Did: did, Err: err}
 			return
@@ -300,7 +308,7 @@ func (r *Replica) escaped(q *escapeReq, res Result, err error, rep *Report) {
 
 // planEscape plans escape k on tick o: its fields, what it does, and the
 // second step of a warp that changes stage.
-func (r *Replica) planEscape(o *obs, armed bool, k EscapeKind) ([]Field, string, *followWarp, error) {
+func (r *Replica) planEscape(o *obs, armed bool, k EscapeKind, target string) ([]Field, string, *followWarp, error) {
 	switch {
 	case o.screen != screenGame:
 		return nil, "", nil, fmt.Errorf("%w: Link is not in a stage", ErrNotNow)
@@ -323,10 +331,12 @@ func (r *Replica) planEscape(o *obs, armed bool, k EscapeKind) ([]Field, string,
 		return h.Fields(), "reloading " + h.String(), nil, nil
 	}
 
-	p := r.partner
+	v, err := r.resolvePartner(target)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	p := &v.p.Presence
 	switch {
-	case p == nil:
-		return nil, "", nil, errors.New("no word of the partner yet: is its co-op connected?")
 	case p.Flags&wire.PresenceInGame == 0:
 		return nil, "", nil, fmt.Errorf("%w: the partner is not in a stage", ErrNotNow)
 	case p.Flags&wire.PresenceTransitioning != 0:
@@ -334,7 +344,7 @@ func (r *Replica) planEscape(o *obs, armed bool, k EscapeKind) ([]Field, string,
 	}
 	stage := p.Stage.String()
 	if stage == o.s.StageName {
-		fs, did, err := r.sameStageWarp(p)
+		fs, did, err := r.sameStageWarp(v)
 		if !errors.Is(err, errRoomNotLoaded) {
 			return fs, did, nil, err
 		}
@@ -342,13 +352,13 @@ func (r *Replica) planEscape(o *obs, armed bool, k EscapeKind) ([]Field, string,
 		if herr != nil {
 			return nil, "", nil, fmt.Errorf("%v, and %v", err, herr)
 		}
-		return h.Fields(), fmt.Sprintf("%v: reloading %s, the partner's entrance (%s), then warping to the partner", err, h, how), r.newFollow(stage), nil
+		return h.Fields(), fmt.Sprintf("%v: reloading %s, %s's entrance (%s), then warping to %s", err, h, v.p.Name, how, v.p.Name), r.newFollow(stage, v.p.Name), nil
 	}
 	h, how, err := r.partnerEntrance(p)
 	if err != nil {
 		return nil, "", nil, err
 	}
-	return h.Fields(), fmt.Sprintf("going to %s, the partner's entrance (%s), then onto the partner", h, how), r.newFollow(stage), nil
+	return h.Fields(), fmt.Sprintf("going to %s, %s's entrance (%s), then onto %s", h, v.p.Name, how, v.p.Name), r.newFollow(stage, v.p.Name), nil
 }
 
 // notArmedWhy is why the session is not armed for o's file.
@@ -359,24 +369,24 @@ func (r *Replica) notArmedWhy(o *obs) string {
 	return "not armed"
 }
 
-func (r *Replica) newFollow(stage string) *followWarp {
-	return &followWarp{stage: stage, until: r.now().Add(FollowTimeout)}
+func (r *Replica) newFollow(stage, target string) *followWarp {
+	return &followWarp{stage: stage, target: target, until: r.now().Add(FollowTimeout)}
 }
 
 // finishWarp plans the second step of f once Link and the partner are in
 // f's stage: ErrNotNow and errRoomNotLoaded while it should wait, another
 // error to give up.
 func (r *Replica) finishWarp(o *obs, armed bool, f *followWarp) ([]Field, string, error) {
-	p := r.partner
+	v := r.byName(f.target)
 	switch {
 	case r.now().After(f.until):
-		return nil, "", fmt.Errorf("gave up warping onto the partner: Link was not in %s, settled, within %v", f.stage, FollowTimeout)
-	case p != nil && p.Flags&wire.PresenceInGame != 0 && p.Flags&wire.PresenceTransitioning == 0 && p.Stage.String() != f.stage:
-		return nil, "", fmt.Errorf("the partner left %s for %s: warp again to follow", f.stage, p.Stage)
-	case o.screen != screenGame || !armed || !o.st.CanWriteIdle() || o.s.StageName != f.stage || p == nil:
+		return nil, "", fmt.Errorf("gave up warping onto %s: Link was not in %s, settled, within %v", f.target, f.stage, FollowTimeout)
+	case v != nil && v.p.Flags&wire.PresenceInGame != 0 && v.p.Flags&wire.PresenceTransitioning == 0 && v.p.Stage.String() != f.stage:
+		return nil, "", fmt.Errorf("%s left %s for %s: warp again to follow", f.target, f.stage, v.p.Stage)
+	case o.screen != screenGame || !armed || !o.st.CanWriteIdle() || o.s.StageName != f.stage || v == nil:
 		return nil, "", ErrNotNow
 	}
-	return r.sameStageWarp(p)
+	return r.sameStageWarp(v)
 }
 
 // sameStageWarp plans a warp to partner p on Link's stage: the partner's
@@ -384,22 +394,23 @@ func (r *Replica) finishWarp(o *obs, armed bool, f *followWarp) ([]Field, string
 // at rest in its stage for PartnerSettle, into a room whose collision this
 // game has loaded (mpBgW), with no warp still under way (warp_seq ==
 // warp_ack).
-func (r *Replica) sameStageWarp(p *wire.Presence) ([]Field, string, error) {
+func (r *Replica) sameStageWarp(v *partnerView) ([]Field, string, error) {
+	p, t, name := &v.p.Presence, &v.track, v.p.Name
 	if r.cfg.PartnerPos == nil {
-		return nil, "", errors.New("this session has no pose sync to take the partner's position from")
+		return nil, "", errors.New("this session has no pose sync to take a partner's position from")
 	}
-	pos, ok := r.cfg.PartnerPos()
+	pos, ok := r.cfg.PartnerPos(name)
 	switch {
 	case !ok:
-		return nil, "", fmt.Errorf("%w: the partner's position has not come in over pose sync", ErrNotNow)
-	case !r.track.atRest:
-		return nil, "", fmt.Errorf("%w: the partner is between stages", ErrNotNow)
-	case r.now().Sub(r.track.restSince) < PartnerSettle:
-		return nil, "", fmt.Errorf("%w: the partner has only just come into %s: its position may still be the one it left", ErrNotNow, r.track.restAt.stage)
+		return nil, "", fmt.Errorf("%w: %s's position has not come in over pose sync", ErrNotNow, name)
+	case !t.atRest:
+		return nil, "", fmt.Errorf("%w: %s is between stages", ErrNotNow, name)
+	case r.now().Sub(t.restSince) < PartnerSettle:
+		return nil, "", fmt.Errorf("%w: %s has only just come into %s: its position may still be the one it left", ErrNotNow, name, t.restAt.stage)
 	case !pos.valid():
-		return nil, "", fmt.Errorf("the partner's position (%v, %v, %v) is no place to warp to", pos.X, pos.Y, pos.Z)
+		return nil, "", fmt.Errorf("%s's position (%v, %v, %v) is no place to warp to", name, pos.X, pos.Y, pos.Z)
 	case p.Room < 0:
-		return nil, "", fmt.Errorf("%w: the partner's room is not known yet", ErrNotNow)
+		return nil, "", fmt.Errorf("%w: %s's room is not known yet", ErrNotNow, name)
 	}
 	b, err := r.m.Read(mailbox.WarpSeq, 8)
 	if err != nil {
@@ -414,9 +425,9 @@ func (r *Replica) sameStageWarp(p *wire.Presence) ([]Field, string, error) {
 		return nil, "", err
 	}
 	if bgw == 0 {
-		return nil, "", fmt.Errorf("room %d, where the partner is, is %w", p.Room, errRoomNotLoaded)
+		return nil, "", fmt.Errorf("room %d, where %s is, is %w", p.Room, name, errRoomNotLoaded)
 	}
-	return WarpFields(pos, seq), fmt.Sprintf("warping to the partner at (%.0f, %.0f, %.0f) in room %d", pos.X, pos.Y, pos.Z, p.Room), nil
+	return WarpFields(pos, seq), fmt.Sprintf("warping to %s at (%.0f, %.0f, %.0f) in room %d", name, pos.X, pos.Y, pos.Z, p.Room), nil
 }
 
 // partnerEntrance is the stage request that takes Link to partner p's
@@ -476,8 +487,7 @@ func (r *Replica) learnOwn(o *obs) {
 // it at rest (pose sync follows the partner through the stage); a stage
 // change, a reload of the same stage (a void-out, a refresh) and a lost
 // Link do not.
-func (r *Replica) notePartnerRest(p *wire.Presence) {
-	t := &r.track
+func (r *Replica) notePartnerRest(t *partnerTrack, p *wire.Presence) {
 	in := p.Flags&wire.PresenceInGame != 0 && p.Flags&wire.PresenceTransitioning == 0 && !p.Stage.IsEmpty()
 	at := entryKey{p.Stage.String(), p.Point}
 	switch {
@@ -502,8 +512,7 @@ func (r *Replica) notePartnerRest(p *wire.Presence) {
 // not learned from: an entrance whose room has the old one's number in
 // the same table is then not known, and the warp says so rather than
 // guess. Inferred.
-func (r *Replica) learnPartner(p *wire.Presence) {
-	t := &r.track
+func (r *Replica) learnPartner(t *partnerTrack, p *wire.Presence) {
 	settled := p.Flags&wire.PresenceInGame != 0 && p.Flags&(wire.PresenceTransitioning|wire.PresencePaused) == 0 &&
 		p.Room >= 0 && !p.Stage.IsEmpty() && p.Point >= 0
 	if !settled {

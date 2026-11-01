@@ -1334,7 +1334,7 @@ func (s *coopSync) publishPartner(pid uint32) {
 			return
 		}
 		if m, err := wire.Decode(payload, wire.Down); err == nil {
-			p := m.(*wire.Presence)
+			p := m.(*wire.PresenceDown)
 			place.Publish(p.Stage.String(), p.Flags&wire.PresenceInGame != 0, p.Flags&wire.PresenceTransitioning != 0, time.Now())
 		}
 	}
@@ -1358,12 +1358,13 @@ func (cs *Session) WithPoseClient(name string, next func(*network.Client)) func(
 }
 
 // partnerPos is replica.Config.PartnerPos for player name: the position
-// of the one other player its puppet-sync client hears (pose sync), not
-// itself (mp-local's twins each see the other) and not a remote that has
-// sent no position yet. With more than one other player it has none: the
-// warp is for the two players v1.0 supports.
-func (cs *Session) partnerPos(name string) func() (replica.Pos, bool) {
-	return func() (replica.Pos, bool) {
+// of partner target as name's puppet-sync client hears it (pose sync),
+// never name itself (mp-local's twins each see the other) and not a
+// remote that has sent no position yet. Co-op's PRESENCE and pose sync
+// name a player alike (the lobby's unique member name), so target is
+// found by name whatever the number of players.
+func (cs *Session) partnerPos(name string) func(target string) (replica.Pos, bool) {
+	return func(target string) (replica.Pos, bool) {
 		cs.posesMu.Lock()
 		c := cs.poses[name]
 		cs.posesMu.Unlock()
@@ -1373,21 +1374,15 @@ func (cs *Session) partnerPos(name string) func() (replica.Pos, bool) {
 		if c == nil {
 			return replica.Pos{}, false
 		}
-		var (
-			p     replica.Pos
-			other string
-		)
-		for _, rp := range c.GetRemotePlayers() {
-			switch {
-			case rp.Name == name || rp.Position == nil:
-				continue
-			case other != "" && rp.Name != other:
-				return replica.Pos{}, false
-			}
-			other = rp.Name
-			p = replica.Pos{X: rp.Position.PosX, Y: rp.Position.PosY, Z: rp.Position.PosZ}
+		if target == name {
+			return replica.Pos{}, false
 		}
-		return p, other != ""
+		for _, rp := range c.GetRemotePlayers() {
+			if rp.Name == target && rp.Position != nil {
+				return replica.Pos{X: rp.Position.PosX, Y: rp.Position.PosY, Z: rp.Position.PosZ}, true
+			}
+		}
+		return replica.Pos{}, false
 	}
 }
 

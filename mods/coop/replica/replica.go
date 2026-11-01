@@ -176,11 +176,11 @@ type Config struct {
 	// OnPreflight is called, likewise, with each new join preflight of
 	// an unbound file against the hub's world.
 	OnPreflight func(PreflightReport)
-	// PartnerPos returns the partner's position, the latest pose sync
-	// has, for a warp to the partner on the same stage (Escape). It is
-	// called under the replica's lock, so it must not call back into
-	// the replica. Nil leaves only the warps that change stage.
-	PartnerPos func() (Pos, bool)
+	// PartnerPos returns partner name's position, the latest pose sync
+	// has, for a warp to that partner on the same stage (Escape, WarpTo).
+	// It is called under the replica's lock, so it must not call back
+	// into the replica. Nil leaves only the warps that change stage.
+	PartnerPos func(name string) (Pos, bool)
 	// Claimed is this game's enemy-mirror claims (enemysync.ClaimSet's
 	// Claimed, enemy-mirror-general.json D8): M6 never light-shrinks a
 	// pid it claims, as the host's enemy owns that death. It is this
@@ -314,8 +314,11 @@ type Status struct {
 	Offer  *Offer // waiting for Confirm or Decline
 	// Preflight is the last join preflight, while the file is unbound.
 	Preflight *PreflightReport
-	// Partner is the last PRESENCE the hub relayed.
+	// Partner is the one partner's last PRESENCE while there is exactly
+	// one; nil with none, or with two or more (see Partners).
 	Partner *wire.Presence
+	// Partners is every partner's last PRESENCE, by name.
+	Partners []PartnerStatus
 	// Derive is how the derived small keys and max life stand (the
 	// Deriver's tables, and each key table's last tick).
 	Derive derive.Status
@@ -385,7 +388,10 @@ type Replica struct {
 	armedNow bool // the last tick was armed
 	presence *wire.Presence
 	presAt   time.Time
-	partner  *wire.Presence
+	// partners is each other player's last relayed PRESENCE and its
+	// track, by co-op connection (schema 2: PRESENCE s->c names its
+	// sender; partners.go).
+	partners map[uint8]*partnerView
 	bad      int // malformed payloads dropped
 	// early is a WORLD that came before the CO_WELCOME naming the
 	// session's world, which a joiner learns there (onWorld): kept for
@@ -431,8 +437,7 @@ type Replica struct {
 	follow  *followWarp
 	stopped bool              // Run has returned: no tick comes to make an escape
 	entries map[entryKey]int8 // entrances this game came in by, and their rooms
-	heard   map[entryKey]int8 // the partner's, from its PRESENCE (inferred)
-	track   partnerTrack
+	heard   map[entryKey]int8 // the partners', from their PRESENCE (inferred)
 
 	// The boss-dead relay (bosskill.go), and the request this tick makes
 	// after the lock is released; bossOn is Config.BossKill's procs.
@@ -503,6 +508,7 @@ func New(cfg Config) (*Replica, error) {
 		declined: map[helloKey]bool{},
 		entries:  map[entryKey]int8{},
 		heard:    map[entryKey]int8{},
+		partners: map[uint8]*partnerView{},
 		bossOn:   bossOn,
 		rfOn:     rfOn,
 		ar:       newActorRefresh(),
@@ -640,8 +646,8 @@ func (r *Replica) resetSession() {
 	r.tr, r.hello, r.welcome = nil, nil, nil
 	r.helloKey = helloKey{}
 	r.features, r.worldUp, r.armedNow = 0, false, false
-	r.presence, r.partner, r.early = nil, nil, nil
-	r.track = partnerTrack{}
+	r.presence, r.early = nil, nil
+	clear(r.partners)
 	r.bindAsk, r.bindGranted = nil, false
 	// The next session's hub sends the stores again as the first PRESENCE
 	// enters their scopes, and an old one's are no store it holds.
@@ -708,7 +714,8 @@ func (r *Replica) Status() Status {
 		DryRun:   r.writer.DryRun(),
 		Writes:   r.writer.Stats(),
 		Offer:    r.offer,
-		Partner:  r.partner,
+		Partner:  r.onlyPartner(),
+		Partners: r.partnerStatus(),
 		Derive:   r.m4.deriver.Status(),
 		Puzzle:   r.puzzleStatus(),
 		GBA:      GBAStatus{MayLink: r.gba.held, Switches: r.gba.switches},
@@ -1105,16 +1112,8 @@ func (r *Replica) handle(m wire.Msg, out *outbox) {
 		}
 	case *wire.Scoped:
 		r.onScoped(m)
-	case *wire.Presence:
-		p := *m
-		if addr.InCredits(p.Stage.String()) && (r.partner == nil || !addr.InCredits(r.partner.Stage.String())) {
-			// GT Q5: the partner's game left the co-op world at the
-			// ending; this game plays on and its own ending is its own.
-			r.logf("co-op: your partner has reached the credits; their game has left the co-op world, yours plays on")
-		}
-		r.notePartnerRest(&p)
-		r.learnPartner(&p)
-		r.partner = &p
+	case *wire.PresenceDown:
+		r.onPartnerPresence(m)
 	case *wire.Notice:
 		r.logf("co-op: the host says (%s): %s", m.Code, m.Text)
 	case *wire.Ctrl:

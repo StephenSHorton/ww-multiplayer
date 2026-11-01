@@ -3,6 +3,7 @@ package hub
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"slices"
 	"strings"
@@ -934,6 +935,37 @@ func TestDetachRelaysNowhere(t *testing.T) {
 	}
 	if st := r.status(); len(st.Peers) != 1 {
 		t.Fatalf("%d peers after the detach, want 1", len(st.Peers))
+	}
+}
+
+// TestPresenceNamesSender: with three players each hears the other two
+// apart (PRESENCE s->c names its sender, schema 2), and a newcomer is
+// told where each one is, by name.
+func TestPresenceNamesSender(t *testing.T) {
+	r := newRig(t, fullCfg())
+	a := r.join(newConn(1, "alice"))
+	b := r.join(newConn(2, "bob"))
+	c := r.join(newConn(3, "carol"))
+	r.send(a, presence("sea", 0, 11))
+	r.send(b, presence("M_NewD2", 3, 1))
+	r.send(c, presence("M_NewD2", 3, 5))
+	heard := func(ms []wire.Msg) map[string]int8 {
+		got := map[string]int8{}
+		for _, p := range pick[*wire.PresenceDown](ms) {
+			got[fmt.Sprintf("%s/%d", p.Name, p.Origin)] = p.Room
+		}
+		return got
+	}
+	if got := heard(a.take(t)); !maps.Equal(got, map[string]int8{"bob/2": 1, "carol/3": 5}) {
+		t.Errorf("alice heard %v", got)
+	}
+	if got := heard(c.take(t)); !maps.Equal(got, map[string]int8{"alice/1": 11, "bob/2": 1}) {
+		t.Errorf("carol heard %v", got)
+	}
+	d := newConn(4, "dave")
+	r.attach(d)
+	if got := heard(r.exchange(d, hello(wire.FileUnbound, world.ID{}, 0))); !maps.Equal(got, map[string]int8{"alice/1": 11, "bob/2": 1, "carol/3": 5}) {
+		t.Errorf("the newcomer heard %v", got)
 	}
 }
 

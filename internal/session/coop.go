@@ -139,6 +139,9 @@ const (
 type Command struct {
 	Verb   Verb
 	Player string
+	// Target is /warp's partner with two or more ("/warp to <Target>");
+	// "" goes to the one partner.
+	Target string
 }
 
 // CoopWorld is one co-op world on disk, as a host's world choice lists
