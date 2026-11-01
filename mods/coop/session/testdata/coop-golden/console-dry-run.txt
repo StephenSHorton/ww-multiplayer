@@ -7,7 +7,7 @@ INFO co-op: Link:   story bits held back: none
 INFO co-op: Link:   room puzzles: none in a dry run, which asks the host for the shared image alone; Link is in nowhere
 INFO co-op: Link:   combat: none in a dry run, which asks the host for the shared image alone
 INFO co-op:   /refresh [player]      reload this area by the entrance Link came in by (a stale chest or door, or a softlock)
-INFO co-op:   /warp [player]         go to your partner: onto it on the same stage, else by its entrance first
+INFO co-op:   /warp [player] [to P]  go to your partner (P with two or more): onto it on the same stage, else by its entrance first
 INFO co-op:   /coop off|on [player]  stop, or resume, writing the world into the game; pose sync goes on either way
 INFO co-op:   /status [player]       where co-op is
 INFO co-op:   /help                  this list

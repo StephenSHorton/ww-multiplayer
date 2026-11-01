@@ -243,6 +243,11 @@ func (h *hubEnd) take() []wire.Msg {
 func say(t *testing.T, r *Replica, ms ...wire.Msg) {
 	t.Helper()
 	for _, m := range ms {
+		if p, ok := m.(*wire.Presence); ok {
+			// The hub relays a PRESENCE with its sender (schema 2): a bare
+			// one in a test is the one partner's.
+			m = &wire.PresenceDown{Presence: *p, Origin: testPartnerID, Name: testPartner}
+		}
 		b, err := wire.Encode(m)
 		if err != nil {
 			t.Fatalf("encoding %s: %v", m.Sub(), err)
@@ -250,6 +255,13 @@ func say(t *testing.T, r *Replica, ms ...wire.Msg) {
 		r.Handle(b)
 	}
 }
+
+// testPartner is the partner a bare PRESENCE in a test comes from (say),
+// on co-op connection testPartnerID.
+const (
+	testPartner   = "Tetra"
+	testPartnerID = 2
+)
 
 // subs lists the sub-types of ms, for failure messages and order checks.
 func subs(ms []wire.Msg) string {

@@ -169,7 +169,7 @@ func TestMemberCoop(t *testing.T) {
 		t.Errorf("host's Blake: %q, %v", chip, warp)
 	}
 	if chip, warp := memberCoop(st, "Sam", false, 2); chip != "" || warp {
-		t.Errorf("host's Sam with two others: %q, %v", chip, warp)
+		t.Errorf("host's Sam with two others, unheard by co-op: %q, %v", chip, warp)
 	}
 	if _, warp := memberCoop(st, "Link", true, 1); warp {
 		t.Error("Warp to on your own row")
@@ -186,6 +186,20 @@ func TestMemberCoop(t *testing.T) {
 	st.CoopHub = &session.CoopHubStatus{Peers: []session.CoopPeer{{Name: "Blake", State: "bound", Stage: "M_NewD2", Room: -1}}}
 	if chip, _ := memberCoop(st, "Blake", false, 1); chip != "Bound · M_NewD2" {
 		t.Errorf("host's Blake at a stage start: %q", chip)
+	}
+	// Three or more (a joiner with two partners): each row's chip and
+	// Warp to come from that partner's own PRESENCE, by name.
+	st.CoopHub = nil
+	st.CoopStatus = []session.CoopStatus{{PartnerRoom: -1, Partners: []session.CoopPartner{
+		{Name: "Blake", Stage: "M_NewD2", Room: 3}, {Name: "Sam", Stage: "sea", Room: 44}, {Name: "Quill", Room: -1}}}}
+	if chip, warp := memberCoop(st, "Sam", false, 3); chip != "sea room 44" || !warp {
+		t.Errorf("joiner's Sam of three: %q, %v", chip, warp)
+	}
+	if chip, warp := memberCoop(st, "Quill", false, 3); chip != "" || !warp {
+		t.Errorf("joiner's Quill, in no stage: %q, %v", chip, warp)
+	}
+	if chip, warp := memberCoop(st, "Rito", false, 3); chip != "" || warp {
+		t.Errorf("a member co-op never heard from: %q, %v", chip, warp)
 	}
 	st.Coop.On = false
 	if chip, warp := memberCoop(st, "Blake", false, 1); chip != "" || warp {

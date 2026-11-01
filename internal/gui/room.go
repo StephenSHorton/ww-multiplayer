@@ -258,9 +258,9 @@ func roomView(r *session.CoopRoom) *CoopRoomView {
 
 // memberCoop is a Players row's co-op facts once co-op runs: the chip
 // ("Bound · DRC room 3": the host's hub knows every peer; a joiner knows
-// only where its partner is) and whether Warp to works from that row (it
-// is the one other player: co-op v1.0's warp goes to the partner, so
-// there is no one else to pick).
+// where each partner is from its PRESENCE) and whether Warp to works from
+// that row: any other player co-op has heard from (the warp names its
+// partner, co-op for three or more), or the one other player.
 func memberCoop(st session.State, name string, self bool, others int) (chip string, warp bool) {
 	if !st.Coop.On {
 		return "", false
@@ -274,11 +274,21 @@ func memberCoop(st session.State, name string, self bool, others int) (chip stri
 				chip += " · " + placeChip(p.Stage, p.Room)
 			}
 		}
-	} else if !self && others == 1 && len(st.CoopStatus) > 0 && st.CoopStatus[0].PartnerStage != "" {
+	} else if !self && len(st.CoopStatus) > 0 {
 		cs := st.CoopStatus[0]
-		chip = placeChip(cs.PartnerStage, cs.PartnerRoom)
+		if i := slices.IndexFunc(cs.Partners, func(p session.CoopPartner) bool { return p.Name == name }); i >= 0 {
+			if p := cs.Partners[i]; p.Stage != "" {
+				chip = placeChip(p.Stage, p.Room)
+			}
+		} else if others == 1 && cs.PartnerStage != "" {
+			chip = placeChip(cs.PartnerStage, cs.PartnerRoom)
+		}
 	}
-	return chip, !self && others == 1 && len(st.CoopStatus) > 0
+	if self || len(st.CoopStatus) == 0 {
+		return chip, false
+	}
+	heard := slices.ContainsFunc(st.CoopStatus[0].Partners, func(p session.CoopPartner) bool { return p.Name == name })
+	return chip, others == 1 || heard
 }
 
 // placeChip is a stage and its room, or the stage alone while the room is

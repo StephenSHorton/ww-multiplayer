@@ -65,7 +65,7 @@ type peer struct {
 	batch     uint32
 	haveBatch bool
 
-	presence *wire.Presence // its last PRESENCE, relayed to newcomers
+	presence *wire.PresenceDown // its last PRESENCE as relayed (with its sender), sent to newcomers too
 	place    world.Place
 
 	// candidate is an unbound peer's last WORLD, checked against the
@@ -629,14 +629,14 @@ func placeOf(m *wire.Presence) world.Place {
 }
 
 func (h *Hub) onPresence(p *peer, m *wire.Presence) {
-	p.presence = m
+	p.presence = &wire.PresenceDown{Presence: *m, Origin: byte(p.id), Name: p.name}
 	p.place = placeOf(m)
 	if p.bound() {
 		mv := h.scopes.SetPresence(p.id, p.place)
 		h.sendEntries(p, mv.Enter, p.features)
 		h.dropped(mv.Dropped)
 	}
-	h.sendAll(h.sorted(func(q *peer) bool { return q != p && q.welcomed() }), m)
+	h.sendAll(h.sorted(func(q *peer) bool { return q != p && q.welcomed() }), p.presence)
 }
 
 // sendPresences sends a newcomer where every other peer is.
@@ -660,14 +660,14 @@ func (h *Hub) leaveBound(p *peer) {
 	}
 }
 
-// leaveView tells the other peers that p is gone (a PRESENCE of nowhere),
-// if they ever saw it.
+// leaveView tells the other peers that p is gone (a PRESENCE of nowhere
+// under its name, so each drops that partner alone), if they ever saw it.
 func (h *Hub) leaveView(p *peer) {
 	if !p.welcomed() || p.presence == nil {
 		return
 	}
 	p.presence = nil
-	gone := &wire.Presence{Table: -1, Room: -1, Layer: -1}
+	gone := &wire.PresenceDown{Presence: wire.Presence{Table: -1, Room: -1, Layer: -1}, Origin: byte(p.id), Name: p.name}
 	h.sendAll(h.sorted(func(q *peer) bool { return q != p && q.welcomed() }), gone)
 }
 

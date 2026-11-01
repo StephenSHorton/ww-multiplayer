@@ -33,14 +33,16 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/hub"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/roomitems"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // coopCommand is one parsed console line.
 type coopCommand struct {
-	verb string // "help", "refresh", "warp", "coop off", "coop on", "status"
-	who  string // the player it is for, "" for the only one (or all)
+	verb   string // "help", "refresh", "warp", "coop off", "coop on", "status"
+	who    string // the player it is for, "" for the only one (or all)
+	target string // /warp to <target>: the partner to go to, "" for the one partner
 }
 
 // commandOf is the console command for a controller command, checked as
@@ -50,11 +52,14 @@ func commandOf(c session.Command) (coopCommand, error) {
 	if c.Player != "" {
 		line += " " + c.Player
 	}
+	if c.Target != "" {
+		line += " to " + c.Target
+	}
 	cmd, err := parseCoopCommand(line)
 	if err != nil {
 		return coopCommand{}, err
 	}
-	if cmd.verb != string(c.Verb) || cmd.who != c.Player {
+	if cmd.verb != string(c.Verb) || cmd.who != c.Player || cmd.target != c.Target {
 		return coopCommand{}, fmt.Errorf("no command %q for %q", c.Verb, c.Player)
 	}
 	return cmd, nil
@@ -63,7 +68,7 @@ func commandOf(c session.Command) (coopCommand, error) {
 // coopCommandHelp is /help's text, one command a line.
 var coopCommandHelp = []string{
 	"/refresh [player]      reload this area by the entrance Link came in by (a stale chest or door, or a softlock)",
-	"/warp [player]         go to your partner: onto it on the same stage, else by its entrance first",
+	"/warp [player] [to P]  go to your partner (P with two or more): onto it on the same stage, else by its entrance first",
 	"/coop off|on [player]  stop, or resume, writing the world into the game; pose sync goes on either way",
 	"/status [player]       where co-op is",
 	"/help                  this list",
@@ -107,14 +112,28 @@ func parseCoopCommand(line string) (coopCommand, error) {
 	default:
 		return coopCommand{}, fmt.Errorf("no command /%s: /help lists them", f[0])
 	}
+	var target string
+	if verb == "warp" {
+		// /warp [player] [to <partner>]: the partner, with two or more.
+		if i := slices.IndexFunc(args, func(a string) bool { return strings.EqualFold(a, "to") }); i >= 0 {
+			if i != len(args)-2 {
+				return coopCommand{}, errors.New("/warp [player] to <partner>: name one partner after \"to\"")
+			}
+			target = args[i+1]
+			if err := network.ValidatePlayerName(target); err != nil {
+				return coopCommand{}, fmt.Errorf("/warp to %s: %v", target, err)
+			}
+			args = args[:i]
+		}
+	}
 	switch len(args) {
 	case 0:
-		return coopCommand{verb: verb}, nil
+		return coopCommand{verb: verb, target: target}, nil
 	case 1:
 		if err := network.ValidatePlayerName(args[0]); err != nil {
 			return coopCommand{}, fmt.Errorf("/%s %s: %v", verb, args[0], err)
 		}
-		return coopCommand{verb: verb, who: args[0]}, nil
+		return coopCommand{verb: verb, who: args[0], target: target}, nil
 	}
 	return coopCommand{}, fmt.Errorf("/%s takes at most a player's name", verb)
 }
@@ -156,7 +175,7 @@ func (c *coopConsole) help() {
 	if told {
 		return
 	}
-	c.rep.Log(log.Info, "co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>.")
+	c.rep.Log(log.Info, "co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>. With two or more partners, name the one: /warp to <partner>.")
 }
 
 // add hands the console a pipeline, and starts the console's loop with
@@ -293,6 +312,9 @@ func (s *coopSync) command(ctx context.Context, cmd coopCommand) {
 			kind = replica.EscapeWarp
 		}
 		ch := s.r.Escape(kind)
+		if cmd.target != "" {
+			ch = s.r.WarpTo(cmd.target)
+		}
 		go func() {
 			select {
 			case <-ctx.Done():
@@ -358,10 +380,35 @@ func formatStatus(player string, st replica.Status) []string {
 	if l := gbaStatus(st); l != "" {
 		lines = append(lines, l)
 	}
+	if l := partnersStatus(st); l != "" {
+		lines = append(lines, l)
+	}
 	for _, l := range lines {
 		out = append(out, fmt.Sprintf("co-op: %s:   %s", player, l))
 	}
 	return out
+}
+
+// partnersStatus is where each partner is, with two or more ("" with
+// fewer: the two-player status says nothing new): /warp to <partner> picks
+// from these names.
+func partnersStatus(st replica.Status) string {
+	if len(st.Partners) < 2 {
+		return ""
+	}
+	var ps []string
+	for _, p := range st.Partners {
+		where := "not in a stage"
+		switch {
+		case p.Presence.Flags&wire.PresenceInGame == 0:
+		case p.Presence.Room >= 0:
+			where = fmt.Sprintf("in %s room %d", p.Presence.Stage, p.Presence.Room)
+		default:
+			where = "in " + p.Presence.Stage.String()
+		}
+		ps = append(ps, p.Name+" "+where)
+	}
+	return "partners: " + strings.Join(ps, "; ")
 }
 
 // coopStatusOf is player's pipeline at st as a UI shows it: /status's
@@ -403,6 +450,13 @@ func coopStatusOf(player string, st replica.Status) session.CoopStatus {
 	}
 	if p := st.Partner; p != nil && !p.Stage.IsEmpty() {
 		cs.PartnerStage, cs.PartnerRoom = p.Stage.String(), int(p.Room)
+	}
+	for _, p := range st.Partners {
+		cp := session.CoopPartner{Name: p.Name, Room: int(p.Presence.Room)}
+		if p.Presence.Flags&wire.PresenceInGame != 0 {
+			cp.Stage = p.Presence.Stage.String()
+		}
+		cs.Partners = append(cs.Partners, cp)
 	}
 	cs.Room = coopRoomOf(st.Room)
 	return cs

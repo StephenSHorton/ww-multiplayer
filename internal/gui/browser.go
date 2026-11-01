@@ -54,6 +54,8 @@ var browserMethods = map[string]bool{
 	"SetCoop": true, "CoopWorlds": true, "SetMyCoopDryRun": true, "Answer": true, "SetAutoYes": true,
 	"DismissAdvice": true, "RequestMerge": true, "AllowMerge": true, "DismissRequest": true, "SetMerge": true,
 	"UnbindFile": true, "CoopCommand": true, "CoopStatusText": true,
+	// A Players row's Warp to (co-op for three or more names the partner).
+	"WarpTo": true,
 	// Each side's relay choices (coop-remaining 1.2 option a).
 	"SetCoopRelays": true,
 	// The host's rules while co-op runs (the ww-online review's app ideas).

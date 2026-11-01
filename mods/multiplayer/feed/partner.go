@@ -15,8 +15,10 @@ import (
 // Feeder hides the partner's mini-Link (and its actor puppet) while that
 // stage is not this game's. PRESENCE travels both ways (the hub relays
 // each player's to the other), so the gate works on the host and the
-// joiner alike. It names no sender, which is enough for the two players
-// co-op supports: the gate applies only while the feed draws exactly one
+// joiner alike. The place published here names no sender (co-op's
+// relayed PRESENCE has named it since schema 2, but every build that
+// speaks schema 2 also sends the place trailer below, so this fallback
+// never needs it): the gate applies only while the feed draws exactly one
 // remote.
 //
 // Without co-op (or before the first PRESENCE, or once it goes stale)

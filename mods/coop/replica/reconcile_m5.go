@@ -496,23 +496,6 @@ func (r *Replica) reconcileM5(o *obs, armed bool) {
 	}
 }
 
-// partnerIn reports whether the partner's last PRESENCE, as the hub
-// relayed it, puts it in scope k: in game, in k's stage and save table
-// and, for a ZONE store, in its room. The hub keeps a store while either
-// player is in its scope, so a bit it relayed while both were there is
-// written only while they still are; one that came while this game was
-// not idle waits for the partner to come back. The hub relays every
-// PRESENCE as it comes (hub.onPresence) and a gone peer's as nowhere
-// (hub.leaveView); a relayed PRESENCE names no sender, which is enough
-// for two players (Appendix C item 42).
-func (r *Replica) partnerIn(k scopeKey) bool {
-	p := r.partner
-	if p == nil || p.Flags&wire.PresenceInGame == 0 || p.Stage != k.stage || p.Table != k.table {
-		return false
-	}
-	return k.kind != wire.ScopeZone || p.Room == k.room
-}
-
 // m5Due plans word w of store k's due bits: those the store has, the
 // receiver's game lacks and never had. slot is the zone of k's room (-1
 // for DAN). A dry run logs what it would set; a bit whose switch does not

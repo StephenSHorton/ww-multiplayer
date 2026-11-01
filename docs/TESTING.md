@@ -903,6 +903,19 @@ Go only, no recapture (docs/08 §6.7.1). Once a partner is in the same stage and
 - [ ] **CC-5 walk away**: the granted player walks more than 600 units away without opening. After about 2 s the host logs `chest claim: <player> released table T chest C`, and the chest is held again on that player (a new `held` line) while a partner is in scope.
 - [ ] **CC-6 stale chest, no softlock**: A opens a chest while B is in another room of the same stage. B walks into that room before a reload: B's chest is held at once (`held ...`), with no prompt, and B gets nothing. Stage-hop during an item-get and `/coop off` then `/coop on` mid-hold: no chest is left with no prompt and its bit clear after a room reload, and `/status`'s verify-failure count stays 0.
 
+### Co-op for three or more (wind#9, co-op schema 2)
+
+The relayed PRESENCE names its sender, so each replica keeps every partner (docs/08 Appendix C item 171). Every player needs this build: an older one is refused co-op with NOTICE SCHEMA, and pose sync goes on.
+
+Offline (`go test -count=1 ./mods/coop/... ./internal/gui`): the tests item 171 lists.
+
+Rig: three Dolphins (wind#16's three-remote rig: one `ww/dolphin-slot` lease per pair, see the rules), co-op on, three files bound to one world, names A, B, C.
+
+- [ ] **C3-1 (each partner apart)**: A in DRC room 3, B in DRC room 5, C at sea. On A, `/status` shows a `partners:` line with B in M_NewD2 room 5 and C in sea room N; the Players rows' chips agree. C leaves (quit its app): A's and B's `partners:` lines drop C alone.
+- [ ] **C3-2 (scope with any partner)**: A and B in DRC room 3; B lights a zone switch; C enters room 3 and gets it written; B leaves for room 5: a dan switch B sets in room 5 still reaches A in room 3 (same stage and table), a zone switch of room 5 does not until A enters room 5 while B or C is there.
+- [ ] **C3-3 (Warp to by name)**: A, B, C on Outset. On A, `/warp` says `say which partner to warp to: B, C`; `/warp to C` lands A on C; the app's Warp to on B's row lands A on B. Then B and C in different stages: Warp to on each row takes A to that one's entrance, then onto it.
+- [ ] **C3-4 (reconnect)**: B's app restarts mid-session: A's `partners:` line shows B once, and its place again within a second of B's first PRESENCE.
+
 ### Relay scoping and origin binding (ww-online review 17)
 
 Go only (`mods/multiplayer/net/place.go`, `enemy.go` "Relay scoping"; no REL change, no recapture). broadcast-pose's positions carry a place trailer (stage, room, in play). The server relays a pose only to the puppet-sync connections in the sender's stage, never to a broadcaster, and thins an enemy STATE to its 52-byte header for an enemy client whose PSTATE puts it in another stage or room. Positions and co-op are not scoped. Every unknown place fails open. `WW_RELAY_SCOPE=off` on the server (for `mp-local`, on its process) turns scoping off for the baseline. Offline, `TestRelayScopeBandwidth` measures 79% less pose egress for four players in three stages (3352 KB/s down to 718 KB/s at 60 Hz), and `TestEnemyStateThinned` measures 63.2 KB/s down to 3.2 KB/s per 16-slot STATE stream to a client in another room. None of these has run live.

@@ -152,7 +152,7 @@ Carried from e1b9086 unless the row says otherwise.
 
 **1.9 Two machines for two people.** *Stephen.* BLOCKS unless both play at one PC. No pass has run on two machines, over WAN or on macOS. R2 passed on loopback on one PC; R1 is the gate.
 
-**1.10 The whole-game playthrough.** *Stephen + partner, or two agents on two Dolphins.* The goal; not started. No slice's D5 is on record; every live check so far is a rig check driven by pokes, scripts or keystrokes. Sweep both full logs and both dolphin.log files for ISI/DSI after each session. GT Q5 (the session after one player's credits) is open, and no code handles a session end at the credits.
+**1.10 The whole-game playthrough.** *Stephen + partner, or two agents on two Dolphins.* The goal; not started. No slice's D5 is on record; every live check so far is a rig check driven by pokes, scripts or keystrokes. Sweep both full logs and both dolphin.log files for ISI/DSI after each session. GT Q5 is answered and built (#218, docs/08 item 170): a player's game leaves co-op at the credits and the others play on.
 
 ---
 
@@ -242,7 +242,7 @@ Carried from e1b9086: the DRC, FW, TotG, ET and WT D3 checks synced on f9e1fe6, 
   - C3 relay scoping: run RS1-RS4, or document `WW_RELAY_SCOPE=off`;
   - C4 `WW_ENEMY_STATE_30HZ` from R11's data;
   - C5 salvage catch-up has no off switch.
-- **Process:** what gates the next release (R1 on two machines at least); whether to note relay scoping, boats and three remotes as lightly tested; the owner questions (docs/08 §10; FF Q4's ZELDA_AWAKENED residual; GT Q5; whether M6.1 is still wanted given the `+u` mirror).
+- **Process:** what gates the next release (R1 on two machines at least); whether to note relay scoping, boats and three remotes as lightly tested; the owner questions (docs/08 §10; FF Q4's ZELDA_AWAKENED residual; whether M6.1 is still wanted given the `+u` mirror).
 - **Naming:** the release items R1-R13 share names with App-R1..R5, R3-1..R3-4 and GT R1/R4. Renaming them (RD1..RD13, say) is open; records and PR bodies cite the current names.
 
 **Doc leftovers** (carried; not re-read for this update): docs/05's missing entries (projectiles, re-create, relay scoping, the Tier 1 door question, relay head-of-line blocking); docs/08 :3, :10, :59, :622, :1103; docs/10, docs/01, README, site. Optional: add `inject/rel` to release.yml's timestamp gate (TestBlobFresh already covers it).
@@ -258,8 +258,8 @@ Carried from e1b9086. The rows that tonight's cards under "Full co-op state sync
 | **M6.1** placement-matched kills of unkeyed enemies (the room-clear blocker in the 14 mixed rooms, docs/08 :742, :749-750, :2087) **(card)** | Go |
 | **M9** chest-claim arbitration (docs/08 §6.7 :621-626, :59, :1103; its text predates Tier 3 and re-create) **(card)** | REL / Go |
 | Enemy rows never built: Stalfos ST 0xBF, the warship OSHIP 0xB4, Molgera larva, Kalle Demos tentacle, Puppet Ganon 2-3; AM2 eye-arrow paralysis, the AM/AM2 hookshot steal; allow-design still_open S1-S7 **(card)** | REL + research |
-| GT Q5: the session end at one player's credits **(card)** | Go |
-| Co-op for three or more: PRESENCE naming its sender, per-partner scope and holds, multi-partner Warp to **(card)** | Go |
+| ~~GT Q5: the session end at one player's credits~~ built (#218, docs/08 item 170; live Q5-1/Q5-2 owed) | Go |
+| ~~Co-op for three or more~~ built (wind#9, schema 2, docs/08 item 171; live C3-1..C3-4 owed) | Go |
 | GT A1 sw0 (needs C1), A3, A4, A5; C2-C6 | research → Go |
 | TotG A3 EP torches, A6, A7, B2; ET C2 → A3 coffins and tapestries, A6 M_DaiMB hold of sw59-65, A7; WT A2, A3, A5, A7, B3 | Go (+ research) |
 | FW A6, B3 rows; FF A2, C2, C6, C7 | Go / research |

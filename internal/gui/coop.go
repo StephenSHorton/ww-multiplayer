@@ -97,8 +97,8 @@ type CoopView struct {
 type CoopPanelView struct {
 	Pipes []CoopPipeView `json:"pipes"`
 	Hub   *CoopHubView   `json:"hub"`
-	// Partners are the other players: Warp to partner needs one (v1.0
-	// is two players, so the warp goes to the one other player).
+	// Partners are the other players: the panel's Warp to partner goes
+	// to the one there is; with two or more the Players rows name one.
 	Partners []string `json:"partners"`
 	// Rules is what co-op shares, as rules the host changes while the
 	// session runs (room.go); nil before a pipeline or the hub reports.
@@ -438,9 +438,10 @@ var coopVerbs = map[string]session.Verb{
 }
 
 // CoopCommand runs one of the panel's buttons: "refresh" (Refresh area),
-// "warp" (Warp to partner: co-op v1.0 is two players, so the warp goes to
-// the one other player), "pause" / "resume" (co-op writes), "status". It
-// goes to this player's own pipeline; what came of it is in the log.
+// "warp" (Warp to partner: the one other player; with two or more the
+// Players rows' Warp to names one, WarpTo), "pause" / "resume" (co-op
+// writes), "status". It goes to this player's own pipeline; what came of
+// it is in the log.
 func (b *Bridge) CoopCommand(button string) (err error) {
 	defer b.maskErr(&err)
 	v, ok := coopVerbs[button]
@@ -448,6 +449,17 @@ func (b *Bridge) CoopCommand(button string) (err error) {
 		return fmt.Errorf("no co-op button %q", button)
 	}
 	return b.ctrl.Command(session.Command{Verb: v})
+}
+
+// WarpTo is a Players row's Warp to: this player's pipeline warps to
+// partner name (/warp to <name>), which co-op for three or more needs.
+func (b *Bridge) WarpTo(name string) (err error) {
+	defer b.maskErr(&err)
+	if name == "" {
+		return errors.New("warp to whom? No player named")
+	}
+	// The console checks the name as a typed /warp to <name> (commandOf).
+	return b.ctrl.Command(session.Command{Verb: session.VerbWarp, Target: name})
 }
 
 // CoopStatusText is /status's text for every pipeline (and the host's

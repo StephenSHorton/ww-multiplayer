@@ -950,8 +950,11 @@ Three remotes is where we stop for now. Going past it needs, in order (handoff
    `wwremote.h`; `mailbox.RemoteHAFAttrib`). It names three bodies and no more (`remote.c`
    asserts `MAX_REMOTE_LINKS <= 3`): a fourth needs a byte with room (the PHIT / hit-apply
    record).
-4. **Co-op for three or more** is a separate protocol change (PRESENCE names no sender, one
-   partner per replica, a two-player warp).
+4. **Co-op for three or more** was a separate protocol change (PRESENCE named no sender, one
+   partner per replica, a two-player warp). Built for wind#9 (co-op schema 2, docs/08 Appendix C
+   item 171): the relayed PRESENCE names its sender, a replica keeps every partner, a store is
+   written while any partner is in its scope, and Warp to names its partner. Its live checks
+   (docs/TESTING.md "Co-op for three or more", C3-1..C3-4) have not run.
 
 Until then the fifth player and up still fall back to the actor puppets (`MAX_PUPPETS` 4), as
 players 3 and 4 did before.

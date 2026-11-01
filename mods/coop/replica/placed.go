@@ -150,11 +150,14 @@ func (r *Replica) placedRoom(stage string, room int) *enemies.PlacedRoom {
 	return r.cfg.Tables.Enemies.PlacedIn(stage, room)
 }
 
-// partnerInRoom reports whether the partner is in game in (stage, table,
-// room).
+// partnerInRoom reports whether any partner is in game in (stage, table,
+// room). With three or more players it is any of them, as for the scoped
+// stores (partnerIn, docs/08 Appendix C item 171): the sender tracks while
+// someone who could take a kill is there, and the receiver keeps a
+// pending kill while someone who could have made it is; a relayed PKILL
+// names no sender, so the kill's own maker cannot be asked for.
 func (r *Replica) partnerInRoom(st wire.Stage, table, room int8) bool {
-	p := r.partner
-	return p != nil && p.Flags&wire.PresenceInGame != 0 && p.Stage == st && p.Table == table && p.Room == room
+	return r.partnerIn(scopeKey{kind: wire.ScopeZone, stage: st, table: table, room: room})
 }
 
 // onPlaced takes a partner's PKILL (onScoped): each bit for Link's room

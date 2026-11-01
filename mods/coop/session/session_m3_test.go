@@ -895,8 +895,8 @@ func TestCoopSessionM3(t *testing.T) {
 		if err := errors.Join(pa.SendPosition(&posA), pb.SendPosition(&posB)); err != nil {
 			t.Fatal(err)
 		}
-		_, okA := cs.partnerPos("Link")()
-		_, okB := jcs.partnerPos("Tetra")()
+		_, okA := cs.partnerPos("Link")("Tetra")
+		_, okB := jcs.partnerPos("Tetra")("Link")
 		return okA && okB
 	})
 	coRoomLoaded(t, a.coGame, 3)
@@ -904,7 +904,7 @@ func TestCoopSessionM3(t *testing.T) {
 	if w := a.beat.warps()[0]; w != (replica.Pos{X: posB.PosX, Y: posB.PosY, Z: posB.PosZ}) {
 		t.Errorf("A warped to %+v, want B's %+v", w, posB)
 	}
-	if !a.rep.has("co-op: warp: warping to the partner at (1200, 30, -450) in room 3") {
+	if !a.rep.has("co-op: warp: warping to Tetra at (1200, 30, -450) in room 3") {
 		t.Errorf("the warp was not logged:\n%s", a.rep)
 	}
 
@@ -915,7 +915,7 @@ func TestCoopSessionM3(t *testing.T) {
 	must(a.g.LoadStage(woods))
 	steady("B never saw A in the woods", partnerAt(b, woods.Name, 3, 5))
 	escape(b, joinKeys, "/warp", func() bool {
-		return b.rep.has("co-op: warp: going to kindan by point 3 into room 5, layer -1, the partner's entrance (as the partner came in by it), then onto the partner")
+		return b.rep.has("co-op: warp: going to kindan by point 3 into room 5, layer -1, Link's entrance (as the partner came in by it), then onto Link")
 	})
 	if name, point, room, layer, enable := coNextStage(b.coGame); name != woods.Name || point != 3 || room != 5 || layer != -1 || enable != 1 {
 		t.Fatalf("B's warp left mNextStage %q point %d room %d layer %d enable %d", name, point, room, layer, enable)
@@ -927,7 +927,7 @@ func TestCoopSessionM3(t *testing.T) {
 		t.Errorf("B warped to %+v, want A's %+v", w, posA)
 	}
 	steady("the second step was not logged", func() bool {
-		return b.rep.has("co-op: warp: warping to the partner at (-800, 0, 2500) in room 5")
+		return b.rep.has("co-op: warp: warping to Link at (-800, 0, 2500) in room 5")
 	})
 
 	// /coop off: A writes nothing from the tick it turned off on, while
@@ -1014,7 +1014,7 @@ func TestCoopSessionM3(t *testing.T) {
 	if st := b.s.r.Status(); st.State != replica.StateArmed {
 		t.Errorf("B's pipeline stopped following the world: %+v", st)
 	}
-	if _, ok := jcs.partnerPos("Tetra")(); !ok {
+	if _, ok := jcs.partnerPos("Tetra")("Link"); !ok {
 		t.Error("B's pose sync stopped with its writes")
 	}
 
