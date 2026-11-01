@@ -62,7 +62,8 @@ import (
 // set now (refreshTick.landedWhy); the home room loaded and settled
 // (roomSettled); the actor executing, in no event, not carried, no mirror
 // pause bit, not claimed by the enemy mirror, never light-shrunk by M6
-// (ever); Link more than 300 units away and in no demo (linkDemo). The
+// (ever); Link more than 300 units away in 3D, as the REL's own gate
+// measures (linkFar3D), and in no demo (linkDemo). The
 // actor is read again, its params with it (actors.RereadParams), just
 // before it is named. The REL checks its own (D4) besides.
 //
@@ -540,7 +541,7 @@ func (r *Replica) planRefresh(t *refreshTick, w *actors.Walk, demo bool, demoWhy
 			why = refreshEligible(a, r.cfg.Claimed, r.m6.ever)
 		}
 		if why == "" {
-			why = t.linkFar(a.Pos)
+			why = t.linkFar3D(a.Pos)
 		}
 		if why == "" && r.heldChest(a.PID) {
 			why = "a chest claims hold keeps it closed until its room reloads (chests.go)"
