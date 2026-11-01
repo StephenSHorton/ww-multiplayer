@@ -17,14 +17,14 @@ This is the remaining-work list for a whole-game two-player co-op run. It was fi
 A first two-person run of the whole game still needs **no new REL work**. Since e1b9086:
 - **Defaults (#211):** every boss now has a relay in the default rows: `BossKillDefault = "gohma,kalle,gohdan,molgera,jalhalla,helmaroc"` [V mods/coop/replica/bosskill.go]. Live switches and the projectile events are on by default [V mods/coop/session/session.go `startHub`; mods/multiplayer/fxsync/fxsync.go].
 - **Fixes:** the soft reset no longer reboots (#202), and a parked peer boat floats on this game's water (#206). The dry-run bind refusal that LIVE-6 found is fixed (#213, passed in LIVE-7).
-- **Ledger:** TESTING.md has 256 boxes, 118 of them ticked, against 64 of 256 at e1b9086. Most new ticks are "in part" under #183's convention.
+- **Ledger:** TESTING.md has 256 boxes, 115 of them ticked, against 64 of 256 at e1b9086. Most new ticks are "in part" under #183's convention.
 - **Headroom:** RELS.arc has 7008 bytes left under the 64 KiB growth guard (+58528 bytes on the patcher golden fixture, not measured on the retail disc), so the next REL batch is tight.
 
 What is left falls in six parts:
 
 1. **Default-on code that never ran the way a player meets it.**
    - Kalle Demos has never applied through Go on two Dolphins. Gohma has, but only with its armor and A's lethal write poked (D4-8 [V live: archive/ww-online-review/live/LIVE-6.md:327]). Gohdan joined the default rows with GD-4, its natural fight, still owed; LIVE-7 saw its Go relay `waiting` after a poked kill bit [V live: LIVE-7.md:26].
-   - No row exists yet for these default-on features:
+   - These default-on features have rows in TESTING.md but no recorded run yet:
      - relay scoping (RS1-RS7);
      - salvage catch-up (SV1-SV7);
      - the soft reset that reboots (SR-2);
@@ -155,7 +155,7 @@ Carried from e1b9086 unless the row says otherwise.
 
 ## 2. Live checks owed
 
-TESTING.md at this update: 256 boxes, 118 ticked, 138 open. Most ticks since e1b9086 are "in part": read the parenthetical before trusting one.
+TESTING.md at this update: 256 boxes, 115 ticked, 141 open. Most ticks since e1b9086 are "in part": read the parenthetical before trusting one.
 
 ### 2A. Checks that gate a playthrough rule
 
@@ -178,7 +178,7 @@ Carried from e1b9086: the DRC, FW, TotG, ET and WT D3 checks synced on f9e1fe6, 
 ### 2C. Relays, enemy rows, refresh, re-create and doors
 
 - **Boss relays:** see 1.2.
-- **Tier 1-2 refresh:** ST1-1..ST1-6 and ST2-1 pass; ST2-2, ST2-3 open. LIVE-6 saw ST2-2's expectation (the claimed hold kept Tier 2 out) on the pot ambusher [V live: LIVE-6.md:274], not yet ticked.
+- **Tier 1-2 refresh:** ST1-1..ST1-6 and ST2-1 pass; ST2-2 in part (LIVE-6 saw the claimed hold keep Tier 2 out on the pot ambusher; `/status` not read), ST2-3 open.
 - **Tier 3 refresh** (`--coop-refresh`, off by default): RF-1, RF-2, RF-5 pass; RF-3, RF-4, RF-6 in part; the two-Dolphin refresh box has stone2 and tbox; leaves, item, saku and `dry` over Go are open. #199 rewrote `refresh.c` into tables, so the delete rows want a rerun on this REL.
 - **Re-create rows** (#199, opt-in): RC-1 and RC-3..RC-6 passed in part by poke, RC-2 passed on two Dolphins (LIVE-6). RC-7..RC-10 open; RC-11 doors not needed for small-key doors (1.1). The fixture switches for the poke recipe (TESTING "actor_refresh re-create") are unverified.
 - **Enemy kinds:**
@@ -220,7 +220,7 @@ Carried from e1b9086: the DRC, FW, TotG, ET and WT D3 checks synced on f9e1fe6, 
 | #189 bug report, game-files guard, notes | BR-2 browser half and BR-3 in part (LIVE-5, before #207's fix); BR-1 not run; GF-1 in part (the negative half open); RN-1 needs a prerelease tag |
 | #190 the app window | never seen in the real window |
 | #192 Dolphin file logs, run logs, crash-context | DT1-DT5 open; DT6 moot (F1 cleared) |
-| #193 owner key and status | DS1, DS2, DS5 in part and DS4 pass on one PC (LIVE-5); DS6 wants a rerun after #207; DS3, DS7 (Docker), DS8, PG1, PG2 not run |
+| #193 owner key and status | DS4 passed on one PC; DS1, DS2, DS5 in part on one PC, other machines owed (LIVE-5); DS6 wants a rerun after #207; DS3, DS7 (Docker), DS8, PG1, PG2 not run |
 | #194 remote visuals | F1 cleared; V rows in 2D |
 
 ---
