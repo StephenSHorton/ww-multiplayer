@@ -389,8 +389,8 @@ func parseBossEndArgs(args []string) (bossEndOpts, error) {
 	if o.Variant != "" && !contains(d.Variants, o.Variant) {
 		return o, fmt.Errorf("%s has no --variant %s (variants: %s)", o.Boss, o.Variant, orNone(d.Variants))
 	}
-	if o.Step == "door" && o.Variant != "" {
-		return o, fmt.Errorf("pg3 --step door has no variant")
+	if (o.Step == "door" || o.Step == "flower") && o.Variant != "" {
+		return o, fmt.Errorf("--step %s has no variant", o.Step)
 	}
 	return o, nil
 }

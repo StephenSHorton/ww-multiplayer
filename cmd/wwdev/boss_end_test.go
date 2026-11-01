@@ -766,6 +766,7 @@ func TestParseBossEndArgs(t *testing.T) {
 		{"gohma", "--variant", "natural"}, {"ganondorf", "--variant", "natural"},
 		{"gohma", "--watch", "-1"}, {"gohma", "--step"}, {"gohma", "--bogus"},
 		{"pg3", "--step", "door", "--variant", "natural"},
+		{"kalle", "--step", "flower", "--variant", "natural"},
 	} {
 		if _, err := parseBossEndArgs(args); err == nil {
 			t.Errorf("%q accepted", args)
