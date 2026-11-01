@@ -77,8 +77,8 @@ Same rig and slot, fast repro (hop, poke the bit, door10; the same hang as after
    (`J3DAnimation.cpp:699, 865, 881, 888, 1064, 1071`), on an animation whose name table is null, the
    usual result of binding a texture/colour animation that a `getObjectRes` didn't find. The reads stop
    after about 10k lines; then the main thread (`mainThread` 0x803A2960) sits in WAITING and the frame
-   never advances. The bind's frames were gone by then (no return address into `searchUpdateMaterialID`
-   anywhere in MEM1), so the calling actor is not identified yet.
+   never advances. The bind's frames were gone by then (no return address into `searchUpdateMaterialID`, a DOL function,
+   anywhere in MEM1; the scan resolved DOL text only, so REL callers were not looked for), so the calling actor is not identified yet.
 4. **Archives.** The object table (`0x803E0BC8`) in M2ganon holds the same archives on both saves
    (System, Demo24, Always, Link, Agb, Search, Himo3, Zl2, Dmgroom, Ikari, Cloth, Ep), so no archive is
    missing on the first-visit save as such.
