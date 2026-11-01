@@ -1,0 +1,89 @@
+[srv 01:10:46] Server listening on port 25640
+Hosting as "HostA" on :25640.
+Share one of these addresses with your friend (the :port is needed):
+  (LAN address):25640
+Ctrl+C to stop.
+=== Enemy host: HostA -> localhost:25640 ===
+=== Broadcast Link + Pose: HostA -> localhost:25640 ===
+=== Puppet Sync: HostA <- localhost:25640 ===
+Dolphin found.
+enemy host: host-authoritative enemies on (kinds mo2,bk+u,cc+u,ki+u), remote Link bodies step6 (WW_ENEMY_SYNC=0 turns enemy sync off); selecting by distance (WW_ENEMY_SELECT), STATE 30 Hz gate false
+enemy host: remote-Link block on, flags 0x24FF, 19 policies, FF denylist [MajyuE majroom Majroom Mjtower]
+[srv 01:10:46] HostA (enemy host 1) connected
+[net] Connected for enemy sync (enemy ID 1)
+enemy host: REL module linked (build 1CE30685); host hits apply
+enemy host: 5 enemies (mo2,bk+u,cc+u,ki+u) in Hyrule room 0
+enemy host: Mo2 resource table resolved (mObjectInfo[20], mRes 0x81B18530): its animation stream is on
+WARN: enemy host: no loaded Bk entry in mObjectInfo: that kind's animation stream is off until it resolves
+enemy host: CC resource table resolved (mObjectInfo[19], mRes 0x81AFE7A0): its animation stream is on
+enemy host: Ki resource table resolved (mObjectInfo[17], mRes 0x81AF8600): its animation stream is on
+Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[srv 01:10:46] HostA (ID:1) connected
+[net] Connected as player 1
+Dolphin found.
+game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+Filtering self-echo: remotes named "HostA" will be ignored.
+[srv 01:10:46] HostA (ID:2) connected
+[net] Connected as player 2
+puppet-sync session 1 armed (server epoch 1793517046315541000)
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+[srv 01:10:49] JoinB (enemy client 2) connected
+[srv 01:10:49] JoinB (ID:3) connected
+[net] Player JoinB (ID:3) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[srv 01:10:49] JoinB (ID:4) connected
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] Player JoinB (ID:4) in game
+[net] Player HostA (ID:1) in game
+[net] Player JoinB (ID:3) in game
+[net] Player JoinB (ID:4) in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 3 (JoinB)
+player 3 (JoinB) is between stages: hidden until it is back here (Cave09)
+enemy host: 10 enemies (mo2,bk+u,cc+u,ki+u) in Cave09 room 1
+WARN: enemy host: no loaded Mo2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: enemy host: no loaded CC entry in mObjectInfo: that kind's animation stream is off until it resolves
+player 3 (JoinB) is in this stage (Cave09): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy remote: PACK client 2 seq 1 applied/none life 80 -1 frame 3548
+enemy remote: PACK client 2 seq 2 applied/none life 80 -1 frame 3910
+enemy remote: PACK client 2 seq 3 applied/none life 80 -1 frame 3968
+enemy remote: PACK client 2 seq 4 applied/none life 80 -1 frame 4098
+enemy host: actors: the actor changed since the walk: proc 0x00D8 setID 0xFFFF pkey 0x158B9546 pid 367 at 0x80AB07D0; walking again
+enemy host: 9 enemies (mo2,bk+u,cc+u,ki+u) in Cave09 room 1
+enemy remote: PACK client 2 seq 5 applied/none life 80 -1 frame 4267
+enemy remote: PACK client 2 seq 6 applied/none life 80 -1 frame 4649
+enemy remote: PACK client 2 seq 7 applied/none life 80 -1 frame 4757
+enemy remote: PACK client 2 seq 8 applied/none life 80 -1 frame 4806
+enemy remote: PACK client 2 seq 9 applied/none life 80 -1 frame 5225
+player 3 (JoinB) is in another stage (Cave09; here M_Dai): hidden until it is back
+enemy host: 3 enemies (mo2,bk+u,cc+u,ki+u) in M_Dai room 1
+enemy host: Mo2 resource table resolved (mObjectInfo[28], mRes 0x81ADBDE0): its animation stream is on
+WARN: enemy host: no loaded Ki entry in mObjectInfo: that kind's animation stream is off until it resolves
+player 3 (JoinB) is in this stage (M_Dai): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy host: actors: the actor changed since the walk: Moblin setID 0 pid 433 at 0x80AA5830; walking again
+enemy host: 2 enemies (mo2,bk+u,cc+u,ki+u) in M_Dai room 1
+[srv 01:13:42] JoinB (enemy client 2) disconnected
+[srv 01:13:42] JoinB disconnected
+[srv 01:13:42] JoinB disconnected
+[net] JoinB left the game
+[net] JoinB left the game
+[net] Player HostA (ID:1) in game
+[net] JoinB left the game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:4) is no longer in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+Shutting down... (press Ctrl+C again to force quit)
+Disconnected.
+[srv 01:13:42] HostA disconnected
+Disconnected.
+[srv 01:13:42] HostA (enemy host 1) disconnected
+[srv 01:13:42] HostA disconnected

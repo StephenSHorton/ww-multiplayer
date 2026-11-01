@@ -1,0 +1,5 @@
+=== WW Multiplayer Server ===
+
+[01:06:08] Server listening on port 25611
+Press Ctrl+C to stop
+[01:06:10] refused "NewFake": this host runs an older ww-multiplayer (network protocol 3, yours is 6); both players need the same version
