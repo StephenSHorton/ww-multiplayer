@@ -23,7 +23,7 @@ func held(c ChestActor) ChestActor { c.Word = c.Wait(); return c }
 // chestIn is a tick with Link at the origin, a partner in scope and
 // chests cs.
 func chestIn(now time.Time, cs ...ChestActor) chestInput {
-	return chestInput{on: true, scope: true, now: now, linkOK: true, room: 1, chests: cs}
+	return chestInput{on: true, scope: true, idle: true, now: now, linkOK: true, room: 1, chests: cs}
 }
 
 type sent []*wire.Claim
@@ -126,7 +126,7 @@ func TestChestFailOpen(t *testing.T) {
 	t0 := time.Unix(1_800_000_000, 0)
 	ours, open, opened := testChest(12, 1, 1000), held(testChest(13, 2, 1000)), testChest(14, 3, 1000)
 	for _, in := range []chestInput{
-		{on: true, scope: false, now: t0, linkOK: true},
+		{on: true, scope: false, idle: true, now: t0, linkOK: true},
 		{on: false, scope: false, now: t0, linkOK: true},
 	} {
 		var s chestState
@@ -205,11 +205,12 @@ func TestChestHoldGates(t *testing.T) {
 	opening := testChest(22, 3, 1000)
 	opening.Word = opening.Base + 0x24B4 // actionDemo
 	for name, in := range map[string]chestInput{
-		"near":    chestIn(t0, near),
-		"busy":    chestIn(t0, busy),
-		"opening": chestIn(t0, opening),
-		"ordered": func() chestInput { i := chestIn(t0, testChest(23, 4, 1000)); i.ordered = true; return i }(),
-		"no Link": func() chestInput { i := chestIn(t0, testChest(24, 5, 1000)); i.linkOK = false; return i }(),
+		"near":     chestIn(t0, near),
+		"busy":     chestIn(t0, busy),
+		"opening":  chestIn(t0, opening),
+		"ordered":  func() chestInput { i := chestIn(t0, testChest(23, 4, 1000)); i.ordered = true; return i }(),
+		"no Link":  func() chestInput { i := chestIn(t0, testChest(24, 5, 1000)); i.linkOK = false; return i }(),
+		"settling": func() chestInput { i := chestIn(t0, testChest(25, 6, 1000)); i.idle = false; return i }(),
 	} {
 		var s chestState
 		var out sent
