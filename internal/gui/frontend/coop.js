@@ -204,13 +204,18 @@ function pips(n, total) {
 
 function keyRow(k) {
 	const name = el("span", { class: "kname", title: k.dungeon ? k.dungeon : null }, k.name);
+	const p = keyParts(k);
+	return el("li", { class: p.off ? "off" : "" }, name, ...p.kids);
+}
+
+// keyParts is a key table's status: the count (or why it has none) and
+// its meta line, for a key row of its own or inside a dungeon's row.
+function keyParts(k) {
 	if (!k.on) {
-		return el("li", { class: "off" }, name, el("span", { class: "chip" }, "Not derived"),
-			el("div", { class: "kmeta" }, k.why || "Its keys aren't derived."));
+		return { off: true, kids: [el("span", { class: "chip" }, "Not derived"), el("div", { class: "kmeta" }, k.why || "Its keys aren't derived.")] };
 	}
 	if (!k.seen) {
-		return el("li", { class: "off" }, name, el("span", { class: "chip" }, "Not seen yet"),
-			el("div", { class: "kmeta" }, "Counted once your file is in game."));
+		return { off: true, kids: [el("span", { class: "chip" }, "Not seen yet"), el("div", { class: "kmeta" }, "Counted once your file is in game.")] };
 	}
 	const count = el("span", { class: "kcount", title: "Small keys your game holds" }, k.have + (k.have === 1 ? " key" : " keys"));
 	count.insertAdjacentHTML("afterbegin", KEY_ICON);
@@ -221,7 +226,7 @@ function keyRow(k) {
 	if (k.pending) meta.push(el("span", {}, "→ " + k.target + " on its way"));
 	else if (k.target !== k.have) meta.push(el("span", {}, "→ " + k.target + " once you're idle"));
 	if (k.held) meta.push(el("span", { title: "Opened by your partner: the lock goes at your next room change" }, k.held + " held until your next room change"));
-	return el("li", {}, name, count, el("div", { class: "kmeta" }, ...meta));
+	return { off: false, kids: [count, el("div", { class: "kmeta" }, ...meta)] };
 }
 
 // renderProgress draws the progress card from the first pipeline's facts
@@ -277,7 +282,9 @@ function renderProgress(st, show) {
 		if (rules && !rules.host) kids.push(el("p", { class: "dim small" }, "The host chooses what co-op shares, and may change it while you play."));
 		if (rules && rules.note) kids.push(el("p", { class: "warnline" }, rules.note));
 	}
-	const keys = (v.keys || []).filter((k) => k.dungeon);
+	// Once the world is in, each dungeon's keys sit in its row of the Room
+	// items card (wind#56); before it, they are listed here.
+	const keys = v.room ? [] : (v.keys || []).filter((k) => k.dungeon);
 	if (keys.length) {
 		kids.push(el("div", { class: "subhead" }, "Dungeon keys"), el("ul", { class: "keys" }, ...keys.map(keyRow)));
 	} else if (v.noKeyTable && !v.dryRun) {
@@ -379,6 +386,23 @@ function heartRow(r) {
 	return el("span", { class: "hearts", "aria-hidden": "true" }, ...Array.from({ length: n }, () => el("i")), r.maxQuarters ? el("i", { class: "part" }) : null);
 }
 
+// DUNGEON_MARKS are a dungeon row's marks: its mDungeonItem flags.
+const DUNGEON_MARKS = [["map", "Map"], ["compass", "Compass"], ["bossKey", "Big key"], ["boss", "Boss"], ["heartContainer", "Heart"]];
+
+// dungeonRow is one dungeon in the Room items card (wind#56): its marks
+// from the world, the partners in it, and, for a dungeon with small keys,
+// this game's key row (the progress card's key table of the same short
+// name) inside it. Forsaken Fortress and Ganon's Tower have no keys.
+function dungeonRow(d, keys) {
+	const marks = el("span", { class: "dmarks" }, ...DUNGEON_MARKS.map(([f, label]) =>
+		el("span", { class: d[f] ? "on" : "", title: (d[f] ? "The world has " : "Not yet: ") + label.toLowerCase() }, el("i"), label)));
+	const here = (d.here || []).map((n) => el("span", { class: "chip here", title: n + " is in " + d.name }, n + " is here"));
+	const kids = [el("span", { class: "kname", title: d.short }, d.name), ...here, marks];
+	const k = d.keys ? keys.find((x) => x.dungeon === d.short) : null;
+	if (k) kids.push(el("div", { class: "dkeys" }, ...keyParts(k).kids));
+	return el("li", { class: here.length ? "here" : "" }, ...kids);
+}
+
 // renderRoom draws the Room items card from this game's view of the
 // world (the first pipeline's): what every player's game takes from it.
 function renderRoom(st, show) {
@@ -402,6 +426,8 @@ function renderRoom(st, show) {
 		kids.push(el("p", { class: "okline no" }, "Hearts aren't counted: " + (r.heartsWhy || "no heart table")));
 	}
 	kids.push(el("div", { class: "subhead" }, "Item menu"), el("ul", { class: "slots" }, ...r.items.map(tile)));
+	const pipe = st.coop.panel.pipes[0];
+	if ((r.dungeons || []).length) kids.push(el("div", { class: "subhead" }, "Dungeons"), el("ul", { class: "dungeons", id: "room-dungeons" }, ...r.dungeons.map((d) => dungeonRow(d, pipe.keys || []))));
 	kids.push(el("div", { class: "subhead" }, "Songs and pearls"),
 		el("ul", { class: "shares" }, ...named(r.songs), ...named(r.pearls)),
 		el("div", { class: "facts" },

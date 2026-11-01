@@ -171,6 +171,17 @@
 		shards: 0, charts: 7, chartsTotal: 49, salvaged: 2, triforceCharts: 0,
 		wallet: 1000, quiver: 0, bombBag: 0, magic: 16,
 		hearts: true, containers: 6, containersTaken: 1, pieces: 44, piecesTaken: 5, rewards: 10, given: 1, untracked: 6, maxHearts: 5, maxQuarters: 2,
+		// Mid-game (wind#56): DRC under way with Blake in it, the rest not
+		// reached; FF's first visit leaves its row empty.
+		dungeons: [
+			["FF", "Forsaken Fortress", 0, {}],
+			["DRC", "Dragon Roost Cavern", 4, { map: true, compass: true }, ["Blake"]],
+			["FW", "Forbidden Woods", 1, {}],
+			["TotG", "Tower of the Gods", 2, {}],
+			["ET", "Earth Temple", 3, {}],
+			["WT", "Wind Temple", 2, {}],
+			["GT", "Ganon's Tower", 0, {}],
+		].map(([short, name, keys, f, here]) => ({ short, name, keys, map: !!f.map, compass: !!f.compass, bossKey: !!f.bossKey, boss: !!f.boss, heartContainer: !!f.heartContainer, here })),
 	};
 	const coopMode = S === "lobby-join" ? "continue" : "new";
 	const coop = {
