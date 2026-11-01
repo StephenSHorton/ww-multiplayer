@@ -111,3 +111,26 @@ REL linked, no JUTException, visuals last error 0 on both, pose publish and feed
 (0.9 off) and B tracked on A (4.0 off), the hop and back, and mp-local exiting 0. The first try,
 `--hop "sea 0 44"`, was refused because A was already in sea. Both dolphin.logs have no ISI, DSI or
 invalid access across the whole session, and no mp-local log has a panic.
+
+## Co-op: side-quest registers (#191) and the owner's tables
+
+`mp-local --coop=new --yes`, with `USER_DIR_1/2` set to the rig's u1/u2 and `ISO_PATH` set to the
+shared `WW-mp.iso`. Both files bound to world 22956478a60a3827. Note: `mac-rig.sh mp-local` doesn't
+export the rig's user dirs. The first co-op try backed up (read only) the Mac's default Dolphin
+cards and declined the bind with no TTY, so that run is ignored. `--yes` answers the bind.
+
+Event base 0x803C522C. Before: both files Orca 0xD0 = 3, Koboli 0xC2 = 3, pig pen 0xBF = 0.
+Pokes: A's 0xD0 3 -> 4 and 0xBF |= 0x01, B's 0xC2 3 -> 1 (so A's level wins the MAX). Then A hopped,
+then B hopped.
+
+- B's log: `a stage change starts: writing 0 story bits and 3 registers of the world`, then
+  `set event byte 0xBF (... |= 0x01)`, `0xC2 (... |= 0x02)`, `0xD0 (... |= 0x04)`.
+- B reads 0xD0 = 0x04 (not 0x07, so the write masks and sets the level field, as MAX, even though the
+  log says `|=`), 0xC2 = 3, 0xBF = 0x01. A is unchanged.
+- **Orca, Koboli, pig pen: the register half passes, by poke.** B playing Orca, B's post office
+  (Baito), and B's Outset pig after 0x0520 were not run.
+- **The owner's tables** (`ww-multiplayer coop-tables --no-cache` on `WW-mp.iso`): `hearts: PASS`,
+  `heart pieces: 44, vanilla 44: 28 in stage files (chest 12, dig 1, item 1, salvage 14), 11 rewards
+  (auction 1, letter 3, npc 6, shop 1), 5 unverified (drop 1, minigame 3, npc 1)`, both
+  `left out Cave06: ...` and `left out I_SubAN: ...` lines, small keys PASS (5 of 5), heart
+  containers 6/6. Not compared line by line with a schema-11 report.
