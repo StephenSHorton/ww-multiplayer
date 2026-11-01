@@ -150,7 +150,7 @@ go build -o wwdev.exe ./cmd/wwdev
 #   picks the boss-dead relay's rows (default all six, gohdan (SirenB) included since v0.6.1;
 #   docs/TESTING.md "Batch D"), the host's --coop-live-switches[=off] (live switches, on by default
 #   since v0.6.1: the current table's switches apply when idle; =off (false, no, 0) waits for the next
-#   room change; a joiner may not name it), the host's --coop-placed-kill[=on|off] (off by default: placement-matched kills
+#   room change; a joiner may not name it), the host's --coop-placed-kill[=on|off] (on by default since wind#29; =off turns it off: placement-matched kills
 #   of unkeyed enemies, M6.1, docs/08 §7.2a: a partner's kill of an unkeyed placed enemy light-shrinks one live instance in
 #   the other game while both are in the room; needs combat; docs/TESTING.md P1-P8; a joiner may not name it), and
 #   --coop-refresh=stone2,leaves,item,tbox,saku,wall,floor,ice,mjdoor,mkie,mkiek,mknjd,vfan,swhit0,warpt,mflft,kokiie,vmc[,dry]|none

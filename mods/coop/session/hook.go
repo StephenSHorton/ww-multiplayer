@@ -96,13 +96,13 @@ func frontOf(f engine.Front) coopFront {
 // coopFlagsOf is the CLI's Flags for a controller's options.
 func coopFlagsOf(o session.CoopOptions) Flags {
 	return Flags{on: o.On, world: o.World, merge: o.Merge, yes: o.Yes, dryRun: o.DryRun, liveSwitches: !o.LiveSwitchesOff, iso: o.ISO,
-		placedKill: o.PlacedKill, placedSet: o.PlacedKill, bossKill: o.BossKill, refresh: o.Refresh, sharesOff: o.SharesOff}
+		placedKill: !o.PlacedKillOff, placedSet: o.PlacedKillOff, bossKill: o.BossKill, refresh: o.Refresh, sharesOff: o.SharesOff}
 }
 
 // options is f as the controller's options.
 func (f Flags) Options() session.CoopOptions {
 	return session.CoopOptions{On: f.on, World: f.world, Merge: f.merge, Yes: f.yes, DryRun: f.dryRun, LiveSwitchesOff: !f.liveSwitches, ISO: f.iso,
-		PlacedKill: f.placedKill, BossKill: f.bossKill, Refresh: f.refresh, SharesOff: f.sharesOff}
+		PlacedKillOff: !f.placedKill, BossKill: f.bossKill, Refresh: f.refresh, SharesOff: f.sharesOff}
 }
 
 // CoopLive is the pipelines' status and the host's hub (engine.CoopSide).

@@ -117,7 +117,7 @@ After a change to co-op behaviour, or a move of its code that the goldens cannot
 - **M4** P1-P9: story bits, items, songs, capacities, keys, hearts and magic;
 - **M5** Z1-Z6: live room puzzles;
 - **M6.0** K1-K10: the kill union and the light-shrink;
-- **M6.1** P1-P8 (host with `--coop-placed-kill`): placement-matched kills of unkeyed enemies, below.
+- **M6.1** P1-P8 (on by default since wind#29; `--coop-placed-kill=off` turns it off): placement-matched kills of unkeyed enemies, below.
 
 Each section of §8.2 lists its fixtures (F1-F5 save states) and steps.
 
@@ -721,7 +721,7 @@ Offline (`go test -count=1 ./mods/coop/class ./mods/coop/story ./wwapi/state ./w
 
 ### Co-op: placement-matched kills of unkeyed enemies (M6.1, P1-P8)
 
-docs/08-coop-design.md §7.2a. **Off by default:** the host runs `--coop --coop-placed-kill` (the joiner just `--coop`), and both sides need this build (an older side never gets PKILL and keeps everything else). The feature rides on combat, so neither `--coop-dry-run` nor a host without the combat feature runs it. `/status` prints `placed kills: on; N tracked, N sent, not sent: <reason> N, ...; N pending, N taken, N gone, N expired, N dropped, N refused` on each side. The enemy mirror's default kinds (`mo2,bk+u,cc+u,ki+u,am2+u,tn+u`, `mods/enemysync/kinds.go` DefaultMirrorKinds) claim their own unkeyed enemies, so pick classes the mirror leaves alone. Boko Babas and Miniblins are never mirror kinds. The Armos (am2) is one by default, unkeyed included, so run the Armos rows with the mirror off (`WW_ENEMY_SYNC=0`) or with kinds that leave out `am2+u`.
+docs/08-coop-design.md §7.2a. **On by default** since wind#29 (the host's `--coop-placed-kill=off` turns it off; before that it was opt-in with `--coop-placed-kill`; the joiner just `--coop`), and both sides need this build (an older side never gets PKILL and keeps everything else). The feature rides on combat, so neither `--coop-dry-run` nor a host without the combat feature runs it. `/status` prints `placed kills: on; N tracked, N sent, not sent: <reason> N, ...; N pending, N taken, N gone, N expired, N dropped, N refused` on each side. The enemy mirror's default kinds (`mo2,bk+u,cc+u,ki+u,am2+u,tn+u`, `mods/enemysync/kinds.go` DefaultMirrorKinds) claim their own unkeyed enemies, so pick classes the mirror leaves alone. Boko Babas and Miniblins are never mirror kinds. The Armos (am2) is one by default, unkeyed included, so run the Armos rows with the mirror off (`WW_ENEMY_SYNC=0`) or with kinds that leave out `am2+u`.
 
 Rooms (owner disc, from `coop-tables`): kindan r1 (three unkeyed Boko Babas next to keyed ChuChus, so it exercises M6.0 and M6.1 in one room), ma2room r1 (seven unkeyed Miniblins, none with a byte-2 switch), Siren r0 and r8 (unkeyed Armos), kindan r3, r9 and r14 (Boko Babas). Sea r44 has stacked Keese for P7 on layers 6, 7 and 11 (`stage-hop sea 0 44 6`), but `ki+u` claims them unless the mirror is off (`WW_ENEMY_SYNC=0`) or the kinds leave out `ki+u`.
 
