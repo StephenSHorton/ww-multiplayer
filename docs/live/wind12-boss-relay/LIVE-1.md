@@ -53,7 +53,7 @@ for t2-t7 (intro bit kept). Both bound world b83d8a075d861acb (`bound the file`,
   own t07 byte 0x30 -> 0x38, Warpf (0x006A) at (0, 300, 0). Pulls faked, not real Hookshot pulls (real pulls passed on the PC,
   handoff real-items/LIVE-2.md:21).
 
-## Helmaroc King (M2tower 30 0 3): IN PROGRESS (A applied; A's crest hit not landed; B not reached)
+## Helmaroc King (M2tower 30 0 3): PARTIAL (relay armed and `waiting` correct on B; `applied` not reached on B)
 - Both: Bdk proc 0xF0 in the tower phase (`mAction` 0x66, health 0/0 there).
 - A: `rig/hkforce.sh` (Mac port) `down` -> intro (`m25A0` 0xB..0x10) -> `mAction` 0, health 20; `mask` -> `m8F8` 4,
   `m25A0` 2 -> 0; A's request `00F0424B`: APPLIED `0x01050414`, health 20 -> 0 (`bdk-probe`: ALREADY "a pending zero, the next
@@ -62,3 +62,14 @@ for t2-t7 (intro bit kept). Both bound world b83d8a075d861acb (`bound the file`,
   and A's Link died (3 hearts after continue). **Rig mistake:** on the game-over "Would you like to save?" the highlighted
   button was Yes and one A press saved u1's card (rig wind12's own copy, not the shared fixtures; mp-local backed up both
   cards at start, `coop-world restore 20261101T065658Z`). No ISI/DSI in u1's dolphin.log.
+- After the continue, A's table-2 bit was raised by poke (`0x803C53A0` and `0x803C4FF0` |= 0x00080000; A's REL APPLIED above is
+  the real mechanism, the death itself was not run). B at once: `holding t02 FF boss defeated back ...`, `the partner killed
+  Helmaroc King ... once its mask is broken (this game's own next sword hit on the crest then ends the fight)`,
+  `boss_kill 186: waiting (mAction 0x66, m8F8 0, health 0)` (tower), then `waiting (mAction 0x0, m8F8 0, health 20)` after
+  B's forced `down` + intro, each once.
+- Twice, B's forced `mask` (`mAction` 9, `m8F8` 4, `m25A0` 2) was followed within ~2 s by a stage reload on B
+  (`player 3 (PlayerB) is between stages`, `no actor`, then the tower phase again: `waiting (mAction 0x64 ...)`), so the
+  relay never saw B's post-mask fight state. No co-op write line precedes the reload; A ran the same poke without a reload.
+  Likely Link knocked off the top during the kamen demo (B's hearts were down after the first one); not established.
+  Owed: B's `applied (mAction 0x.., m8F8 4, health 20)` and B's crest-hit death (the PC passed this, handoff
+  enemy-batch-f/live/LIVE-1.md:36).
