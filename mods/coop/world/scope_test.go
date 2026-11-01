@@ -206,7 +206,7 @@ func TestScopeApplyRefuses(t *testing.T) {
 	if _, err := s.Apply(playerB, roomKey(ScopeKill, "M_NewD2", 3, 1), []Word{{0, 1}}); !errors.Is(err, ErrNotPresent) {
 		t.Errorf("unknown player: %v", err)
 	}
-	for _, p := range []Place{at("sea_T", 0, 0), at("Name", 0, 0), at("sea", -1, 0), at("sea", 16, 0), Nowhere} {
+	for _, p := range []Place{at("sea_T", 0, 0), at("Name", 0, 0), at("ENDING", 0, 0), at("ENDumi", 0, 0), at("sea_E", 0, 44), at("sea", -1, 0), at("sea", 16, 0), Nowhere} {
 		s.SetPresence(playerB, p)
 		if _, err := s.Apply(playerB, roomKey(ScopeKill, p.Stage, 0, 0), []Word{{0, 1}}); err == nil {
 			t.Errorf("a player at %+v stored a kill", p)

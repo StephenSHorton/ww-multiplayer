@@ -801,3 +801,18 @@ func TestKindBckRanges(t *testing.T) {
 		t.Error("BK wait row or the none index out of range")
 	}
 }
+
+// TestInCredits: GT Q5's stages are the ending's three and nothing else
+// (sea, the title and file select stay as they were).
+func TestInCredits(t *testing.T) {
+	for _, n := range []string{"ENDING", "ENDumi", "sea_E"} {
+		if !InCredits(n) {
+			t.Errorf("InCredits(%q) = false", n)
+		}
+	}
+	for _, n := range []string{"", "sea", "sea_T", "Name", "GTower", "ending", "sea_e"} {
+		if InCredits(n) {
+			t.Errorf("InCredits(%q) = true", n)
+		}
+	}
+}
