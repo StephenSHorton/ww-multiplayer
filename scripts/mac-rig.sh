@@ -20,7 +20,7 @@ WW_SHARED=${WW_SHARED:-$HOME/ww-shared}
 WWDEV=${WWDEV:-$WW_SHARED/bin/wwdev}
 DOLPHIN_APP=${DOLPHIN_APP:-$HOME/Applications/Dolphin.app}
 ISO=${ISO_PATH:-$WW_SHARED/disc/WW-mp.iso}
-SAVE_DEFAULT=$WW_SHARED/fixtures/start-mac-1CE30685.sav
+SAVE_DEFAULT=$WW_SHARED/fixtures/start-mac-A9DE0F1E.sav  # REL 0xA9DE0F1E (main since #267); start-mac-1CE30685.sav stays for older builds
 [ -f "$SAVE_DEFAULT" ] || SAVE_DEFAULT=none
 
 die() { echo "mac-rig: $*" >&2; exit 1; }

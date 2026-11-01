@@ -33,7 +33,7 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
 ```
 ~/ww-shared/disc/ww-vanilla.ciso, WW-mp.iso      the disc and the patched disc
 ~/ww-shared/fixtures/                             dolphin-user-3/-4 (PC user dirs), saves/ (GCIs),
-                                                  start-mac-1CE30685.sav (the Mac start save, below)
+                                                  start-mac-A9DE0F1E.sav (the Mac start save, below; start-mac-1CE30685.sav and WW-mp-1CE30685.iso are kept for builds before #267)
 ~/ww-shared/bin/                                  wwdev, ww-multiplayer (entitled), mac-rig.sh
 ~/ww-shared/rigs/<rig>/u1, u2                     each rig's own Dolphin user dirs
 ```
@@ -57,7 +57,7 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
   silently ignored and the game sits on the title screen. Macs use their own start save, made
   unattended by the macOS `wwdev auto-recapture` (`scripts/mac-rig.sh recapture <rig>`): cold
   boot, menus through the pad override, then a held Shift+F1. The shared one is
-  `~/ww-shared/fixtures/start-mac-1CE30685.sav` (file 1 of the fixture card, in Hyrule, Link in
+  `~/ww-shared/fixtures/start-mac-A9DE0F1E.sav` (REL 0xA9DE0F1E, main since #267, recaptured 2026-11-01; file 1 of the fixture card, in Hyrule, Link in
   play). A REL/C change invalidates it: recapture under the `ww/rel-blob` lease and replace it.
 
 ## Daily use
