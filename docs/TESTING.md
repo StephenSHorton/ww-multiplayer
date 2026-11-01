@@ -691,6 +691,8 @@ No tool ends a refight, a Phantom Ganon or Ganondorf (`enemy-kill` and `stage-ho
 - [ ] **GT D3** (not run: wind#58).
 - [x] **Overworld D2(4) Master Sword, B behind A** (passed by real input, wind#44): A pulls the sword (0x2D04, `rebirth_hyral`, `swing_sword`, 0x3A04). B gets sw14 and the sword live, then 0x2D04, 0x3802 and 0x3A04 at its stage change; the equipment derive gives the Master Sword; B's kenroom is layer 6 (colour, torches, no pedestal), no event. The race (B at the pedestal on layer 0/1) not run.
 - [x] **Overworld D2(9) FF tower warp, after A3** (passed, wind#44, rowan): A takes Hyrule's warp out and sets 0x1820 (sent once A is idle); B's next `sea 0 1` keeps 0x1820 clear and loads the pre-rescue fortress (220 actors; with 0x1820 poked on, 146 and layer 3). The hold's release by B's own rescue not run.
+- [x] **Overworld D2(2) fresh file past Outset, after A1** (passed, wind#44, rowan): a new game B binds only with `--coop-merge` ("7 holds"); its next Outset load writes 27 story bits and none held, Aryll stays (187 actors; with 0x0E20 poked, 181 and no Aryll).
+- [ ] **Overworld D2(3) FIND_SISTER** (state only, wind#44, rowan): B gets 0x2580 while MET_KORL/0x0801/0x0808 stay held and Outset is unchanged; a live FIND_SISTER not run.
 - [ ] **Overworld D2(1), (5), (7), (8), the D2(4) race, overworld D3**: long play, wind#60.
 
 ### Co-op: the session at the credits (GT Q5)
