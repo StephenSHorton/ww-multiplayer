@@ -6,11 +6,11 @@
 - Fresh Mac pair `wind20` from the Mac start save (`start-mac-1CE30685.sav`, Hyrule, file 1 "Abahbob" on both cards): A = 20006, B = 20115, 30 fps, healer on. Irori lease `ww/dolphin-slot-4`.
 - Each card is the rig's own copy (`~/ww-shared/rigs/wind20/u1`, `u2`). `USER_DIR_1/2` were exported, so the backups named those cards, never a real Dolphin profile.
 
-**Why not `mp-local --coop`.** `wwdev mp-local` hardcodes port 25565 (`cmd/wwdev/mp_local.go:358`). Another agent's mp-local held it, so mine died with `listen tcp :25565: bind: address already in use` after founding the world. §8.2 also allows the CLI pair, which is what ran:
+**Why not `mp-local --coop`.** The shared `~/ww-shared/bin/wwdev` was built before #229 (2f7bf21, `MP_LOCAL_PORT`), so its `mp-local` used port 25565. Another agent's mp-local held it, so mine died with `listen tcp :25565: bind: address already in use` after founding the world. §8.2 also allows the CLI pair, which is what ran:
 - `host HostA --port 25642 --coop=1490569c486b64cf --coop-iso ~/ww-shared/disc/WW-mp.iso --yes` on A;
 - `join 127.0.0.1:25642 JoinB --coop --coop-iso ... --yes` on B;
 - each with its stdin fed from a file for the console (`/status`, `/refresh`).
-Reported to flint (the rig card), with the fix idea: an `MP_LOCAL_PORT` env.
+With a build from #229 on, set `MP_LOCAL_PORT` (0 = a free port).
 
 **Stage tables.** The first founding line built the tables from another agent's disc, because the "disc last patched" record is shared on this HOME. From then on every run passed `--coop-iso`: `stage tables 07fce914c47490e7, .../WW-mp.iso ...: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches ...)`.
 
