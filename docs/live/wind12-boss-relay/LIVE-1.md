@@ -18,3 +18,12 @@ for t2-t7 (intro bit kept). Both bound world b83d8a075d861acb (`bound the file`,
   B's Btd m02E4 0xB, at y -10000; B's own t03 byte 0x30 -> 0x38; Warpf (proc 0x006A) created; heart container on screen (shots/gohma-B.png).
 - Sweep: no ISI/DSI/invalid access in either dolphin.log or the mp-local log.
 - Pokes used: m02E0 on both (armor), A's request. Not a natural fight.
+
+## Kalle Demos (kinBOSS 1 0): PASS
+- Both hopped `kinBOSS 1 0`: Bmd proc 0x00EC hp 15/15, mMode 2 (vines up) on both.
+- A: forced the fallen open flower (mMode 3, m302 2, m304 1, m310 0, mB74 0; rig/force.sh `kalle`) + A's request `00EC424B`:
+  APPLIED `0x01030201`, mMode -> 0xB; A's live t04 byte 0x30 -> 0x38.
+- B: `holding t04 FW boss defeated back ...`, `the partner killed Kalle Demos ... once its flower is down and open (boss_kill)`,
+  `boss_kill 52: waiting (mMode 0x2, m302 1, m304 0)` once.
+- B: same flower poke, no request poke: `boss_kill 92: applied (mMode 0x3, m302 2, m304 1)` once; B's mMode 0xB, own t04 byte
+  0x30 -> 0x38, Warpf (proc 0x006A) created (shots/kalle-B.png). The force recipe (previously inferred) is confirmed on both.
