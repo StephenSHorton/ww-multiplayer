@@ -298,7 +298,8 @@ type Table struct {
 	Duplicates []Duplicate `json:"duplicates,omitempty"`
 	Summary    Summary     `json:"summary"`
 
-	kill killCache // M6's index (killindex.go), built on first use
+	kill  killCache   // M6's index (killindex.go), built on first use
+	place placedCache // M6.1's placement index (placed.go), built on first use
 }
 
 // Lookup returns the enemy entries of key (stage, room, setID), every

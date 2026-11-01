@@ -102,6 +102,12 @@ type Flags struct {
 	// liveSet says --coop-live-switches[=...] was given: a joiner that
 	// names it is refused (ForJoin), the default is not.
 	liveSet bool
+	// placedKill is --coop-placed-kill (§7.2a, M6.1), the host's choice:
+	// the hub allows proto.FeaturePlacedKill, so a partner's kill of an
+	// unkeyed placed enemy light-shrinks one live instance in the other
+	// game while both are in the room. Off by default until the live
+	// checks P1-P3 pass. A joiner that names it is refused (ForJoin).
+	placedKill, placedSet bool
 	// iso is --coop-iso: the disc image whose M1 stage tables the session
 	// uses; "" for the disc patch last wrote.
 	iso string
@@ -130,7 +136,7 @@ const coopWorldNew = "new"
 // JoinFlagsUsage is join's, which leaves the world and the host's
 // choices out.
 const (
-	FlagsUsage     = "[--coop[=new|<world-id>]] [--coop-merge] [--coop-live-switches[=off]] [--coop-dry-run] [--coop-iso <iso>] [--coop-boss-kill=" + replica.BossKillTokens + "|none] [--coop-refresh=" + replica.RefreshTokens + ",dry] [--yes]"
+	FlagsUsage     = "[--coop[=new|<world-id>]] [--coop-merge] [--coop-live-switches[=off]] [--coop-placed-kill[=on|off]] [--coop-dry-run] [--coop-iso <iso>] [--coop-boss-kill=" + replica.BossKillTokens + "|none] [--coop-refresh=" + replica.RefreshTokens + ",dry] [--yes]"
 	JoinFlagsUsage = "[--coop] [--coop-dry-run] [--coop-iso <iso>] [--coop-boss-kill=" + replica.BossKillTokens + "|none] [--coop-refresh=" + replica.RefreshTokens + ",dry] [--yes]"
 )
 
@@ -181,6 +187,12 @@ func ExtractFlags(args []string) (Flags, []string, error) {
 				return Flags{}, nil, err
 			}
 			f.liveSwitches, f.liveSet = on, true
+		case a == "--coop-placed-kill" || strings.HasPrefix(a, "--coop-placed-kill="):
+			on, err := parseOnOff(a, "--coop-placed-kill")
+			if err != nil {
+				return Flags{}, nil, err
+			}
+			f.placedKill, f.placedSet = on, true
 		case strings.HasPrefix(a, "--coop-boss-kill="):
 			v := strings.TrimPrefix(a, "--coop-boss-kill=")
 			if _, err := replica.ParseBossKill(v); err != nil {
@@ -236,6 +248,8 @@ func (f Flags) ForJoin() error {
 		return errors.New("--coop-merge is the host's choice, not the joiner's")
 	case f.liveSet:
 		return errors.New("--coop-live-switches is the host's choice, not the joiner's")
+	case f.placedSet:
+		return errors.New("--coop-placed-kill is the host's choice, not the joiner's")
 	}
 	return nil
 }
@@ -580,6 +594,9 @@ func (cs *Session) startHub(rep log.Reporter, srvLog func(string), f Flags, st *
 	if f.liveSwitches {
 		features |= hub.FeatureLiveSwitches
 	}
+	if f.placedKill {
+		features |= hub.FeaturePlacedKill
+	}
 	if f.sharesOff != "" {
 		if off, err := proto.ParseShares(strings.Split(f.sharesOff, ",")); err != nil {
 			log.Logf(rep, log.Warn, "co-op: the saved choice of what co-op shares is ignored: %v", err)
@@ -594,6 +611,7 @@ func (cs *Session) startHub(rep log.Reporter, srvLog func(string), f Flags, st *
 		SyncedSwitch: cs.tables.SwitchVerdict(),
 		SyncedScoped: cs.tables.ScopedVerdict(),
 		SyncedKill:   cs.tables.KillVerdict(),
+		SyncedPlaced: cs.tables.PlacedVerdict(),
 		Features:     features,
 		Merge:        f.merge,
 		Logf:         func(format string, args ...any) { srvLog(fmt.Sprintf(format, args...)) },
@@ -634,6 +652,9 @@ func (cs *Session) startHub(rep log.Reporter, srvLog func(string), f Flags, st *
 	live := ""
 	if f.liveSwitches {
 		live = "; live switches: the current table's switches apply when idle, once every shown room's actors have run 2 s (--coop-live-switches=off waits for the next room change)"
+	}
+	if f.placedKill {
+		live += "; --coop-placed-kill: a partner's kill of an unkeyed placed enemy light-shrinks one live instance in the other game while both are in the room (§7.2a, unverified signatures held)"
 	}
 	log.Logf(rep, log.OK, "Co-op world %s at seq %d: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them%s%s).", cs.world, st.Seq(), merge, live)
 	cs.console.help()

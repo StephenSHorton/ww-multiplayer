@@ -564,7 +564,7 @@ func (r *Replica) Guard() *Guard { return r.guard }
 func (r *Replica) want() proto.Feature {
 	if r.cfg.Want == 0 {
 		if r.cfg.Apply {
-			return proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches | proto.M4Features | proto.FeaturePuzzle | proto.FeatureCombat
+			return proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches | proto.M4Features | proto.FeaturePuzzle | proto.FeatureCombat | proto.FeaturePlacedKill
 		}
 		return proto.FeatureImage
 	}
