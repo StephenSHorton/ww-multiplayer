@@ -1,7 +1,7 @@
 # Sourced by every wind#12 rig script. Override any of these in the environment.
 # Paths follow WW-MAC-RULES.md; wind#3 (docs/mac-rig.md) is the authority if they differ.
 : "${WW:=$HOME/projects/ww-mp-wind12}"                 # this worktree (wwdev is built here)
-: "${WWDEV:=$WW/wwdev}"                                # go build -o wwdev ./cmd/wwdev
+: "${WWDEV:=$HOME/ww-shared/bin/wwdev}"                # entitled build (docs/mac-rig.md)
 : "${WWSHARED:=$HOME/ww-shared}"
 : "${ISO:=$WWSHARED/disc/WW-mp.iso}"                   # patched disc (never the vanilla CISO)
 : "${FIXTURES:=$WWSHARED/fixtures}"                    # shared originals: read-only, never launch on them

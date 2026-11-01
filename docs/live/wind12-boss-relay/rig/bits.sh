@@ -1,7 +1,9 @@
 # Source me: peek/poke helpers from runbook-batch2-bosses.md §0, plus the boss-bit clears a relay run needs.
 # Every call needs WW_DOLPHIN_PID (use: on A / on B).
 . "$(dirname "${BASH_SOURCE[0]}")/env.sh"
-on(){ export WW_DOLPHIN_PID=$(cat "$RUN/$1.pid"); echo "-> $1 pid $WW_DOLPHIN_PID"; }
+# Pair launched by scripts/mac-rig.sh pair wind12: pair.pids = "<A host>,<B>".
+RIGDIR=${RIGDIR:-$WWSHARED/rigs/wind12}
+on(){ local i; [ "$1" = A ] && i=1 || i=2; export WW_DOLPHIN_PID=$(cut -d, -f$i "$RIGDIR/pair.pids"); echo "-> $1 pid $WW_DOLPHIN_PID"; }
 pk(){ "$WWDEV" peek "$1" 4 | awk '{print $2}' | head -1; }
 clr(){ local w; w=$(pk "$1"); "$WWDEV" poke-u32 "$1" "$(printf %08X $(( w & ~0x$2 & 0xFFFFFFFF )))" >/dev/null; echo "$1 $w -> $(pk "$1")"; }
 set1(){ local w; w=$(pk "$1"); "$WWDEV" poke-u32 "$1" "$(printf %08X $(( w | 0x$2 )))" >/dev/null; echo "$1 $w -> $(pk "$1")"; }

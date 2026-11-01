@@ -6,6 +6,10 @@ Retires, where they pass: docs/TESTING.md "Regressions on the same build" rows a
 Waits on wind#3 (Mac Dolphin rig): patched disc, fixtures in ~/ww-shared, re-signed Dolphin, two-Dolphin loopback.
 
 ## Rig (rig/)
+Use wind#3's `scripts/mac-rig.sh` (docs/mac-rig.md) for launch/mp-local/shot/stop: `setup wind12`, lease a slot,
+`pair wind12`, `mp-local wind12 --coop=new --coop-boss-kill=<rows> --coop-refresh=none --yes` (background), `stop wind12`.
+The start save is `fixtures/start-mac-1CE30685.sav` (PC states do not load on Mac Dolphin 2603). `boot.sh`/`mpl.sh`/`stop.sh`
+below predate it and stay only as a fallback. `bits.sh`/`force.sh` read `rigs/wind12/pair.pids` (A = first, the host).
 - `env.sh` paths (override by env). `boot.sh A|B` copies the fixture dir to `$RUN/ud-A|B` and launches through
   `open -n -a` (LaunchServices; a direct exec of Contents/MacOS/Dolphin loads the hardened binary and attach fails,
   see wwapi/emu/launch/launch_darwin.go). PIDs go to `$RUN/A.pid`, `B.pid`.
@@ -13,8 +17,7 @@ Waits on wind#3 (Mac Dolphin rig): patched disc, fixtures in ~/ww-shared, re-sig
 - `bits.sh` (source it): `on A|B`, `pk`, `clr`, `set1`, `stage`, `req`, `dword t`, `boss_alive t`.
 - `force.sh A|B <boss> [req]` rig shortcuts (Btd armor, Bmd open flower [I], Bpw JH-1). Real fights are preferred; log every poke.
 - `sweep.sh <log>` relay lines + ISI/DSI sweep across mp-local, Player and dolphin logs. `stop.sh` kills by recorded PID only.
-- No `wwdev screenshot` on macOS (host/screenshot_other.go). Evidence = probes/actors/peeks + log lines; a `screencapture`
-  shot only if wind#3's permissions probe grants Screen Recording.
+- Screenshots: `mac-rig.sh shot <pid> <png>` (Screen Recording is granted on the rig Mac).
 - Lease one `ww/dolphin-slot-N` for the pair. No `ww/rel-blob` (no REL change on this card).
 
 ## Setup (once per session)
