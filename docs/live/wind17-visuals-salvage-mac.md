@@ -32,3 +32,35 @@ casual fixture, 0x2A80 clear). Both in Hyrule room 0, no `WW_*` set.
   texture, with no katsura. `v9-A-hair-off.png`.
 - **Not run:** V9's two-remote case (a casual and a hero remote side by side). It needs a third game
   with a real outfit. A `pose-fake-loop` clone of B carries B's outfit.
+
+## V8 Master Sword scabbard: pass
+
+Both saves (28-Hyrule3) carry the fully powered Master Sword and the Mirror Shield (`mSelectEquip` 3E 3C at
+0x803C4C16). Both games were in hero clothes and hopped to `Hyrule 0 0`, so each spawned facing the
+courtyard. B was warped to (-150, 0, 2500), so A's camera sees B's back on open lawn. Judged on crops
+of A's frames.
+
+- **Sheathed:** the Mirror Shield is on B's back, and below it is the blue-and-gold `podms` scabbard,
+  not the hero's brown `CL_PODA`. The hilt sits behind the shield from this angle.
+  `v8-A-B-masterscabbard-sheathed.png`.
+- **Drawn** (one B tap on B): the Master Sword (blue hilt, blade) is in the left hand, and the empty
+  `podms` scabbard stays on the back. The Mirror Shield is in the right hand. The models light like
+  Link (no black or full-bright parts). The glow and swing blur aren't drawn, as designed.
+  `v8-A-B-drawn-empty-podms.png`.
+
+## V3 sword, shield, scabbard: pass in part
+
+The Hero's Sword and Hero's Shield were poked into B's `mSelectEquip` (38 3B), then B hopped.
+
+- **Sheathed:** the Hero's Shield (Triforce crest) is on the back. `v3-sheathed-A.png`.
+- **Drawn:** the Hero's Sword is in the left hand, and the brown hero's scabbard (no `podms`) is on
+  the back, empty. The shield is in the right hand. `v3-drawn-A.png`.
+- **R held** (`input 0x0020` plus the trigger poke 0x80413078 00FF0000): B's guard pose, shield
+  brought forward in the right hand. `v3-guard-A.png`.
+- **Not judged:** sheathing again (B kept the sword out after a short walk), and **no sword**
+  (sword byte 0xFF). From behind, the shield covers where the hilt and scabbard would be, so that
+  frame looks the same as the sheathed one (`v3-nosword-A.png`). A side view is needed. Also not run:
+  `WW_EQUIP=off`, and checking that Link #1's own sword, shield and scabbard are unchanged frame by
+  frame (they looked normal in every shot).
+- B's equipment was restored to 3E 3C afterwards. Neither dolphin.log has an ISI, DSI or invalid
+  access.
