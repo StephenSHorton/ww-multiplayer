@@ -1,7 +1,7 @@
 # wind#12 LIVE-1: boss relay over Go on two Mac Dolphins (2026-11-01)
 
 Rig: Mac rig (docs/mac-rig.md), Dolphin 2603-342, rig `wind12`, lease ww/dolphin-slot-1. A = u1 (pid 32063, host), B = u2 (pid 34808),
-both from `fixtures/start-mac-1CE30685.sav` (file "Abahbob", Hyrule). Build: main c1278b3 + MP_LOCAL_PORT (this branch), BlobHash 0x04765DD0,
+both from `fixtures/start-mac-1CE30685.sav` (file "Abahbob", Hyrule). Build: main c1278b3 + this branch's MP_LOCAL_PORT (dropped at the rebase: main has its own since), BlobHash 0x04765DD0,
 REL 0x1CE30685. mp-local: `--coop=new --coop-boss-kill=gohma,kalle,molgera,jalhalla,helmaroc --coop-refresh=none --yes`,
 `MP_LOCAL_PORT=25601` (25565 was taken by another agent's session), `WW_ENEMY_MIRROR_KINDS=mo2,bk+u,cc+u,ki+u,mt+u`.
 
