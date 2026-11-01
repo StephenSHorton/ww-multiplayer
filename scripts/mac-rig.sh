@@ -5,7 +5,7 @@
 #   scripts/mac-rig.sh setup <rig>          make $WW_SHARED/rigs/<rig>/{u1,u2} from the fixtures, hotkeys on the keyboard
 #   scripts/mac-rig.sh pair <rig> [save]    launch two Dolphins (u1, u2) from the Mac start save; writes pair.pids
 #   scripts/mac-rig.sh one <rig> [save]     launch one Dolphin on u1; writes u1.pid
-#   scripts/mac-rig.sh mp-local <rig> [args] run wwdev mp-local on the pair (MP_LOCAL_PIDS pinned); blocks
+#   scripts/mac-rig.sh mp-local <rig> [args] run wwdev mp-local on the pair (MP_LOCAL_PIDS pinned, USER_DIR_1/2 = the rig's u1/u2); blocks
 #   scripts/mac-rig.sh stop <rig>           end this rig's Dolphins by recorded PID (never by name)
 #   scripts/mac-rig.sh shot <pid> <out.png> screenshot one Dolphin's render window
 #   scripts/mac-rig.sh fps <pid>...         game frames per second over 5 s (full speed = 30)
@@ -97,8 +97,10 @@ one)
 	echo "$pid" >"$r/u1.pid"; echo "pid $pid (in $r/u1.pid)"
 	;;
 mp-local)
-	r=$(rigdir "${1:-}"); shift
+	r=$(rigdir "${1:-}"); env_for "$1"; shift
 	[ -f "$r/pair.pids" ] || die "no $r/pair.pids: run pair first"
+	# env_for exports USER_DIR_1/2 as this rig's u1/u2: --coop reads, backs up
+	# and binds the cards there, never the default Dolphin folders.
 	cd "$r" && MP_LOCAL_PIDS=$(cat "$r/pair.pids") WW_DEV_LOGS=$r/logs exec "$WWDEV" mp-local "$@"
 	;;
 stop)
