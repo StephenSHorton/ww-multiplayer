@@ -55,3 +55,10 @@ The MO2 kill was not run here (the script's pid lookup missed the Moblin walk fo
 `bk:tg_hit_up=60` applies: the host's annex (`enemy-block-dump`) shows `override [... {TgHitUp:60} ...]` in the BK slot (override[1]).
 
 No adoption while gated: no `adopt` line mentions a gate. Sweep: no ISI, DSI or invalid access in either dolphin.log, no panic, fatal, reject or ERR_KEY in mp-local's log.
+
+## AM2 client hits (`kaze 4 4`, `mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u`, fern's rig/swing.py on B)
+
+- Front: three B swings at the copy of setID 0 from its front: no ACK, health 2/2 on both games (no damage, as the row expects; the `front` detail line itself was not seen, because these swings produced no hit record at all).
+- Back: B warped about 110 units behind setID 0 (from its angle at +0x206), four swings. The sword caught the neighbouring copy, setID 3: `ACK setID 0x3 handle 12 hit 1 applied_at/direct frames 0 sets 0 health 0`, and the host deleted it (7 -> 6 Armos on A and on B; B's slot refilled with setID 5). setID 0 itself stayed at 2/2. So one direct client hit killed an Armos, with no double apply; the two-hit back-stab and dance on one target were not reproduced.
+- Remote bodies: the host's Armos hit B's Link through PHIT/PACK the whole time it stood among them (14 PACKs, `applied/none`, B's life 80 -> 67 quarter hearts).
+- Not run: the hammer one-hit (no Skull Hammer on the start save), the statue handback, `kaze 1 1`, `Siren 0 8`. Canaries flat, no ERR_KEY, no ISI/DSI.
