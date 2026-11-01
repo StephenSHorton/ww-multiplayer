@@ -219,7 +219,7 @@ WW_ENEMY_HIT_V1=1                           # enemy-host applies a client's hit 
 WW_ENEMY_HIT_FALLBACK=shrink                # enemy-host: a v2 hit that crossed nothing after two Sets falls back to the shrink kill
 WW_ENEMY_HIT_DEMO=0                         # enemy-host: no cutscene gate on client hits (default: a hit during the host Link's demo is dropped)
 WW_ENEMY_MIRROR_KINDS=<kinds>               # Enemy kinds mirrored (mods/enemysync/kinds.go): mo2, bk, cc, ki (Keese), am (Armos Knight), am2 (Armos), tn (Darknut),
-                                            #   bb (Kargaroc), mt (Magtail) joined by "," (default mo2,bk+u,cc+u,ki+u: am, am2, tn, bb, mt are off until named); a "+u"
+                                            #   bb (Kargaroc), mt (Magtail) joined by "," (default mo2,bk+u,cc+u,ki+u,am2+u,tn+u: am, bb, mt are off until named); a "+u"
                                             #   suffix (bk+u, ki+u, tn+u, bb+u, mt+u) also takes that kind's unkeyed (setID 0xFFFF) placements (ki+u: fly-type Keese only,
                                             #   never on GanonK; tn+u: the cave Darknuts; BOSS, behaviour 12..15 and caped Darknuts are always refused; bb: the keyed
                                             #   DRC perches, bb+u also the sea birds, a rider carrying a Moblin/Bokoblin (type 5/6) is always refused; mt+u: opt-in,

@@ -45,8 +45,8 @@ func TestKindTNRow(t *testing.T) {
 			t.Errorf("ParseKinds(%q) = %v %v", v, s, err)
 		}
 	}
-	if def, _ := ParseKinds(DefaultMirrorKinds); def.Has(KindTN) {
-		t.Error("tn is on by default (D1: off until named)")
+	if def, _ := ParseKinds(DefaultMirrorKinds); !def.Has(KindTN) || !def.TakesUnkeyed(KindTN) {
+		t.Error("tn+u is not on by default (on since wind#18's Mac evidence; D1 had it off until named)")
 	}
 	if q, _ := ParseQuietKinds(DefaultQuietKinds); !q.Has(KindTN) {
 		t.Error("DefaultQuietKinds lacks tn (D1)")

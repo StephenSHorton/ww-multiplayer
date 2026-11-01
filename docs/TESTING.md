@@ -309,7 +309,7 @@ Batch C (`ww-multiplayer-handoff/design/enemy-mirror-batch-c.json`: D1-D14, layo
 - **BB**: the Kargaroc is kind row 7. Tokens `bb` (keyed) and `bb+u` (the sea birds).
 - **MT (cut)**: the Magtail was kind row 8, the first cut. P0-MT disproved its sphere model, so R-20 deleted the row before the recapture; on batch C's build id 8 stayed reserved and `mt` / `mt+u` were refused with the reason (the MT note below). Batch D restored the row.
 
-BB is off by default (`DefaultMirrorKinds` is `mo2,bk+u,cc+u,ki+u`: batch C turned the Keese on and left BB out). Batch C shipped kind table hash 0x587E10C2 (0xB826567A with the MT row). The network protocol is 4: a v0.5.0 peer is refused at the hello, and the LAN list shows it as incompatible. Batch D restored the MT row (hash 0xB826567A, protocol 5; its section below).
+BB is off by default (`DefaultMirrorKinds` is `mo2,bk+u,cc+u,ki+u,am2+u,tn+u`: batch C turned the Keese on and left BB out; wind#18 added the Armos and Darknuts). Batch C shipped kind table hash 0x587E10C2 (0xB826567A with the MT row). The network protocol is 4: a v0.5.0 peer is refused at the hello, and the LAN list shows it as incompatible. Batch D restored the MT row (hash 0xB826567A, protocol 5; its section below).
 
 Offline, before any live run (`go test -count=1 ./mods/enemysync ./wwapi/mailbox ./wwapi/addr ./mods/multiplayer/net ./internal/inject/... ./cmd/wwdev`). This list is batch C's build (02c7ad2); where batch D changed what a test checks, the bullet says so:
 

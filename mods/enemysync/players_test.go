@@ -270,7 +270,7 @@ func TestDefaultPolicyPinned(t *testing.T) {
 		kinds string
 		allow []int16
 	}{
-		{DefaultMirrorKinds, []int16{addr.ProcMo2, addr.ProcBK, addr.ProcCC, addr.ProcKI}},
+		{DefaultMirrorKinds, []int16{addr.ProcMo2, addr.ProcBK, addr.ProcCC, addr.ProcKI, addr.ProcAM2, addr.ProcTN}},
 		{"mo2,ki", []int16{addr.ProcMo2, addr.ProcKI}},
 		{"none", nil},
 	} {
@@ -295,18 +295,18 @@ func TestDefaultPolicyPinned(t *testing.T) {
 	}
 }
 
-// TestRemoteHostPHitDefaultPolicy: under the default policy and kinds, a
-// Darknut (proc TN: SeedPolicy's ALLOW, not mirrored by default) hitting
-// a remote body is no PHIT (DropNotAllowed), while a Bokoblin passes that
-// filter.
+// TestRemoteHostPHitDefaultPolicy: under the default policy and kinds, an
+// Armos Knight (proc AM: SeedPolicy's ALLOW, not mirrored by default since
+// the Armos and Darknut joined the defaults in wind#18) hitting a remote
+// body is no PHIT (DropNotAllowed), while a Bokoblin passes that filter.
 func TestRemoteHostPHitDefaultPolicy(t *testing.T) {
 	_, _, r := remoteHostGame(t, mailbox.RemoteFlagDetect)
 	r.Kinds, _ = ParseKinds(DefaultMirrorKinds)
 	r.cfg.Policy = DefaultPolicy(r.Kinds)
-	tn := ringHit(0, 0, 1, 200)
-	tn.Proc = addr.ProcTN
-	if p := r.phit(&tn, &mailbox.RemoteBlock{}, Scope{}, &Listing{}, &phitGate{relFrame: 200}); p != nil || r.Stats.DropNotAllowed != 1 {
-		t.Errorf("a Darknut's hit: %+v, drops %d", p, r.Stats.DropNotAllowed)
+	am := ringHit(0, 0, 1, 200)
+	am.Proc = addr.ProcAM
+	if p := r.phit(&am, &mailbox.RemoteBlock{}, Scope{}, &Listing{}, &phitGate{relFrame: 200}); p != nil || r.Stats.DropNotAllowed != 1 {
+		t.Errorf("an Armos Knight's hit: %+v, drops %d", p, r.Stats.DropNotAllowed)
 	}
 	bk := ringHit(0, 0, 2, 200)
 	bk.Proc = addr.ProcBK
