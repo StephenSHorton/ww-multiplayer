@@ -12,7 +12,7 @@ Sources: the zeldaret/tww decomp (citations `d_a_*.cpp:N` are its `src/d/actor/`
 | 2 | **OSHIP warship 0xB4**, kind 10 | **Build, `oship+u` only, no hit relay** (damage already crosses through fxsync), own-delete death. Keep it out of `DefaultPolicy`'s ALLOW until fxsync carries the warships' own cannonballs | ~1.1-2.0 KB (+0.15-0.3 KB for the cannonball fx kind) | Sea crossings together: 7 ships always, 19 from Hyrule2 on, 9 one-shot, 5 per save in the two Triforce rooms. Without it each player's ships sail independently, which is playable |
 | - | **BWDS Molgera larva 0xDB** | **Never.** A host larva can't match a client one (home.pos is the tongue's, per run), and a free copy jams the client Molgera's larva count, spawn cap and BGM | - | none lost: the `molgera` boss_kill relay ends the partner's fight |
 | - | **BMDHAND / BMDFOOT Kalle Demos tentacles 0xED / 0xEE** | **Never.** Refused today as `not-keyed` (room -1). Mirroring would freeze the client's vines, which drive its own flower fall, so its fight could not finish | - | none lost: the `kalle` relay |
-| - | **BGN2 / BGN3 Puppet Ganon 2-3** | **Never as mirror rows** (they are the boss). Puppet Ganon has **no boss_kill row**: a partner's win does not end the receiver's fight. That is a relay-design gap, filed as a separate item | - | - |
+| - | **BGN2 / BGN3 Puppet Ganon 2-3** | **Never as mirror rows** (they are the boss). Puppet Ganon has **no boss_kill row** by design: the GT slice (`design/coop-slice-gt.md` item 3, :285) makes it a playthrough rule (one waits in GanonL and enters after the kill, D2(7)). A relay row is optional (wind#28) | - | - |
 
 ST ranks above OSHIP: it is on the main path in two dungeons and GT, while the ships are optional fights whose damage already crosses through fxsync.
 
@@ -20,7 +20,7 @@ ST ranks above OSHIP: it is on the main path in two dungeons and GT, while the s
 
 `internal/inject/rels.RELSArcMaxGrowth` is 0x10000 stored bytes. The patcher golden on c1278b3 (`cmd/ww-multiplayer/testdata/cli-golden/patch-ok.txt:5`, REL 0x1CE30685) reads **+58528**, which leaves **7008 bytes, or about 4960 after the 0x800 reserve**. The last retail-disc reading was +58400 (docs/TESTING.md:708, 64ff61b), so about 5088. Batch D's 27 KB budget is long gone.
 
-ST plus OSHIP plus the cannonball fx kind is about 2.4-4.2 KB, so both fit only at the low end. Build them as **two REL builds, ST first**. Measure the retail growth line before each, and defer OSHIP if under ~2.5 KB is left after ST. Both rows need `EMK_KIND_COUNT` to stop depending on `EMK_WITH_MT`: with ST at 9, an MT cut leaves a hole at 8 (`wwenemy_kinds.h:49-50`, `emk_check_mt_count`). KindHash changes with each row, so peers on different builds refuse each other's enemy streams, as before.
+ST plus OSHIP plus the cannonball fx kind is about 2.4-4.2 KB. Both fit even at the high end, but that would leave as little as ~0.7 KB for all later REL work, so measure first. Build them as **two REL builds, ST first**. Measure the retail growth line before each, and defer OSHIP if under ~2.5 KB is left after ST. Both rows need `EMK_KIND_COUNT` to stop depending on `EMK_WITH_MT`: with ST at 9, an MT cut leaves a hole at 8 (`wwenemy_kinds.h:49-50`, `emk_check_mt_count`). KindHash changes with each row, so peers on different builds refuse each other's enemy streams, as before.
 
 ## Follow-up build card
 
@@ -33,7 +33,7 @@ The allow design (`ww-multiplayer-handoff/design/enemy-mirror-allow.json`, `stil
 | # | Question | Answer | How |
 |---|---|---|---|
 | S1 | OSHIP identity: keyed or unkeyed? | **Closed: unkeyed.** d_stage.cpp:816 is only the `OBJNAME("Oship", fpcNm_OSHIP_e, 255, 56)` name-table entry, not a keyed reader. All 55 `Oship` placements on the disc have setID 0xFFFF, so the row is `oship+u` only (see the OSHIP section). A live `enemy-watch` at `sea 0 9` can still confirm it. | Offline scan of every room.dzr |
-| S2 | Is a PLAIN kind's `actor.scale` always 1 after adoption (D16)? | **Yes for KI, AM, BB, MT; no for AM2.** KI changes scale only in its death shrink (`m2DC`, d_a_ki.cpp:962-967), which is already DYING. AM and MT never write `actor.scale`. BB's `scale` writes are particle locals (d_a_bb.cpp:1541-1542, :2123-2125). AM2's `action_modoru_move` (after it falls into an abyss) shrinks it to < 0.1, moves it to its spawn point and grows it back (d_a_am2.cpp:1038-1085, modes 40-41). A copy stays full size and slides to the spawn point. | Decomp grep of every `scale` write in d_a_ki/am/am2/bb/mt.cpp |
+| S2 | Is a PLAIN kind's `actor.scale` always 1 after adoption (D16)? | **Yes for KI, AM, BB, MT; no for AM2.** KI changes scale only in its death shrink (`m2DC`, d_a_ki.cpp:962-967), which is already DYING. AM and MT never write `actor.scale`. BB's `scale` writes are particle locals (d_a_bb.cpp:1541-1542, :2123-2125). AM2's `action_modoru_move` (after it falls into an abyss) shrinks it to < 0.1, moves it to its spawn point and grows it back (d_a_am2.cpp:1038-1085, modes 40-41). A copy stays full size and slides to the spawn point. Go-only fix: the AM2 sampler sets HIDDEN while mAction is MODORU_MOVE (modes 40-41), so the copy hides for the respawn. | Decomp grep of every `scale` write in d_a_ki/am/am2/bb/mt.cpp |
 | S3 | Does `play__14mDoExt_baseAnmFv` on a paused copy's btk/brk advance right? | **Still open.** R-10 shipped behind `HKD_EXTRA`. The Fire Keese flame btk and the AM2 brk were never watched live (docs/TESTING.md:165 "Flame btk: untested"). | Needs live: `M_NewD2 0 7` (two Fire Keese) with `ki` on both sides; watch the copy's flame against the host's for 10 s, then repeat with `HKD_EXTRA` set |
 | S4 | Does retail `d_a_bb.rel` .text match the decomp (`tail_control` 0x404, `daBb_Execute` 0x69A8)? | **Closed.** Batch C took a multi-word fingerprint from the disc REL offline (`enemy-mirror-batch-c.json` `judge_errors_resolved`, design 1). Live, #166 read `fp_miss` 0 at `M_NewD2 6 3` (docs/TESTING.md:372). | Records |
 | S5 | AM DEAD bck 0x1A length | **Closed: 40 frames.** `bck/dead.bck` in the disc's `Am.arc` has an ANK1 duration of 40, play once. `anm_init` plays it at speed 1.0 (d_a_am.cpp:911, :1006). That matches the A0 live read (`mFrameMax` 0x28) already in `EMK_AM_QUIET_FRAMES 40` (inject/include/wwenemy_kinds.h:470). | Read from the disc (ISO -> RELS-free `res/Object/Am.arc` -> BCK header) |
@@ -366,7 +366,7 @@ Flags:
 Go row:
 
 ```
-{ID KindOSHIP 9, Name "oship", Proc 0xB4, Arc "Oship", NoAnim true (BckFirst 0, BckLast -1),
+{ID KindOSHIP 10, Name "oship", Proc 0xB4, Arc "Oship", NoAnim true (BckFirst 0, BckLast -1),
  MorfOff 0x4B0 (model), IceOff 0, GateOff 0x2B6, AngleOff 0x20E}
 ```
 
@@ -585,6 +585,8 @@ No death exists. The decisive "must not" is the adopt itself. A paired copy has 
 When phase 1 ends, BGN creates both at its own position with params 0 (`d_a_bgn.cpp:3667-3674`): setID 0xFFFF, room = BGN's room, home.pos = BGN's current pos. That pos is the same each run only if the puppet ends at the same point, so the pkey is unreliable across games. Both carry BOSS profile status (`d_a_bgn2.cpp:1274`, `d_a_bgn3.cpp:1354`). They are the boss, not its parts: BGN2 searches for `bgn` and `bgn3` and writes `bgn3`'s position (`d_a_bgn2.cpp:594, 858-862`). Each spawns its own minions: BGN2 spawns Keese gated by `ki_check`, which counts every KI by proc (`:809-821, 1044-1048`); BGN3 spawns KS (`d_a_bgn3.cpp:1125`). So they fall under the same rule as the Molgera and Kalle Demos bodies: never mirror a boss body, and kill it by relay.
 
 Unlike Molgera and Kalle Demos, **Puppet Ganon has no `boss_kill` row** (`bosskill.go:143-148` lists six bosses, none in GanonK). "Covered by relay" does not hold here. Today each player beats their own Puppet Ganon, and a partner's win does not end the receiver's fight. That is a relay-design gap (a seventh row keyed on GanonK and the GT table, with a phase-aware gate across BGN, BGN2 and BGN3), not a mirror row. Recommendation: **NEVER as mirror rows; file it as a relay candidate** next to `coop-slice-gt.md`.
+
+Note (wind#8): this is not an unnoticed hole. `design/coop-slice-gt.md` item 3 and :285 already decide Puppet Ganon by a playthrough rule: one player waits in GanonL and enters after the partner's kill, which is clean through 0x3F10 (live check D2(7)), or both enter GanonK together until D2(9) passes. A relay row is only worth building if live play shows the rule hurts (wind#28).
 
 ---
 
