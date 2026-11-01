@@ -1,0 +1,85 @@
+Joining 127.0.0.1:25642 as "JoinB".
+co-op: backed up 1 memory-card file(s) to /Users/stephenhorton/Library/Application Support/ww-multiplayer/backups/20261101T073840Z (`coop-world restore 20261101T073840Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+co-op:   slot A GCI folder /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A (default, in use):
+co-op:     /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op: stage tables 07fce914c47490e7, /Users/stephenhorton/ww-shared/disc/WW-mp.iso from the cache: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
+co-op: shared progression this session: story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic; derived from the stage tables: the small keys of DRC, FW, TotG, ET, WT and max hearts.
+co-op: room puzzles this session: a partner's latching dan switches (103 in 6 save table(s)) sync while both are in the same stage, its zone switches (13) while both are in the same room, and its room switches (410) as it sets them, in 115 room(s); timed and other switches that clear never travel.
+co-op: combat this session: a partner's kills of keyed enemies (333 in 14 stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; 1070 unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.
+co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>.
+Ctrl+C to stop.
+=== Enemy client: JoinB <- 127.0.0.1:25642 ===
+=== Puppet Sync: JoinB <- 127.0.0.1:25642 ===
+=== Broadcast Link + Pose: JoinB -> 127.0.0.1:25642 ===
+Dolphin found.
+enemy client: mirroring the host's enemies (kinds mo2,bk+u,cc+u,ki+u), remote bodies step6; quiet deaths for mo2,bk,cc,ki,am,am2,tn,bb,mt (WW_ENEMY_QUIET_DEATH), selecting by distance (WW_ENEMY_SELECT)
+enemy client: remote-Link block on, flags 0x24FF
+[net] Connected for enemy sync (enemy ID 2)
+enemy client: game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+enemy client: REL module linked (build 1CE30685, frame 6275)
+enemy client: not mirroring: no STATE from the host yet
+Dolphin found.
+game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+Filtering self-echo: remotes named "JoinB" will be ignored.
+[net] Connected as player 3
+puppet-sync session 1 armed (server epoch 1793518714259180000)
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+co-op: max life: keeping 9 quarter heart(s) beyond the 71 its flags give: rewards no save bit records, or duplicates
+[net] Connected for co-op (co-op ID 2)
+Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[net] Connected as player 4
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:4) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 2 (HostA)
+co-op: welcome to world 1490569c486b64cf (seq 1; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic)
+co-op: armed in world 1490569c486b64cf: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (live: in the room you stand in, once idle); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give
+enemy client: mirroring: the host lists 1 enemies in M_NewD2 room 0
+enemy client: 1 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 0
+co-op: room puzzles: written to this game when idle: the partner's latching dan switches (same stage and save table) and zone switches (same room), and its room switches as it sets them, while both are in the room
+co-op: combat: written to this game when idle: the partner's kills of keyed enemies (into each loaded room's zone, so they stay dead), and a live one of them light-shrinks; unkeyed enemies stay each player's own
+enemy client: ACK setID 0x1 handle 1 hit 1 applied_at/none frames 1 sets 1 health -1
+co-op: combat: wrote 1 byte(s) after heartbeat 8693
+co-op: set the partner's dead setID 1 in room 0 (zone slot 0) (0x803C53BF |= 0x02)
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+player 2 (HostA) is between stages: hidden until it is back here (M_NewD2)
+enemy client: not mirroring: this game is not in play
+player 2 (HostA) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+co-op: wrote 2 bytes of the world after heartbeat 9565
+co-op: set t03 DRC visited room 3 (or item 35) (0x803C500F, and its live copy |= 0x08)
+enemy client: mirroring: the host lists 1 enemies in M_NewD2 room 3
+enemy client: 1 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 3
+player 2 (HostA) is between stages: hidden until it is back here (M_NewD2)
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+enemy client: not mirroring: this game is not in play
+player 2 (HostA) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy client: mirroring: the host lists 2 enemies in M_NewD2 room 0
+enemy client: 2 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 0
+enemy client: ACK setID 0x1 handle 1 hit 2 applied_at/none frames 1 sets 1 health 3
+enemy client: ACK setID 0x0 handle 3 hit 3 applied_at/none frames 1 sets 1 health 3
+enemy client: ACK setID 0x1 handle 1 hit 4 applied_at/none frames 1 sets 1 health 1
+enemy client: ACK setID 0x1 handle 1 hit 5 applied_at/none frames 1 sets 1 health -1
+co-op: combat: wrote 1 byte(s) after heartbeat 11033
+co-op: set the partner's dead setID 1 in room 0 (zone slot 0) (0x803C53BF |= 0x02)
+co-op: refresh: reloading M_NewD2 by point 0 into room 0, layer -1 (1 bytes after heartbeat 11462)
+enemy client: not mirroring: this game is not in play
+enemy client: mirroring: the host lists 1 enemies in M_NewD2 room 0
+enemy client: 2 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 0
+co-op: combat: wrote 1 byte(s) after heartbeat 11629
+co-op: set the partner's dead setID 1 in room 0 (zone slot 0) (0x803C53BF |= 0x02)
+co-op: wrote 2 bytes of the world after heartbeat 14140
+co-op: set t03 DRC switch 0x36 (0x803C4FFD, and its live copy |= 0x40)
+co-op: small keys, table 3 (DRC): door 0x36 is counted after your next room change: its switch is written, but the door shows its lock until then, and its key stays
+Shutting down... (press Ctrl+C again to force quit)
+Disconnected.
+co-op: disconnected: armed offline, queueing gains until the host is back
+Disconnected.

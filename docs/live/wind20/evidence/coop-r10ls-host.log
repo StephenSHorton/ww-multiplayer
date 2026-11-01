@@ -1,0 +1,96 @@
+co-op: backed up 2 memory-card file(s) to /Users/stephenhorton/Library/Application Support/ww-multiplayer/backups/20261101T074254Z (`coop-world restore 20261101T074254Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+co-op:   slot A GCI folder /Users/stephenhorton/ww-shared/rigs/wind20/u1/GC/USA/Card A (default, in use):
+co-op:     /Users/stephenhorton/ww-shared/rigs/wind20/u1/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op:   slot A GCI folder /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A (default, in use):
+co-op:     /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op: stage tables 07fce914c47490e7, /Users/stephenhorton/ww-shared/disc/WW-mp.iso from the cache: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
+co-op: shared progression this session: story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic; derived from the stage tables: the small keys of DRC, FW, TotG, ET, WT and max hearts.
+co-op: room puzzles this session: a partner's latching dan switches (103 in 6 save table(s)) sync while both are in the same stage, its zone switches (13) while both are in the same room, and its room switches (410) as it sets them, in 115 room(s); timed and other switches that clear never travel.
+co-op: combat this session: a partner's kills of keyed enemies (333 in 14 stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; 1070 unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.
+Co-op world 1490569c486b64cf at seq 3: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them).
+co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>.
+[srv 01:42:54] Server listening on port 25642
+Hosting as "HostA" on :25642.
+Share one of these addresses with your friend (the :port is needed):
+  (LAN address):25642
+Ctrl+C to stop.
+=== Enemy host: HostA -> localhost:25642 ===
+=== Puppet Sync: HostA <- localhost:25642 ===
+=== Broadcast Link + Pose: HostA -> localhost:25642 ===
+Dolphin found.
+enemy host: host-authoritative enemies on (kinds mo2,bk+u,cc+u,ki+u), remote Link bodies step6 (WW_ENEMY_SYNC=0 turns enemy sync off); selecting by distance (WW_ENEMY_SELECT), STATE 30 Hz gate false
+enemy host: remote-Link block on, flags 0x24FF, 19 policies, FF denylist [MajyuE majroom Majroom Mjtower]
+[srv 01:42:54] HostA (enemy host 1) connected
+[net] Connected for enemy sync (enemy ID 1)
+enemy host: REL module linked (build 1CE30685); host hits apply
+enemy host: 1 enemies (mo2,bk+u,cc+u,ki+u) in M_NewD2 room 0
+WARN: enemy host: no loaded Mo2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+enemy host: Bk resource table resolved (mObjectInfo[10], mRes 0x819FA3F0): its animation stream is on
+enemy host: CC resource table resolved (mObjectInfo[22], mRes 0x81A1FFB0): its animation stream is on
+enemy host: Ki resource table resolved (mObjectInfo[15], mRes 0x81A0F8C0): its animation stream is on
+co-op: max life: keeping 9 quarter heart(s) beyond the 71 its flags give: rewards no save bit records, or duplicates
+[srv 01:42:54] HostA (co-op 1) connected
+[net] Connected for co-op (co-op ID 1)
+Dolphin found.
+game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+Filtering self-echo: remotes named "HostA" will be ignored.
+[srv 01:42:54] HostA (ID:1) connected
+[net] Connected as player 1
+puppet-sync session 1 armed (server epoch 1793518974446528000)
+tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[srv 01:42:54] HostA (ID:2) connected
+[net] Connected as player 2
+[net] Player HostA (ID:2) in game
+[net] Player HostA (ID:1) in game
+[srv 01:42:54] co-op: HostA (co-op 1) joined world 1490569c486b64cf (seq 3; image|puzzle|combat|switches|story|inventory|keys|life|magic)
+co-op: welcome to world 1490569c486b64cf (seq 3; image|puzzle|combat|switches|story|inventory|keys|life|magic)
+co-op: armed in world 1490569c486b64cf: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (at room changes); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give
+co-op: room puzzles: written to this game when idle: the partner's latching dan switches (same stage and save table) and zone switches (same room), and its room switches as it sets them, while both are in the room
+co-op: combat: written to this game when idle: the partner's kills of keyed enemies (into each loaded room's zone, so they stay dead), and a live one of them light-shrinks; unkeyed enemies stay each player's own
+[srv 01:43:00] JoinB (enemy client 2) connected
+[srv 01:43:00] JoinB (ID:3) connected
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] Player HostA (ID:1) in game
+[net] Player JoinB (ID:3) in game
+[srv 01:43:00] JoinB (co-op 2) connected
+[srv 01:43:00] JoinB (ID:4) connected
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] Player JoinB (ID:4) in game
+[net] Player HostA (ID:1) in game
+[net] Player JoinB (ID:3) in game
+[net] Player JoinB (ID:4) in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 4 (JoinB)
+[srv 01:43:00] co-op: JoinB (co-op 2) joined world 1490569c486b64cf (seq 3; image|puzzle|combat|switches|story|inventory|keys|life|magic)
+player 4 (JoinB) is between stages: hidden until it is back here (M_NewD2)
+player 4 (JoinB) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+[srv 01:44:03] JoinB disconnected
+[srv 01:44:03] JoinB disconnected
+[srv 01:44:03] JoinB (co-op 2) disconnected
+[net] JoinB left the game
+[net] JoinB left the game
+[srv 01:44:03] JoinB (enemy client 2) disconnected
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] JoinB left the game
+[net] Player HostA (ID:2) in game
+[net] Player HostA (ID:1) in game
+[net] Player JoinB (ID:3) in game
+[net] JoinB left the game
+[net] Player HostA (ID:1) in game
+Shutting down... (press Ctrl+C again to force quit)
+Disconnected.
+slot 0 freed (player 4 left)
+co-op: disconnected: armed offline, queueing gains until the host is back
+link slot 0 freed (will be reassigned on next pose)
+[srv 01:44:03] HostA disconnected
+[srv 01:44:03] HostA (co-op 1) disconnected
+Disconnected.
+[srv 01:44:03] HostA (enemy host 1) disconnected
+[srv 01:44:03] HostA disconnected
+[srv 01:44:03] co-op: dropped the KILL M_NewD2 (table 3, room 0) store: nobody is there

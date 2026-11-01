@@ -1,0 +1,121 @@
+co-op: backed up 2 memory-card file(s) to /Users/stephenhorton/Library/Application Support/ww-multiplayer/backups/20261101T073638Z (`coop-world restore 20261101T073638Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+co-op:   slot A GCI folder /Users/stephenhorton/ww-shared/rigs/wind20/u1/GC/USA/Card A (default, in use):
+co-op:     /Users/stephenhorton/ww-shared/rigs/wind20/u1/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op:   slot A GCI folder /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A (default, in use):
+co-op:     /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op: stage tables 07fce914c47490e7, /Users/stephenhorton/ww-shared/disc/WW-mp.iso built from the disc in 0.0 s: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
+Co-op world 1490569c486b64cf at seq 1 (dry run: planned writes are logged, not made; only a binding tag is ever written, after a yes).
+co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>.
+[srv 01:36:38] Server listening on port 25642
+Hosting as "HostA" on :25642.
+Share one of these addresses with your friend (the :port is needed):
+  (LAN address):25642
+Ctrl+C to stop.
+=== Enemy host: HostA -> localhost:25642 ===
+=== Puppet Sync: HostA <- localhost:25642 ===
+=== Broadcast Link + Pose: HostA -> localhost:25642 ===
+Dolphin found.
+enemy host: host-authoritative enemies on (kinds mo2,bk+u,cc+u,ki+u), remote Link bodies step6 (WW_ENEMY_SYNC=0 turns enemy sync off); selecting by distance (WW_ENEMY_SELECT), STATE 30 Hz gate false
+enemy host: remote-Link block on, flags 0x24FF, 19 policies, FF denylist [MajyuE majroom Majroom Mjtower]
+[srv 01:36:38] HostA (enemy host 1) connected
+[net] Connected for enemy sync (enemy ID 1)
+enemy host: REL module linked (build 1CE30685); host hits apply
+enemy host: 5 enemies (mo2,bk+u,cc+u,ki+u) in Hyrule room 0
+enemy host: Mo2 resource table resolved (mObjectInfo[20], mRes 0x81B18530): its animation stream is on
+WARN: enemy host: no loaded Bk entry in mObjectInfo: that kind's animation stream is off until it resolves
+enemy host: CC resource table resolved (mObjectInfo[19], mRes 0x81AFE7A0): its animation stream is on
+enemy host: Ki resource table resolved (mObjectInfo[17], mRes 0x81AF8600): its animation stream is on
+co-op: small keys: not derived: no key table (coop-tables)
+co-op: max life: not derived: no heart table (coop-tables)
+[srv 01:36:38] HostA (co-op 1) connected
+[net] Connected for co-op (co-op ID 1)
+Dolphin found.
+game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+Filtering self-echo: remotes named "HostA" will be ignored.
+[srv 01:36:38] HostA (ID:1) connected
+[net] Connected as player 1
+puppet-sync session 1 armed (server epoch 1793518598790647000)
+tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[srv 01:36:38] HostA (ID:2) connected
+[net] Connected as player 2
+[net] Player HostA (ID:2) in game
+[net] Player HostA (ID:1) in game
+[srv 01:36:39] co-op: HostA (co-op 1) joined with an unbound file (unbound)
+co-op: the host says (NOT_BOUND): your file is not bound to co-op world 1490569c486b64cf; nothing is synced until you bind it
+co-op: the host serves world 1490569c486b64cf; this file is not bound to it (NOT_BOUND)
+co-op: preflight: same: the file and the world have the same shared progress
+  the file adds: nothing
+  the world adds: nothing
+Bind this save file to co-op world 1490569c486b64cf?
+  file slot 0, "Abahbob", clear count 0, saved and loaded
+  ww-multiplayer writes a 0x30-byte tag at 0x803C532C (dSv_reserve_c, which the game
+  saves with the file and never reads). It lands on the memory card at your next
+  in-game save. Nothing else in the file is written.
+Bind it?
+  yes (--yes)
+[srv 01:36:39] co-op: HostA (co-op 1) may bind its file to world 1490569c486b64cf (nonce b839f3c9155d3728; a subset of the world)
+co-op: bound the file to world 1490569c486b64cf (nonce b839f3c9155d3728): save in-game so the card keeps it
+[srv 01:36:39] co-op: HostA (co-op 1) joined world 1490569c486b64cf (seq 1; image)
+co-op: welcome to world 1490569c486b64cf (seq 1; image)
+co-op: armed in world 1490569c486b64cf (dry run: planned writes are logged, not made)
+[srv 01:36:44] JoinB (enemy client 2) connected
+[srv 01:36:44] JoinB (ID:3) connected
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] Player HostA (ID:1) in game
+[net] Player JoinB (ID:3) in game
+[srv 01:36:44] JoinB (co-op 2) connected
+[srv 01:36:44] JoinB (ID:4) connected
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] Player JoinB (ID:4) in game
+[net] Player HostA (ID:1) in game
+[net] Player JoinB (ID:3) in game
+[net] Player JoinB (ID:4) in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 4 (JoinB)
+[srv 01:36:44] co-op: JoinB (co-op 2) joined with an unbound file (unbound)
+[srv 01:36:45] co-op: JoinB (co-op 2) may bind its file to world 1490569c486b64cf (nonce 145800c6849b98c2; a subset of the world)
+[srv 01:36:45] co-op: JoinB (co-op 2) joined world 1490569c486b64cf (seq 1; image)
+player 4 (JoinB) is between stages: hidden until it is back here (M_NewD2)
+enemy host: 2 enemies (mo2,bk+u,cc+u,ki+u) in M_NewD2 room 0
+WARN: enemy host: no loaded Mo2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+enemy host: Bk resource table resolved (mObjectInfo[10], mRes 0x819FA3F0): its animation stream is on
+player 4 (JoinB) is out of this stage (M_NewD2; here M_NewD2): hidden until it is back
+stage gate off (no co-op place for a single partner): remotes are shown
+player 4 (JoinB) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy host: actors: the actor changed since the walk: proc 0x00BE setID 0x0000 pkey 0x9B23665F pid 403 at 0x80A9CD88; walking again
+enemy host: 1 enemies (mo2,bk+u,cc+u,ki+u) in M_NewD2 room 0
+co-op: HostA: armed; world 1490569c486b64cf at seq 1; a dry run (--coop-dry-run); 0 bytes written, 0 escapes, 0 verify failures
+co-op: HostA:   story bits held back: none
+co-op: HostA:   room puzzles: none in a dry run, which asks the host for the shared image alone; Link is in M_NewD2 (table 3, room 0), zone slot 0
+co-op: HostA:   combat: none in a dry run, which asks the host for the shared image alone
+co-op: host: room puzzles allowed; scoped stores held: 0 dan, 0 zone, 0 kill
+co-op: host:   HostA (bound): in M_NewD2 (table 3, room 0); puzzles not granted; 0 scoped bit(s) refused by the host's tables
+co-op: host:   JoinB (bound): in M_NewD2 (table 3, room 0); puzzles not granted; 0 scoped bit(s) refused by the host's tables
+co-op: host: combat allowed; 0 kill store(s) held
+co-op: host:   HostA (bound): combat not granted
+co-op: host:   JoinB (bound): combat not granted
+[srv 01:38:31] JoinB (co-op 2) disconnected
+[srv 01:38:31] JoinB disconnected
+[srv 01:38:31] JoinB (enemy client 2) disconnected
+[srv 01:38:31] JoinB disconnected
+[net] JoinB left the game
+[net] JoinB left the game
+[net] JoinB left the game
+[net] JoinB left the game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+Shutting down... (press Ctrl+C again to force quit)
+Disconnected.
+co-op: disconnected: armed offline, queueing gains until the host is back
+Disconnected.
+[srv 01:38:31] HostA (co-op 1) disconnected
+[srv 01:38:31] HostA disconnected
+[srv 01:38:31] HostA (enemy host 1) disconnected
+[srv 01:38:31] HostA disconnected
