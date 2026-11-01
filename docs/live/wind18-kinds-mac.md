@@ -62,3 +62,10 @@ No adoption while gated: no `adopt` line mentions a gate. Sweep: no ISI, DSI or 
 - Back: B warped about 110 units behind setID 0 (from its angle at +0x206), four swings. The sword caught the neighbouring copy, setID 3: `ACK setID 0x3 handle 12 hit 1 applied_at/direct frames 0 sets 0 health 0`, and the host deleted it (7 -> 6 Armos on A and on B; B's slot refilled with setID 5). setID 0 itself stayed at 2/2. So one direct client hit killed an Armos, with no double apply; the two-hit back-stab and dance on one target were not reproduced.
 - Remote bodies: the host's Armos hit B's Link through PHIT/PACK the whole time it stood among them (14 PACKs, `applied/none`, B's life 80 -> 67 quarter hearts).
 - Not run: the hammer one-hit (no Skull Hammer on the start save), the statue handback, `kaze 1 1`, `Siren 0 8`. Canaries flat, no ERR_KEY, no ISI/DSI.
+
+## TN (Darknut) T1/T2 on the Mac rig (`kaze 8 8`, `mo2+u,bk+u,cc+u,ki+u,tn+u`, main 7a21abd rebased)
+
+- T1 adopt: the host's three keyed Darknuts (setIDs 0 and 2 at 15 hp, setID 1 at 30) adopt on B as three kind-6 slots, canaries flat. Screenshot of B (`wind18-tn-copies-B.png`): two copies drawn with armor, helmet, shield and sword on the right joints, with A's mini-Link among them.
+- T2 client hits, the pass signal being the client ACK's Health: B's swings (fern's rig/swing.py) on setID 0's copy gave `applied_at` ACKs with Health 15 -> 13 -> 11 -> 9 ... -> 5 -> 1, the host's own Darknut reading the same (9/15 after three hits). One swing while the host's copy was briefly `INVULN` came back `dropped/no_cross` (no damage, no double apply). Later swings that caught setIDs 1 and 2 came back as their own `applied_at` ACKs (health 24/30 and 15).
+- Remote bodies: the host's Darknuts hit B's Link by PHIT/PACK throughout (B's life 80 -> 19 quarter hearts); B voided out on a bad warp, respawned at the entrance, and the mirror resumed (`adopted 0111`) with no errors.
+- Not run: the kill and T3's quiet death (I stopped at Health 1 with B at five hearts rather than risk a death prompt); the armor-break reset and the B* bcks; the T4 cave kills. Canaries flat, no ERR_KEY, no ISI/DSI.
