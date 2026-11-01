@@ -690,6 +690,8 @@ No tool ends a refight, a Phantom Ganon or Ganondorf (`enemy-kill` and `stage-ho
 - [x] **GT D2(8) GTower in parallel, after A2** (passed, stand-in win, wind#44, rowan): A's 0x3F40 never reaches B through four B stage changes (intro reload, GanonK and back, a death); B's sword and shield stay drawn.
 - [ ] **GT D3** (not run: wind#58).
 - [x] **Overworld D2(4) Master Sword, B behind A** (passed by real input, wind#44): A pulls the sword (0x2D04, `rebirth_hyral`, `swing_sword`, 0x3A04). B gets sw14 and the sword live, then 0x2D04, 0x3802 and 0x3A04 at its stage change; the equipment derive gives the Master Sword; B's kenroom is layer 6 (colour, torches, no pedestal), no event. The race (B at the pedestal on layer 0/1) not run.
+- [x] **Overworld D2(9) FF tower warp, after A3** (passed, wind#44, rowan): A takes Hyrule's warp out and sets 0x1820 (sent once A is idle); B's next `sea 0 1` keeps 0x1820 clear and loads the pre-rescue fortress (220 actors; with 0x1820 poked on, 146 and layer 3). The hold's release by B's own rescue not run.
+- [ ] **Overworld D2(1), (5), (7), (8), the D2(4) race, overworld D3**: long play, wind#60.
 
 ### Co-op: the session at the credits (GT Q5)
 
