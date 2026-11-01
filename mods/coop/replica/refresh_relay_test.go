@@ -121,7 +121,8 @@ func TestParseRefresh(t *testing.T) {
 		dry   bool
 		err   bool
 	}{
-		{"", nil, false, false},
+		{"", []uint16{mailbox.RefreshProcTbox, mailbox.RefreshProcLeaves, mailbox.RefreshProcSaku, mailbox.RefreshProcKokiie}, false, false}, // RefreshDefault
+		{" NONE ", nil, false, false},
 		{"none", nil, false, false},
 		{RefreshTokens, all, false, false},
 		{"stone2,leaves,item,tbox,saku", []uint16{mailbox.RefreshProcStone2, mailbox.RefreshProcLeaves, mailbox.RefreshProcItem, mailbox.RefreshProcTbox, mailbox.RefreshProcSaku}, false, false},
