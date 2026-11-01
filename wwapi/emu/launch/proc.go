@@ -8,15 +8,15 @@ type Process struct {
 	// Exe is its program ("" when it can't be read).
 	Exe string
 	// Args is its command line after the program; ArgsKnown says it
-	// could be read (Windows only, for now).
+	// could be read (Windows and macOS).
 	Args      []string
 	ArgsKnown bool
 }
 
 // Processes lists the running Dolphins, oldest first (emu.ListPIDs'
-// order). On Windows it reads each one's program and command line; on
-// macOS its program; elsewhere none run (the tool reads Dolphin's memory
-// on Windows and macOS only).
+// order). On Windows and macOS it reads each one's program and command
+// line; elsewhere none run (the tool reads Dolphin's memory on Windows and
+// macOS only).
 func Processes() []Process { return processes() }
 
 // UserDirArg returns the user folder a Dolphin command line names: -u
