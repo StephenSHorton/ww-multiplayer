@@ -1,6 +1,6 @@
 # What is left for full co-op (as of main c1278b3, v0.6.1)
 
-This is the remaining-work list for a whole-game two-player co-op run. It was first written on 2026-10-26 against main e1b9086 (#199) in the owner's handoff folder (`ww-multiplayer-handoff/design/coop-remaining.md`). On 2026-11-01 it was brought into the repo and updated to main c1278b3 (#214): v0.6.0 and v0.6.1 shipped, plus #200-#214 and the live rounds LIVE-4 to LIVE-7.
+This is the remaining-work list for a whole-game two-player co-op run. It was first written on 2026-10-26 against main e1b9086 (#199) in the owner's handoff folder (`ww-multiplayer-handoff/design/coop-remaining.md`). On 2026-11-01 it was brought into the repo and updated to main c1278b3 (#214): v0.6.0 and v0.6.1 shipped, plus #200-#214 and the live rounds LIVE-4 to LIVE-7. The ledger counts and section 2E also take in #216, #219 and #220, which landed on 2026-11-01 while this was written (tests, wind#10's macOS results, and the re-create tooling).
 
 **Build at c1278b3.** REL 0x1CE30685 (`cmd/ww-multiplayer/testdata/cli-golden/patch-ok.txt`), BlobHash 0x04765DD0 (`internal/inject/blob.go`), network protocol 6 (`mods/multiplayer/net/handshake.go`), WWMB_LAYOUT 3 (`inject/include/mailbox_core.h`), coop-tables schema 12 (`wwapi/tables/tables.go`). The tag v0.6.1 is this commit. The game code is v0.6.0's (e4d2c6e); only Go changed between the two.
 
@@ -17,7 +17,7 @@ This is the remaining-work list for a whole-game two-player co-op run. It was fi
 A first two-person run of the whole game still needs **no new REL work**. Since e1b9086:
 - **Defaults (#211):** every boss now has a relay in the default rows: `BossKillDefault = "gohma,kalle,gohdan,molgera,jalhalla,helmaroc"` [V mods/coop/replica/bosskill.go]. Live switches and the projectile events are on by default [V mods/coop/session/session.go `startHub`; mods/multiplayer/fxsync/fxsync.go].
 - **Fixes:** the soft reset no longer reboots (#202), and a parked peer boat floats on this game's water (#206). The dry-run bind refusal that LIVE-6 found is fixed (#213, passed in LIVE-7).
-- **Ledger:** TESTING.md has 256 boxes, 115 of them ticked, against 64 of 256 at e1b9086. Most new ticks are "in part" under #183's convention.
+- **Ledger:** TESTING.md has 256 boxes, 116 of them ticked, against 64 of 256 at e1b9086. Most new ticks are "in part" under #183's convention.
 - **Headroom:** RELS.arc has 7008 bytes left under the 64 KiB growth guard (+58528 bytes on the patcher golden fixture, not measured on the retail disc), so the next REL batch is tight.
 
 What is left falls in six parts:
@@ -66,6 +66,9 @@ What is left falls in six parts:
 | #211 | defaults: live switches, projectiles, Gohdan's row | decisions A3, B1, C1 below are made |
 | #213 | a dry-run bind judges story like the world; Setup flags a stale patched disc | M2 dry run binds again (LIVE-7) |
 | #214 | v0.6.1 notes; v0.6.1 released 2026-10-28 (c1278b3) | section 3 |
+| #216 (after the tag) | the TestUpdateInstall race fixed; gofmt on three test files | the Known flakes row is gone |
+| #219 (after the tag) | wind#10's macOS results for #187, #189, #193 | DS6 passed; DS7, BR-2, GF-1 and No DolphinTool in part (2E) |
+| #220 (after the tag) | `wwdev rf-ask`, the RefreshRows table check, docs/live/wind19-recreate-runbook.md | the tooling for RC-7..RC-10 and Tier 3 (2C) |
 
 ### Where the slice work lists stand
 
@@ -155,7 +158,7 @@ Carried from e1b9086 unless the row says otherwise.
 
 ## 2. Live checks owed
 
-TESTING.md at this update: 256 boxes, 115 ticked, 141 open. Most ticks since e1b9086 are "in part": read the parenthetical before trusting one.
+TESTING.md at this update: 256 boxes, 116 ticked, 140 open. Most ticks since e1b9086 are "in part": read the parenthetical before trusting one.
 
 ### 2A. Checks that gate a playthrough rule
 
@@ -180,7 +183,7 @@ Carried from e1b9086: the DRC, FW, TotG, ET and WT D3 checks synced on f9e1fe6, 
 - **Boss relays:** see 1.2.
 - **Tier 1-2 refresh:** ST1-1..ST1-6 and ST2-1 pass; ST2-2 in part (LIVE-6 saw the claimed hold keep Tier 2 out on the pot ambusher; `/status` not read), ST2-3 open.
 - **Tier 3 refresh** (`--coop-refresh`, off by default): RF-1, RF-2, RF-5 pass; RF-3, RF-4, RF-6 in part; the two-Dolphin refresh box has stone2 and tbox; leaves, item, saku and `dry` over Go are open. #199 rewrote `refresh.c` into tables, so the delete rows want a rerun on this REL.
-- **Re-create rows** (#199, opt-in): RC-1 and RC-3..RC-6 passed in part by poke, RC-2 passed on two Dolphins (LIVE-6). RC-7..RC-10 open; RC-11 doors not needed for small-key doors (1.1). The fixture switches for the poke recipe (TESTING "actor_refresh re-create") are unverified.
+- **Re-create rows** (#199, opt-in): RC-1 and RC-3..RC-6 passed in part by poke, RC-2 passed on two Dolphins (LIVE-6). RC-7..RC-10 open, with a runbook and `wwdev rf-ask` for them (#220, docs/live/wind19-recreate-runbook.md); RC-11 doors not needed for small-key doors (1.1). The fixture switches for the poke recipe (TESTING "actor_refresh re-create") are unverified.
 - **Enemy kinds:**
   - Keese (on by default): the wait-type wake, ceiling return and Fire Keese flame have no record.
   - Armos (AM2): the hammer one-hit and the statue handback have no record.
@@ -215,12 +218,12 @@ Carried from e1b9086: the DRC, FW, TotG, ET and WT D3 checks synced on f9e1fe6, 
 | PR | State |
 |---|---|
 | #186 boss container once | D4-8 in part; D4-5 open |
-| #187 RVZ/WIA/GCZ | the CLI RVZ rows and ISO-vs-RVZ pass (LIVE-6); the app rows, WIA, GCZ and the Mac DolphinTool not run |
+| #187 RVZ/WIA/GCZ | the CLI RVZ rows and ISO-vs-RVZ pass (LIVE-6); No DolphinTool's macOS form passed (#219); the app rows, WIA and GCZ not run |
 | #188 `--fix-sea-heap` | the patch line, mixed fix and the sea passed or in part (LIVE-6); the app re-patch not run |
-| #189 bug report, game-files guard, notes | BR-2 browser half and BR-3 in part (LIVE-5, before #207's fix); BR-1 not run; GF-1 in part (the negative half open); RN-1 needs a prerelease tag |
+| #189 bug report, game-files guard, notes | BR-2 in part on macOS (#219: the zip path and browser mode; Finder's Show folder not run); BR-3 in part (LIVE-5, before #207's fix); BR-1 not run; GF-1 in part (the failing half run locally, #219; no PR workflow exists to run it on Actions); RN-1 needs a prerelease tag |
 | #190 the app window | never seen in the real window |
 | #192 Dolphin file logs, run logs, crash-context | DT1-DT5 open; DT6 moot (F1 cleared) |
-| #193 owner key and status | DS4 passed on one PC; DS1, DS2, DS5 in part on one PC, other machines owed (LIVE-5); DS6 wants a rerun after #207; DS3, DS7 (Docker), DS8, PG1, PG2 not run |
+| #193 owner key and status | DS4 passed on one PC; DS1, DS2, DS5 in part on one PC, other machines owed (LIVE-5); DS6 passed on macOS against a real v0.5.0 server (#219); DS7 in part (Docker on macOS, DS1 against it not run); DS3, DS8, PG1, PG2 not run |
 | #194 remote visuals | F1 cleared; V rows in 2D |
 
 ---
@@ -289,7 +292,7 @@ Tonight's board (2026-11-01, "Wind Waker Multiplayer", parent "Full co-op state 
 **Desk (no Dolphin).**
 1. The ledger (this file, the TESTING ticks).
 2. M6.1, M9, the missing enemy rows research, GT Q5 and 3+ co-op.
-3. The macOS product checks: RVZ with the Mac DolphinTool, BR-2, GF-1's negative half, DS6, PG1, PG2.
+3. The macOS product checks (#219 ran most): the app RVZ rows, PG1, PG2, DS7's DS1.
 4. The rules card's T3/§3 Gohdan lines and its PROV table (1.7).
 5. TESTING rows for FF D2(2)/D3 and the overworld D2 checks.
 
