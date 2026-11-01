@@ -1,0 +1,8 @@
+16:Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+21:Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+215:projectiles: 1 spawned here, dropped map[]
+218:projectiles: 2 spawned here, dropped map[]
+13:Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+19:Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+454:projectiles: 0 spawned here, dropped map[self:1]
+465:projectiles: 0 spawned here, dropped map[self:2]
