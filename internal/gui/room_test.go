@@ -132,7 +132,7 @@ func TestSetCoopShares(t *testing.T) {
 	if len(got) != 1 || !slices.Equal(got[0], []string{"story", "keys", "live-switches"}) {
 		t.Fatalf("engine got %q", got)
 	}
-	const off = "inventory,switches,puzzle,combat,life,magic"
+	const off = "inventory,switches,puzzle,combat,life,magic,chest-claim"
 	if cfg, _ := config.Load(path); cfg.Coop.SharesOff != off {
 		t.Errorf("saved SharesOff %q, want %q", cfg.Coop.SharesOff, off)
 	}

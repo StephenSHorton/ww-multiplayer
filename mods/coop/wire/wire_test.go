@@ -91,6 +91,8 @@ var golden = []struct {
 		WorldID: idA, BindNonce: idB, Slot: 2, ClearCount: 0, NameHash: 0xDEADBEEF,
 		FileState: FileBound, Want: 0xF,
 	}, "01 | 0001 | 0102030405060708 | 1112131415161718 | a0a1a2a3a4a5a6a7 | b0b1b2b3b4b5b6b7 | 02 | 00 | deadbeef | 01 | 0000000f"},
+	{"CLAIM ask", Up, &Claim{Op: ClaimAsk, Table: 3, No: 2, Room: 13}, "09 | 01 | 03 | 02 | 0d"},
+	{"CLAIM consumed", Down, &Claim{Op: ClaimConsumed, Table: 14, No: 31, Room: -1}, "09 | 05 | 0e | 1f | ff"},
 	{"CO_WELCOME", Down, &CoWelcome{
 		Status: StatusOK, Features: 0xF, WorldID: idA, Seq: 0x102, FreshBind: true,
 	}, "02 | 01 | 00 | 0000000f | a0a1a2a3a4a5a6a7 | 0000000000000102 | 01"},
@@ -249,7 +251,7 @@ func randMsg(rng *rand.Rand, dir Dir) Msg {
 	room := func() int8 { return int8(rng.Intn(addr.RoomCount)) }
 	table := func() int8 { return int8(rng.Intn(addr.TableCount)) }
 	for {
-		switch Sub(1 + rng.Intn(8)) {
+		switch Sub(1 + rng.Intn(9)) {
 		case SubCoHello:
 			if dir != Up {
 				continue
@@ -312,6 +314,12 @@ func randMsg(rng *rand.Rand, dir Dir) Msg {
 				m.Arg = TombstoneArg(off, bit)
 			}
 			return m
+		case SubClaim:
+			ops := []ClaimOp{ClaimAsk, ClaimRelease}
+			if dir == Down {
+				ops = []ClaimOp{ClaimGrant, ClaimDeny, ClaimConsumed}
+			}
+			return &Claim{Op: ops[rng.Intn(len(ops))], Table: table(), No: uint8(rng.Intn(MaxChestNo + 1)), Room: int8(rng.Intn(addr.RoomCount+1)) - 1}
 		}
 	}
 }
@@ -401,7 +409,7 @@ func TestDecodeRejects(t *testing.T) {
 	}{
 		{"empty payload", Up, nil, "empty payload"},
 		{"unknown sub 0", Up, []byte{0}, "unknown sub-message 0x00"},
-		{"unknown sub 9", Down, []byte{9, 1, 2}, "unknown sub-message 0x09"},
+		{"unknown sub 10", Down, []byte{10, 1, 2}, "unknown sub-message 0x0A"},
 		{"bad direction", Dir(0), []byte{byte(SubCtrl), 1, 0, 0, 0, 0}, "unknown direction"},
 		{"CO_HELLO going down", Down, hello, "CO_HELLO does not travel s->c"},
 		{"CO_WELCOME going up", Up, welcome(1, 0, 0, 0), "CO_WELCOME does not travel c->s"},
@@ -492,6 +500,16 @@ func TestDecodeRejects(t *testing.T) {
 		{"NOTICE escape", Down, append([]byte{byte(SubNotice), 1, 4}, "\x1b[2J"...), "control character U+001B"},
 		{"NOTICE newline", Down, append([]byte{byte(SubNotice), 1, 2}, "a\n"...), "control character U+000A"},
 
+		{"CLAIM short", Up, []byte{byte(SubClaim), 1, 0, 0}, "CLAIM body is 3 bytes"},
+		{"CLAIM long", Up, []byte{byte(SubClaim), 1, 0, 0, 0, 0}, "CLAIM body is 5 bytes"},
+		{"CLAIM op 0", Up, []byte{byte(SubClaim), 0, 0, 0, 0}, "CLAIM op 0"},
+		{"CLAIM op 6", Down, []byte{byte(SubClaim), 6, 0, 0, 0}, "CLAIM op 6"},
+		{"CLAIM grant up", Up, []byte{byte(SubClaim), 3, 0, 0, 0}, "GRANT does not travel c->s"},
+		{"CLAIM ask down", Down, []byte{byte(SubClaim), 1, 0, 0, 0}, "CLAIM does not travel s->c"},
+		{"CLAIM table 16", Up, []byte{byte(SubClaim), 1, 16, 0, 0}, "CLAIM table 16"},
+		{"CLAIM table -1", Up, []byte{byte(SubClaim), 1, 0xFF, 0, 0}, "CLAIM table -1"},
+		{"CLAIM chest 32", Up, []byte{byte(SubClaim), 1, 0, 32, 0}, "CLAIM chest 32"},
+		{"CLAIM room 64", Down, []byte{byte(SubClaim), 3, 0, 0, 64}, "CLAIM room 64"},
 		{"CTRL short", Up, []byte{byte(SubCtrl), 1, 0, 0, 0}, "CTRL body is 4 bytes"},
 		{"CTRL long", Up, []byte{byte(SubCtrl), 1, 0, 0, 0, 0, 0}, "CTRL body is 6 bytes"},
 		{"CTRL op 0", Up, []byte{byte(SubCtrl), 0, 0, 0, 0, 0}, "op 0"},

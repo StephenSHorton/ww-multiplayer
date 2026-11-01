@@ -76,6 +76,7 @@ var coopRules = []coopRule{
 	{"keys", "Small keys", "Each dungeon's small keys, counted from the chests and doors", proto.FeatureKeys, ""},
 	{"life", "Hearts", "Max hearts, from every Heart Container and Piece of Heart the world has taken", proto.FeatureLife, ""},
 	{"magic", "Magic", "The magic meter", proto.FeatureMagic, ""},
+	{"chest-claim", "Chest claims", "When you both stand at one chest, only the first to reach it can open it", proto.FeatureChestClaim, ""},
 	{"live-switches", "Live switches", "Switches of the room you stand in, while you are idle", proto.FeatureLiveSwitches, ""},
 	{"merge", "Merging", "A file with progress the world lacks may still bind, and its progress joins the world", 0, ""},
 	{"dry-run", "Dry run", "Co-op plans its writes and logs them, but writes nothing into the games", 0,
