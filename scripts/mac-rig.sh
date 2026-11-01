@@ -3,7 +3,7 @@
 # with its own Dolphin user dirs, so many agents can run Dolphins on one Mac.
 #
 #   scripts/mac-rig.sh setup <rig>          make $WW_SHARED/rigs/<rig>/{u1,u2} from the fixtures, hotkeys on the keyboard
-#   scripts/mac-rig.sh pair <rig> [save]    launch two Dolphins (wwdev dolphin2) from the Mac start save; writes pair.pids
+#   scripts/mac-rig.sh pair <rig> [save]    launch two Dolphins (u1, u2) from the Mac start save; writes pair.pids
 #   scripts/mac-rig.sh one <rig> [save]     launch one Dolphin on u1; writes u1.pid
 #   scripts/mac-rig.sh mp-local <rig> [args] run wwdev mp-local on the pair (MP_LOCAL_PIDS pinned); blocks
 #   scripts/mac-rig.sh stop <rig>           end this rig's Dolphins by recorded PID (never by name)
@@ -21,6 +21,7 @@ WWDEV=${WWDEV:-$WW_SHARED/bin/wwdev}
 DOLPHIN_APP=${DOLPHIN_APP:-$HOME/Applications/Dolphin.app}
 ISO=${ISO_PATH:-$WW_SHARED/disc/WW-mp.iso}
 SAVE_DEFAULT=$WW_SHARED/fixtures/start-mac-1CE30685.sav
+[ -f "$SAVE_DEFAULT" ] || SAVE_DEFAULT=none
 
 die() { echo "mac-rig: $*" >&2; exit 1; }
 rigdir() { [ -n "${1:-}" ] || die "name a rig"; echo "$WW_SHARED/rigs/$1"; }
@@ -46,6 +47,23 @@ open(p, 'w').write(s)
 PY
 }
 
+# launch_on <userdir> <save|none>: one Dolphin on that user dir (48 MB MEM1,
+# no panic popups, dev log); prints its PID, found by its own -u argument.
+launch_on() {
+	local u=$1 save=$2 pid=""
+	pgrep -f -- "-u $u " >/dev/null && die "a Dolphin already runs on $u (stop it first)"
+	rm -rf "$u/Logs"
+	local args=(-u "$u" -b -e "$ISO" -C Dolphin.Core.RAMOverrideEnable=True -C Dolphin.Core.MEM1Size=0x03000000
+		-C Dolphin.Interface.UsePanicHandlers=False -C Dolphin.Interface.ConfirmStop=False
+		-C Logger.Options.WriteToFile=True -C Logger.Options.Verbosity=4 -C Logger.Logs.OSREPORT=True
+		-C Logger.Logs.MI=True -C Logger.Logs.MASTER=True)
+	[ "$save" = none ] || args+=("--save_state=$save")
+	/usr/bin/open -n -a "$DOLPHIN_APP" --args "${args[@]}"
+	for _ in $(seq 1 60); do pid=$(pgrep -f -- "-u $u " | head -1 || true); [ -n "$pid" ] && break; sleep 0.25; done
+	[ -n "$pid" ] || die "no Dolphin appeared on $u"
+	echo "$pid"
+}
+
 env_for() {
 	local r; r=$(rigdir "$1")
 	export DOLPHIN_EXE=$DOLPHIN_APP/Contents/MacOS/Dolphin ISO_PATH=$ISO USER_DIR_1=$r/u1 USER_DIR_2=$r/u2 WW_DOLPHIN_DEVLOG=1
@@ -66,21 +84,16 @@ setup)
 	echo "rig $r ready (u1, u2)"
 	;;
 pair)
-	r=$(rigdir "${1:-}"); env_for "$1"; save=${2:-$SAVE_DEFAULT}
-	export SAVE_STATE=$save WW_DEV_LOGS=$r/logs
-	(cd "$r" && "$WWDEV" dolphin2) | tee "$r/dolphin2.out"
-	grep -o 'Launched Dolphin [12] (pid [0-9]*' "$r/dolphin2.out" | awk '{print $5}' | paste -sd, - >"$r/pair.pids"
-	echo "pair pids: $(cat "$r/pair.pids") (in $r/pair.pids)"
+	# Launches both Dolphins itself: wwdev dolphin2 adopts any running Dolphin
+	# as Dolphin 1, which on a shared Mac is another agent's.
+	r=$(rigdir "${1:-}"); save=${2:-$SAVE_DEFAULT}
+	p1=$(launch_on "$r/u1" "$save"); p2=$(launch_on "$r/u2" "$save")
+	[ -n "$p1" ] && [ -n "$p2" ] && [ "$p1" != "$p2" ] || die "pair: got pids '$p1' '$p2'"
+	echo "$p1,$p2" >"$r/pair.pids"; echo "pair pids: $p1,$p2 (in $r/pair.pids)"
 	;;
 one)
 	r=$(rigdir "${1:-}"); save=${2:-$SAVE_DEFAULT}
-	args=(-u "$r/u1" -b -e "$ISO" -C Dolphin.Core.RAMOverrideEnable=True -C Dolphin.Core.MEM1Size=0x03000000
-		-C Dolphin.Interface.UsePanicHandlers=False -C Dolphin.Interface.ConfirmStop=False
-		-C Logger.Options.WriteToFile=True -C Logger.Options.Verbosity=4 -C Logger.Logs.OSREPORT=True -C Logger.Logs.MASTER=True)
-	[ "$save" = none ] || args+=("--save_state=$save")
-	/usr/bin/open -n -a "$DOLPHIN_APP" --args "${args[@]}"
-	for _ in $(seq 1 40); do pid=$(pgrep -f -- "-u $r/u1 " | head -1 || true); [ -n "$pid" ] && break; sleep 0.25; done
-	[ -n "${pid:-}" ] || die "no Dolphin appeared"
+	pid=$(launch_on "$r/u1" "$save")
 	echo "$pid" >"$r/u1.pid"; echo "pid $pid (in $r/u1.pid)"
 	;;
 mp-local)
