@@ -103,6 +103,8 @@ func TestRfAskRecreated(t *testing.T) {
 	s := out.String()
 	for _, want := range []string{
 		"re-create, bit kind 1 bit 42 (0x2A)",
+		"switch 42 (",
+		": clear (expect NOT_SET)",
 		"before: state +0x4B8 u32 = 0 (idle)",
 		"seq 8: re-created (result 8)",
 		"new pid 1300",
@@ -154,6 +156,14 @@ func TestRfAskRefusals(t *testing.T) {
 	}
 	if n := len(r.m.Writes()); n != 0 {
 		t.Errorf("%d writes with a request pending", n)
+	}
+	// --force asks past it, with the next seq.
+	env := r.env()
+	env.force = true
+	r.result = uint32(mailbox.RefreshRNotSet) << 24
+	var out strings.Builder
+	if err := rfAsk(&out, r.m, 1234, env); err != nil || !strings.Contains(out.String(), "seq 10: ") {
+		t.Errorf("force: %v\n%s", err, out.String())
 	}
 	// No REL: the ack never comes.
 	r = newVmcRig(t)
