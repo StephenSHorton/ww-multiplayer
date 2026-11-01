@@ -187,6 +187,7 @@ const SHARES = [
 	["keys", "Small keys", "Each dungeon's small keys, counted from the chests and doors"],
 	["life", "Hearts", "Max hearts, from every Heart Container and Piece of Heart the world has taken"],
 	["magic", "Magic", "The magic meter"],
+	["chest-claim", "Chest claims", "When you both stand at one chest, only the first to reach it can open it"],
 	["live-switches", "Live switches", "Switches of the room you stand in, while you are idle"],
 ];
 

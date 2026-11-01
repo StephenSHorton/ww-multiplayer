@@ -96,6 +96,12 @@ const (
 	// Deku Leaf's get-item flag and event 0x3180, which need no table,
 	// raised through the HUD's pending counter, never lowered.
 	FeatureMagic Feature = 1 << 17
+	// FeatureChestClaim is M9's chest claims (docs/08 §6.7.1): while a
+	// partner is in the same stage and table, the replica holds each
+	// closed chest of its room (no "Open" prompt) until the hub grants it
+	// the chest (CLAIM, wire/claim.go), so two players never both loot
+	// one chest. Go only; it needs no bytes, and the hub is the arbiter.
+	FeatureChestClaim Feature = 1 << 18
 
 	// FeatureMerge says the host runs with --coop-merge (§5.3): a file
 	// with progress the world lacks (divergent) or one far behind it may
@@ -128,14 +134,16 @@ const M4Features = FeatureStory | FeatureInventory | FeatureKeys | FeatureLife |
 
 // SessionFeatures is every session feature: what a replica may want and a
 // host may allow.
-const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLiveSwitches | FeatureSwitches | M4Features | FeaturePlacedKill
+const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLiveSwitches | FeatureSwitches | M4Features | FeaturePlacedKill | FeatureChestClaim
 
 // DefaultFeatures is what a host allows unless told otherwise (a --coop
 // session): everything but live switches and placed kills. The session
 // adds FeatureLiveSwitches itself unless the host passes
 // --coop-live-switches=off (on by default since v0.6.1; startHub), and
-// FeaturePlacedKill only with --coop-placed-kill (off by default).
-const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSwitches | M4Features
+// FeaturePlacedKill only with --coop-placed-kill (off by default). Chest
+// claims (FeatureChestClaim) are on: they only hold a chest a partner
+// could open too.
+const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSwitches | M4Features | FeatureChestClaim
 
 // TableFeatures are the session features that read the M1 stage tables
 // (wwapi/tables): which switches latch (memory switches, the live
@@ -206,6 +214,7 @@ var featureNames = []struct {
 	{FeatureLife, "life"},
 	{FeatureMagic, "magic"},
 	{FeaturePlacedKill, "placed-kill"},
+	{FeatureChestClaim, "chest-claim"},
 	{FeatureMerge, "merge"},
 	{FeatureBind, "bind"},
 	{AskUnsaved, "ask-unsaved"},

@@ -542,6 +542,9 @@ func (r *Replica) planRefresh(t *refreshTick, w *actors.Walk, demo bool, demoWhy
 		if why == "" {
 			why = t.linkFar(a.Pos)
 		}
+		if why == "" && r.heldChest(a.PID) {
+			why = "a chest claims hold keeps it closed until its room reloads (chests.go)"
+		}
 		if why == "" && !demo {
 			why = demoWhy
 		}

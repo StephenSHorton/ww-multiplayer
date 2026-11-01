@@ -191,6 +191,8 @@ func (h *Hub) onFrame(p *peer, payload []byte) {
 		h.onScoped(p, m)
 	case *wire.Ctrl:
 		h.onCtrl(p, m)
+	case *wire.Claim:
+		h.onClaim(p, m)
 	}
 }
 
@@ -456,6 +458,7 @@ func (h *Hub) onWorld(p *peer, m *wire.World) {
 	h.sendWorld(p)
 	h.relay(p, r, false)
 	h.rejects(p, r.Rejected)
+	h.consumeClaims()
 	if len(r.Delta) > 0 {
 		h.logf("co-op: %s's WORLD added %d bytes to the world (seq %d)", p, len(r.Delta), r.Seq)
 	}
@@ -543,6 +546,7 @@ func (h *Hub) onGains(p *peer, m *wire.GainsUp) {
 	}
 	h.relay(p, r, true)
 	h.rejects(p, r.Rejected)
+	h.consumeClaims()
 }
 
 // relay sends r's effective delta as GAINS to the bound peers with the

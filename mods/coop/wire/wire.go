@@ -10,6 +10,7 @@
 //	0x06 SCOPED      both   dan, zone, room-edge or kill words for one stage or room
 //	0x07 NOTICE      s->c   a coded, human-readable reason
 //	0x08 CTRL        both   resync, co-op off, tombstone
+//	0x09 CLAIM       both   a chest claim and the hub's verdict (M9, claim.go)
 //
 // No raw address travels: offsets index the canonical dSv_save_c image
 // (wwapi/addr Off* offsets) and words index one game array, and
@@ -67,6 +68,7 @@ const (
 	SubScoped    Sub = 0x06
 	SubNotice    Sub = 0x07
 	SubCtrl      Sub = 0x08
+	SubClaim     Sub = 0x09
 )
 
 func (s Sub) String() string {
@@ -87,6 +89,8 @@ func (s Sub) String() string {
 		return "NOTICE"
 	case SubCtrl:
 		return "CTRL"
+	case SubClaim:
+		return "CLAIM"
 	}
 	return fmt.Sprintf("Sub(0x%02X)", uint8(s))
 }
@@ -117,7 +121,7 @@ func (s Sub) travels(d Dir) bool {
 		return d == Up
 	case SubCoWelcome, SubNotice:
 		return d == Down
-	case SubWorld, SubGains, SubPresence, SubScoped, SubCtrl:
+	case SubWorld, SubGains, SubPresence, SubScoped, SubCtrl, SubClaim:
 		return d == Up || d == Down
 	}
 	return false
@@ -138,7 +142,7 @@ func bad(format string, args ...any) error {
 }
 
 // Msg is one decoded sub-message: *CoHello, *CoWelcome, *World, *GainsUp,
-// *GainsDown, *Presence, *Scoped, *Notice or *Ctrl.
+// *GainsDown, *Presence, *Scoped, *Notice, *Ctrl or *Claim.
 type Msg interface {
 	Sub() Sub
 	// validate reports why the message can't be sent, or nil.
@@ -189,6 +193,8 @@ func Decode(payload []byte, dir Dir) (Msg, error) {
 		return asMsg(decodeScoped(body))
 	case SubNotice:
 		return asMsg(decodeNotice(body))
+	case SubClaim:
+		return asMsg(decodeClaim(body, dir))
 	default: // SubCtrl
 		return asMsg(decodeCtrl(body))
 	}

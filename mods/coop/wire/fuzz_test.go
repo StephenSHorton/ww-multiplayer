@@ -105,6 +105,11 @@ func FuzzDecodeCtrl(f *testing.F) {
 	fuzzDecoder(f, SubCtrl, decodeCtrl, nil, []byte{3, 0, 0, 0x51, 0}, []byte{3, 0xFF, 0xFF, 0xFF, 0xFF})
 }
 
+func FuzzDecodeClaim(f *testing.F) {
+	up := func(b []byte) (*Claim, error) { return decodeClaim(b, Up) }
+	fuzzDecoder(f, SubClaim, up, nil, []byte{1, 0x10, 0x20, 0x40}, []byte{3, 0, 0, 0})
+}
+
 // FuzzDecode runs the dispatcher over any payload in either direction: the
 // same contract, plus the direction rule.
 func FuzzDecode(f *testing.F) {

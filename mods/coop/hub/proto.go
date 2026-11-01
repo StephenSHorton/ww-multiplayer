@@ -25,6 +25,7 @@ const (
 	FeatureLife         = proto.FeatureLife
 	FeatureMagic        = proto.FeatureMagic
 	FeaturePlacedKill   = proto.FeaturePlacedKill
+	FeatureChestClaim   = proto.FeatureChestClaim
 	FeatureMerge        = proto.FeatureMerge
 	FeatureBind         = proto.FeatureBind
 	AskUnsaved          = proto.AskUnsaved

@@ -1340,9 +1340,10 @@ func TestFeatureString(t *testing.T) {
 		want string
 	}{
 		{0, "none"},
-		{DefaultFeatures, "image|puzzle|combat|switches|story|inventory|keys|life|magic"},
+		{DefaultFeatures, "image|puzzle|combat|switches|story|inventory|keys|life|magic|chest-claim"},
 		{TableFeatures, "puzzle|combat|live-switches|switches|keys|life|placed-kill"},
 		{FeatureBind | AskBind | 1<<20, "bind|ask-bind|0x100000"},
+		{FeatureChestClaim, "chest-claim"},
 	}
 	for _, tc := range cases {
 		if got := tc.f.String(); got != tc.want {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
@@ -400,6 +401,9 @@ func (r *Replica) TurnOff(why string) {
 	if why == "" {
 		why = "co-op was turned off"
 	}
+	// Held chests come back first (chests.go): nothing may be written
+	// once the writer stops.
+	r.releaseChests(2 * time.Second)
 	r.writer.Stop(why)
 }
 
