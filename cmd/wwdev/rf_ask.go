@@ -13,8 +13,10 @@ package main
 //
 // It is for one Dolphin with no --coop-refresh relay running: a request
 // still pending (seq != ack) is refused, since a second writer would make
-// the relay misread its acks. It does not set the bit: set it first (the
-// RC recipe's poke) and read it back.
+// the relay misread its acks; --force asks anyway (only the REL moves the
+// ack, so one unacked rf-ask would otherwise lock the tool out). It does
+// not set the bit: it prints the switch's byte, mask and whether it is set
+// (switch rows), so set it first (the RC recipe's poke) and check that line.
 
 import (
 	"errors"
@@ -33,16 +35,18 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
-const rfAskUsage = "rf-ask <pid> [wait-ms=2000]   (one Dolphin, no --coop-refresh relay running; set the bit first)"
+const rfAskUsage = "rf-ask <pid> [wait-ms=2000] [--force]   (one Dolphin, no --coop-refresh relay running; set the bit first; --force: ask past a request still pending, e.g. your own timed-out one)"
 
 // rfAskEnv is what rfAsk reads besides m; tests replace it.
 type rfAskEnv struct {
 	find  func(m mem.Reader, pid uint32) (actors.Actor, bool, error) // the actor, re-read
 	wait  time.Duration
 	sleep func(time.Duration) // between ack polls
+	force bool                // ask even while a request is pending (seq != ack)
 }
 
-// rfFind walks the queue for pid and re-reads it as the relay does.
+// rfFind walks the queue for pid and re-reads it as the relay does. A
+// miss on a walk that did not finish is an error, not "no actor".
 func rfFind(m mem.Reader, pid uint32) (actors.Actor, bool, error) {
 	aw, err := actors.Read(m, actors.MaxNodes)
 	if err != nil {
@@ -50,6 +54,9 @@ func rfFind(m mem.Reader, pid uint32) (actors.Actor, bool, error) {
 	}
 	a, ok := aw.ByPID(pid)
 	if !ok {
+		if !aw.Complete() {
+			return actors.Actor{}, false, fmt.Errorf("pid %d not found, but the walk did not finish (%s): try again", pid, walkNote(&aw))
+		}
 		return actors.Actor{}, false, nil
 	}
 	typ, err := mem.ReadU32(m, addr.FopAcType)
@@ -101,6 +108,45 @@ func rfStateLine(m mem.Reader, row *mailbox.RefreshRow, a uint32) (string, error
 	return s, nil
 }
 
+// rfSwitchLine reads switch no as an actor of room reads it: its store,
+// byte address, mask and whether it is set now, so the RC recipe's "bit
+// clear: NOT_SET, bit set: the row's answer" is read off rf-ask itself.
+func rfSwitchLine(m mem.Reader, no, room int) string {
+	st, bit, err := addr.SwitchBit(no)
+	if err != nil {
+		return fmt.Sprintf("switch %d: %v", no, err)
+	}
+	var at uint32
+	switch st {
+	case addr.SwitchMemory:
+		at = addr.LiveMemBit + uint32(bit.Off)
+	case addr.SwitchDan:
+		at = addr.Dan + uint32(bit.Off)
+	default:
+		za, err := addr.ZoneNoAddr(room)
+		if err != nil {
+			return fmt.Sprintf("switch %d (%s) of room %d: %v", no, st, room, err)
+		}
+		z, err := mem.ReadS8(m, za)
+		if err != nil {
+			return fmt.Sprintf("switch %d (%s): %v", no, st, err)
+		}
+		if at, err = addr.ZoneAddr(int(z)); err != nil {
+			return fmt.Sprintf("switch %d (%s) of room %d: zone %d: %v", no, st, room, z, err)
+		}
+		at += uint32(bit.Off)
+	}
+	v, err := mem.ReadU8(m, at)
+	if err != nil {
+		return fmt.Sprintf("switch %d (%s): %v", no, st, err)
+	}
+	set := "clear (expect NOT_SET)"
+	if v&bit.Mask != 0 {
+		set = "set"
+	}
+	return fmt.Sprintf("switch %d (%s) byte 0x%08X mask 0x%02X = 0x%02X: %s", no, st, at, bit.Mask, v, set)
+}
+
 // rfAsk sends one request for pid and reports the REL's answer.
 func rfAsk(w io.Writer, m mem.Mem, pid uint32, env rfAskEnv) error {
 	a, ok, err := env.find(m, pid)
@@ -125,6 +171,9 @@ func rfAsk(w io.Writer, m mem.Mem, pid uint32, env rfAskEnv) error {
 	}
 	fmt.Fprintf(w, "pid %d %s 0x%08X params 0x%08X room %d pos (%.1f %.1f %.1f): %s, bit kind %d bit %d (0x%02X), create room %d\n",
 		pid, mailbox.RefreshProcName(proc), a.Addr, a.Params, a.HomeRoom, a.Pos[0], a.Pos[1], a.Pos[2], verb, ask.BitKind, ask.BitNo, ask.BitNo, ask.Room)
+	if ask.BitKind == mailbox.RefreshBitSw {
+		fmt.Fprintln(w, rfSwitchLine(m, int(ask.BitNo), int(a.HomeRoom)))
+	}
 	row := mailbox.RefreshRowOf(proc)
 	if row != nil {
 		s, err := rfStateLine(m, row, a.Addr)
@@ -137,8 +186,8 @@ func rfAsk(w io.Writer, m mem.Mem, pid uint32, env rfAskEnv) error {
 	if err != nil {
 		return err
 	}
-	if st.Seq != st.Ack {
-		return fmt.Errorf("a request is still pending (seq %d, ack %d): is a --coop-refresh relay running here? rf-ask is for one Dolphin with none", st.Seq, st.Ack)
+	if st.Seq != st.Ack && !env.force {
+		return fmt.Errorf("a request is still pending (seq %d, ack %d): is a --coop-refresh relay running here? rf-ask is for one Dolphin with none. If it is your own timed-out rf-ask, pass --force", st.Seq, st.Ack)
 	}
 	seq := max(st.Seq, st.Ack) + 1
 	if seq == 0 {
@@ -207,7 +256,7 @@ func rfAsk(w io.Writer, m mem.Mem, pid uint32, env rfAskEnv) error {
 }
 
 func runRfAsk(cmd string, args []string) {
-	pos, _, err := diag.SplitFlags(args)
+	pos, flags, err := diag.SplitFlags(args, "force")
 	if err != nil {
 		exitUsage(err, rfAskUsage)
 	}
@@ -222,7 +271,7 @@ func runRfAsk(cmd string, args []string) {
 	if err != nil {
 		exitUsage(err, rfAskUsage)
 	}
-	env := rfAskEnv{find: rfFind, wait: time.Duration(waitMS) * time.Millisecond, sleep: time.Sleep}
+	env := rfAskEnv{find: rfFind, wait: time.Duration(waitMS) * time.Millisecond, sleep: time.Sleep, force: flags["force"]}
 	err = diag.WithMem(openDolphin, func(m mem.Mem) error { return rfAsk(os.Stdout, m, uint32(pid), env) })
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", cmd, err)
