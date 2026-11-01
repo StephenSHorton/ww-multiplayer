@@ -1,8 +1,8 @@
 # wind#60: overworld D2 long-play rows on the Mac rig (2026-11-01)
 
-Status: planned, waiting for a Dolphin pair slot. Left from wind#44 (`docs/live/wind44-gt-ow-2026-11-01.md` on
+Status: done. The D2(4) race passes; the other rows are deferred to real play-testing (Stephen, wind#60 b1, 2026-11-01). Left from wind#44 (`docs/live/wind44-gt-ow-2026-11-01.md` on
 `mac/wind44-gt-ow`). Rows from the overworld slice (handoff `design/coop-slice-overworld.md`, Stream D, D2), on main
-eb7948f (REL 0xA9DE0F1E; A1, A2 and A3 merged in #177). Fixtures: wind44's rig folder (`~/ww-shared/rigs/wind44/fixtures`),
+eb7948f (REL 0xA9DE0F1E; A1, A2 and A3 merged in #177). Fixtures: wind44's rig folder (`ww-shared/rigs/wind44/fixtures`),
 recaptured as Mac start states on this REL before use. Event bytes live at 0x803C522C + byte.
 
 Blind input can't sail, aim at a moving target or win a fight on this rig (wind#44 needed stand-in pokes for every boss win).
@@ -22,4 +22,36 @@ way wind#44's GT rows did. Every stand-in is named as one in the result.
 
 ## Results
 
-(none yet)
+### D2(4) the race: PASS (A2 holds sw13 per player)
+
+Pair: both `ow-d2-4-AB-9-Hyrule1` from wind44's `state-ow-d2-4-AB-9-Hyrule1.sav` (REL 0xA9DE0F1E), rig `wind60`
+(slot 2), `mac-rig.sh mp-local wind60 --coop=new --coop-live-switches`. World 734236e7 founded from A, both bound, same progress.
+t9 switch word read at 0x803C50D0 (sw11 0x0800, sw12 0x1000, sw13 0x2000, sw14 0x4000); event 0x2D at 0x803C5259, 0x38..0x3B at 0x803C5264.
+
+1. B first: `stage-hop kenroom 0 0`, greyscale, the pedestal tag (proc 0x019C at -124.7, -3198.5, -7823.4) present: layer 0/1.
+   B warped in front of the pedestal; its own `TagHt2` hint played (pressed through). A's game: `set t09 Hyrule switch 0x0E`
+   (sw14, live), so A's pedestal was armed without its hint.
+2. A: `stage-hop kenroom 0 0`, warped to the same spot, faced the pedestal, one step of stick: `master_sword` started. A pressed
+   through `master_sword`, `rebirth_hyral` and `swing_sword`: A's 0x2D04 set (0x2D 0x10 -> 0x14), then 0x3802 and 0x3A04
+   (0x803C5264 0x40280000 -> 0x62280400), and A's t9 word ended 0x7804 (sw11..14). `wind60/d24-A-pull.png`.
+3. B idled at the pedestal on layer 0/1 the whole time, well over 2 s after A's batch (`wind60/d24-B-waits.png`: both Links at
+   the pedestal, the sword still in it, greyscale). In that time B got only the Master Sword by inventory (`set mCollect[0..3]
+   bit 1`, live). **B's t9 word stayed 0x0004: A's sw13 (and sw11/sw12) was never written to B**, live switches on.
+4. B pulled: B's own `master_sword` played and set B's 0x2D04 itself (no co-op write of it). At that stage change B's log:
+   `writing 2 story bits`: `set event 0x3802`, `set event 0x3A04`, then `wrote equipment 0x803C4C16 38 -> 39: sword: the Hero's
+   Sword -> the Master Sword`. B went on through its own `rebirth_hyral` (B's sw12 set by B) and `swing_sword` (B's sw13 set by B,
+   t9 0x5804 -> 0x7804), and ended idle in the coloured kenroom with the Master Sword on B and A's mini-Link beside it
+   (`wind60/d24-B-after.png`).
+
+So with A2 (on main since #177) the race the slice feared (B skipping `swing_sword` because A's sw13 landed first) does not
+happen: sw13 stays each player's, and B plays its whole chain. Logs: rig `wind60`, `mpl-d24.log`. Both Dolphins stopped
+cleanly; no ISI/DSI, invalid access or JUTException in either dolphin.log; no ERROR or panic in mp-local.
+
+### Deferred to real play-testing
+
+Stephen (wind#60 b1): the scope of a scripted overworld playthrough is too much; these rows get picked up when the game is
+actually played together. Not run on the rig:
+- D2(1) the Outset strand (needs a pre-departure pair no fixture has; A1 is on main);
+- D2(5) the tower rising, D2(7) charts and salvage, D2(8) Cyclos (sailing, aiming, a fight: only stand-in pokes on the rig);
+- D3 the two-person overworld playthrough.
+The plan above keeps the recipes for anyone who wants a rig version later.
