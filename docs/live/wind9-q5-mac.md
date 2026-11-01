@@ -76,3 +76,31 @@ refusal on loading the cleared file).
 
 Crash sweep: no ISI, DSI or invalid access in either `dolphin.log`; no panic in the session log.
 Both Dolphins stopped by PID, mp-local by its stop file, lease released (handed to reed, wind#44).
+
+## Q5-1 rerun on the fix (2026-11-01, 12:38-12:58; grove)
+
+Build: main cf165a5 (#275: the credits are mNextStage "ENDING"), REL 0xA9DE0F1E, wwdev built from
+it and entitled. Rig `wind9q5b` (fresh `setup`), lease `ww/dolphin-slot-3`, both cards the
+GanonK-cleared GCI (md5 c6b3c091…), `pair` from the rig start save made earlier from that GCI
+(PIDs 64451, 64563, both 30 fps). `mp-local wind9q5b Aryll Tetra --coop=new`: world a2a1b3be…,
+both bound and armed. A's mCurStage, mNextStage, mEnable and Link, and B's t0 byte 0x803C4F99,
+logged every ~1 s (`poll.log`).
+
+1. 12:41:10 `stage-hop GTower 2 0 9 --yes` on A; A pressed for 150 ms every 2 s only until
+   mNextStage read ENDING, then hands off.
+2. 12:44:20 the ending request: `cur=GTower next=ENDING en=0x01 link=0x80ABAB8C`. In the same
+   second B logged `[coop-B] co-op: Aryll has reached the credits; their game has left the
+   co-op world, yours plays on`. From 12:44:22 `link=0` (the movie), mCurStage still GTower.
+3. `coop-probe` on A during the movie: `STABLE closed: the credits are playing (GT Q5: this game
+   has left the co-op world)` (before #275 it said "Link is not loaded").
+4. Nothing left A from the request on: no gains, sets or relays in either log.
+5. 12:52:49 NAMEEX (`cur=NameG`). B's 0x803C4F99 read 0x12 throughout (sw114 0x04, sw118 0x40
+   clear).
+6. Q5-2, in part: Yes on NAMEEX's save, Quest Log 1, Yes on save over. A's clear count read 1
+   in RAM, and mReserve still held the world tag. The game then sat on Choose a Quest Log; A
+   presses by `wwdev input` did not start the second quest, so the refusal on loading the
+   cleared file (`NoticeClearCount`) was not seen live. The GCI on disk was unchanged after the
+   Dolphins stopped (Dolphin's GCI folder may not have flushed).
+
+Crash sweep: no ISI, DSI or invalid access in either `dolphin.log`; no panic in the session log.
+Dolphins stopped by PID, mp-local by its stop file, lease released (handed to walnut, wind#57).
