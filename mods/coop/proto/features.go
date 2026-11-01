@@ -120,7 +120,9 @@ const M4Features = FeatureStory | FeatureInventory | FeatureKeys | FeatureLife |
 const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLiveSwitches | FeatureSwitches | M4Features
 
 // DefaultFeatures is what a host allows unless told otherwise (a --coop
-// session): everything but the live-switch opt-in.
+// session): everything but live switches. The session adds
+// FeatureLiveSwitches itself unless the host passes
+// --coop-live-switches=off (on by default since v0.6.1; startHub).
 const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSwitches | M4Features
 
 // TableFeatures are the session features that read the M1 stage tables
