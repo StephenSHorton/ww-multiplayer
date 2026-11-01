@@ -1052,7 +1052,7 @@ The game has two kinds of reset, and only one reboots (tww decomp):
 ## Shared enemies
 
 Enemy sync (`mods/enemysync`) and the remote players' bodies are on by default, with no env
-vars: the host's Moblins, Bokoblins, ChuChus and Keese (`DefaultMirrorKinds`, `mo2,bk+u,cc+u,ki+u`) are
+vars: the host's Moblins, Bokoblins, ChuChus, Keese, Armos and Darknuts (`DefaultMirrorKinds`, `mo2,bk+u,cc+u,ki+u,am2+u,tn+u`; the Armos and Darknuts since wind#18's Mac evidence, docs/live/wind18-kinds-mac.md) are
 the real ones, every other game mirrors them, and remote bodies run at step6 with
 `DefaultPolicy`, which arms only those kinds' procs. Each start logs what it runs:
 `enemy host: host-authoritative enemies on (kinds ...), remote Link bodies step6 ...` and
