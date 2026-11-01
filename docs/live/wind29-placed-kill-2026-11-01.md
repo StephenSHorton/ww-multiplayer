@@ -67,8 +67,8 @@ both `stage-hop ma2room 2 1`. The Miniblins (proc 0xF9, params 0xE4FF0F90) are h
 So since main's #232/#267 the mixed-version case is moot for releases: a v0.6.1 player can't play co-op with any later build at all.
 
 ## P5, P6, P7 (newt, second slot, 2026-11-01)
-Rig wind29 (lease ww/dolphin-slot-1), main eb7948f, REL 0xA9DE0F1E, CryZe `9-Hyrule1` state, mp-local `--coop=new --coop-placed-kill` with `WW_ENEMY_SYNC=0`.
-- **P6 Hyroom r0 (pass, same layer):** this file loads the room's enemy layer, with 7 Darknuts (proc 0xC0) and 10 Moblins (proc 0xBD), all unkeyed and the same on both sides.
+Rig wind29 (lease ww/dolphin-slot-1), wwdev built from main b9d8b2d, REL 0xA9DE0F1E, CryZe `9-Hyrule1` state, mp-local `--coop=new --coop-placed-kill` with `WW_ENEMY_SYNC=0`.
+- **P6 Hyroom r0 (same layer passed; cross-layer not run):** this file loads the room's enemy layer, with 7 Darknuts (proc 0xC0) and 10 Moblins (proc 0xBD), all unkeyed and the same on both sides.
   `/status` read 0 tracked right after the hop and 17 a few seconds later, once the room had settled. A's `enemy-kill` on Moblin 0x80A81020 gave
   `1 sent`, and B logged `placed: light-shrunk the partner's kill of Hyroom room 0 ordinal 16 (table 9): actor 0x80A81020`. Both games went to 9 Moblins.
   Both games had the same layer; two different layers at once needs B on a later progression and was not run.
