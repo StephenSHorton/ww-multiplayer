@@ -65,7 +65,7 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
 ```bash
 scripts/mac-rig.sh setup <rig>        # u1, u2 from the fixtures; hotkeys on the keyboard
 # take the Irori lease ww/dolphin-slot-<n> first
-scripts/mac-rig.sh pair <rig>         # two Dolphins from the Mac start save; PIDs in <rig>/pair.pids
+scripts/mac-rig.sh pair <rig>         # two Dolphins (u1, u2) from the Mac start save; PIDs in <rig>/pair.pids
 scripts/mac-rig.sh mp-local <rig>     # wwdev mp-local with MP_LOCAL_PIDS pinned (run in background;
                                       #   MP_LOCAL_STOP_FILE=<path> stops it cleanly)
 scripts/mac-rig.sh shot <pid> a.png   # screenshot one Dolphin's render window
@@ -76,6 +76,7 @@ scripts/mac-rig.sh stop <rig>         # end this rig's Dolphins by PID; then rel
 - **Give each rig its own `MP_LOCAL_PORT`** (default 25565, which a second rig's mp-local then
   fails on: "bind: address already in use"). `MP_LOCAL_PORT=0` takes a free port on 127.0.0.1 and
   logs it ("Server listening on localhost:<port>"); pass that address to `pose-fake-loop`.
+- **Don't use bare `wwdev dolphin2` on the shared Mac**: it adopts any running Dolphin as Dolphin 1, which is another agent's. `mac-rig.sh pair` launches both itself and finds each by its own `-u` argument.
 - **Always pin `MP_LOCAL_PIDS`** (the script does): other agents' Dolphins run on the same Mac and
   enumeration order would otherwise pick theirs. For one Dolphin use `WW_DOLPHIN_PID=<pid>`.
 - **Input**: `wwdev input` / `input-release` work unchanged (they write the mailbox; no OS
