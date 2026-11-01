@@ -51,7 +51,7 @@ var syncMask = [addr.EventBitBytes]byte{
 	0xDF, // 0x27
 	0xF8, // 0x28: minus 0x2804 0x2802 0x2801
 	0x3F, // 0x29: minus 0x2980 0x2940
-	0xF7, // 0x2A: minus 0x2A08
+	0x77, // 0x2A: minus 0x2A80 0x2A08
 	0xFC, // 0x2B
 	0xEF, // 0x2C
 	0xFE, // 0x2D: minus 0x2D01
@@ -237,6 +237,11 @@ var localOnlyBits = []EventBit{
 	// RODE_KORL, d_save_event_flag.inc:322: until it is set, this player's ship is put at the dock
 	// spawn and Link is sent to the dock point; set, the file resumes at its own return place
 	{ID: 0x2A08, Name: "RODE_KORL", Cite: "d_stage.cpp:1933; d_a_player_main.cpp:10853; d_com_inf_game.cpp:1305"},
+	// UNK_2A80, d_save_event_flag.inc:318: set by this player's own clothes-change demo; while it
+	// is clear (or the clear count is nonzero) playerInit puts Link in the casual clothes, so a
+	// partner's bit would put this player in the hero's clothes. Grandma and Aryll read it for
+	// their own lines
+	{ID: 0x2A80, Name: "UNK_2A80", Cite: "d_a_demo00.cpp:654; d_a_player_main.cpp:12345; d_a_npc_ba1.cpp:1637"},
 	// UNK_2D01, d_save_event_flag.inc:346: cleared by the game (the map-select debug scene's
 	// toggle; §6.5 keeps the bit out all the same)
 	{ID: 0x2D01, Name: "UNK_2D01", Cite: "d_s_menu.cpp:244"},
