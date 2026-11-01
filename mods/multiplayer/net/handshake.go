@@ -118,7 +118,10 @@ import (
 //	   (WireVersion stays 4)
 //	6  projectile events: MsgFx on the player connection (fx.go) and the
 //	   REL's projectile block (inject/include/wwfx.h)
-const ProtocolVersion uint16 = 6
+//	7  enemy mirror: the ST Stalfos kind row (kind 9, a new KindHash; off by
+//	   default, st / st+u; WireVersion stays 4). A mixed pair would drop every
+//	   enemy kind at the KindHash check, so it is refused at the hello instead
+const ProtocolVersion uint16 = 7
 
 // Connection roles, the hello's role byte.
 const (
