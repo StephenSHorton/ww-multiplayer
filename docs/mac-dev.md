@@ -3,8 +3,7 @@
 How to build, check and test ww-multiplayer on a Mac. SETUP.md covers the
 external pieces (disc, Dolphin, devkitPPC). This page covers what is
 different on macOS. Running Dolphin rigs on a Mac (patching the disc,
-two-Dolphin loopback, how many Dolphins fit) will be covered in
-docs/mac-rig.md, which the Mac rig work adds.
+two-Dolphin loopback, how many Dolphins fit) is in docs/mac-rig.md.
 
 ## Verified desk (2026-11-01)
 
