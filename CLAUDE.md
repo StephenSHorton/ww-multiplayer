@@ -96,6 +96,7 @@ ww-multiplayer/
 │   ├── extract_blob.py          # Diffs original.dol vs patched.dol → internal/inject/blob.go
 │   ├── gen_event_masks.py       # Generates mods/coop/class/syncmask_gen.go from the decomp
 │   └── build-mac.sh, setup-mac-dolphin.sh   # macOS release build (WW Multiplayer.app + ditto zip); one-time Dolphin re-sign
+│       mac-rig.sh                           # The macOS test rig: per-rig user dirs, pair/one/mp-local/stop by PID, shot, fps, recapture (docs/mac-rig.md)
 ├── packaging/
 │   └── ww-multiplayer.exe.manifest  # Windows app manifest (DPI, Common Controls 6, asInvoker), in cmd/ww-multiplayer/ww_windows.syso via go generate
 ├── tools/
@@ -114,6 +115,7 @@ ww-multiplayer/
     ├── 04-ww-addresses.md, 05-known-issues.md, 06-history.md
     ├── 07-bettersunshine-research.md (Kuribo/BetterSunshineEngine notes, input to docs/api Phase E)
     ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md, 11-self-hosting.md (the dedicated server: Tailscale, port forwarding, owner key, status, Docker)
+    ├── mac-rig.md               # the macOS test rig: MEM1 override, Mac start save, screenshots, hotkeys, dolphin-slot leases
     ├── api/                     # the modding API: 00-design, 01-events, 02-mods, 03-writing-a-mod
     ├── release-notes/           # v<version>.md per release (the release body); README.md = how; a "<!-- draft" first line blocks the tag
     └── TESTING.md               # the pre-push check matrix, goldens, flakes, live checks
@@ -173,7 +175,7 @@ go build -o wwdev.exe ./cmd/wwdev
 ./wwdev.exe screenshot [path]                           # PNG of the selected Dolphin's window (Win32; default path = dolphin-<pid>-<ts>.png)
 ./wwdev.exe input <btns-hex> <stickX> <stickY> [ms=1000]   # Drive synthetic controller input via pad_read_shim. ms=0 holds until input-release.
 ./wwdev.exe input-release                               # Disable pad_read_shim override (zero input_enable). Pair with `input ... 0`.
-./wwdev.exe auto-recapture [out=saves/start.sav]   # Cold-boot Dolphin + drive menus + prompt for one Shift+F1 + cp the new state. Win-only.
+./wwdev.exe auto-recapture [out=saves/start.sav]   # Cold-boot Dolphin + drive menus + Shift+F1 + cp the new state. Windows (may prompt for the key) and macOS (unattended, held CGEvent Shift+F1; docs/mac-rig.md)
 ./wwdev.exe auto-recapture-pair [out1=saves/start.sav] [out2=saves/start2.sav] [delay-secs=5]   # Same as auto-recapture, but captures TWO states with a delay between (distinct btp phases). Pair with SAVE_STATE_2 in dolphin2 to validate face-sync (#5).
 ./wwdev.exe send-shift-f1                               # Diagnostic: probe whether your Dolphin build accepts synthetic Shift+F1 hotkeys
 ./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
