@@ -1,0 +1,63 @@
+== adopted (both in kaze 9) 19:16:15
+-- A
+     16 setID 0x000C pid 766 pos -303.6 -4300.0 3827.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 1.00 rate 1.00
+     16 setID 0x000D pid 767 pos 302.4 -4300.0 3827.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 1.00 rate 1.00 
+     16 setID 0x000E pid 768 pos 6.6 -4300.0 3682.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 1.00 rate 1.00 bl
+set 12	K1 ok
+set 13	K1 ok
+set 14	K1 ok
+-- B
+     16 setID 0x000C pid 783 pos -303.6 -4300.0 3827.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 1.45 rate 1.00
+     16 setID 0x000D pid 784 pos 302.4 -4300.0 3827.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 1.45 rate 1.00 
+     16 setID 0x000E pid 785 pos 6.6 -4300.0 3682.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 1.45 rate 1.00 bl
+set 12	K1 held: paused: mirror (mPauseFlag 0x01)
+set 13	K1 held: paused: mirror (mPauseFlag 0x01)
+set 14	K1 held: paused: mirror (mPauseFlag 0x01)
+adopted 0111 slots [0:am2 EQ][1:am2 DQ][2:am2 CQ][3:-]
+now in stage "kaze" room 9, table 7 WT, file 0
+== after A left for kaze 4 (B stays in kaze 9) 19:16:31
+-- A
+     16 setID 0x0000 pid 823 pos 81.6 3715.0 3139.4 ang 31042 hp 2 mode 5 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x07 [ATTN BODY_CO WEAK_TG] bck 0x0B JUMP attr 2 seq 0 morf 0 frame 2.00 rate 1
+     16 setID 0x0001 pid 824 pos -295.0 3715.0 4784.8 ang -32768 hp 2 mode 1 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x04 [BODY_CO] bck 0x0F WAIT attr 0 seq 0 morf 0 frame 2.00 rate 0.00 blur 0
+     16 setID 0x0002 pid 825 pos 299.8 3715.0 4792.3 ang -32768 hp 2 mode 1 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x04 [BODY_CO] bck 0x0F WAIT attr 0 seq 0 morf 0 frame 2.00 rate 0.00 blur 0 
+     16 setID 0x0003 pid 826 pos -131.1 3715.0 3440.7 ang 27754 hp 2 mode 5 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x07 [ATTN BODY_CO WEAK_TG] bck 0x0B JUMP attr 2 seq 0 morf 0 frame 2.00 rate
+     16 setID 0x0004 pid 827 pos 193.2 3715.0 3414.6 ang -30117 hp 2 mode 5 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x07 [ATTN BODY_CO WEAK_TG] bck 0x0B JUMP attr 2 seq 0 morf 0 frame 2.00 rate
+     16 setID 0x0005 pid 828 pos 3.5 3715.0 4486.4 ang -32768 hp 2 mode 1 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x04 [BODY_CO] bck 0x0F WAIT attr 0 seq 0 morf 0 frame 2.00 rate 0.00 blur 0 sc
+     16 setID 0x0006 pid 829 pos 23.9 3715.0 3087.8 ang 26507 hp 2 mode 5 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x07 [ATTN BODY_CO WEAK_TG] bck 0x0B JUMP attr 2 seq 0 morf 0 frame 2.00 rate 1
+set 0	K1 ok
+set 1	K1 ok
+set 2	K1 ok
+set 3	K1 ok
+set 4	K1 ok
+set 5	K1 ok
+set 6	K1 ok
+-- B
+     16 setID 0x000C pid 783 pos -303.6 -4300.0 3827.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 0.09 rate 0.00
+     16 setID 0x000D pid 784 pos 302.4 -4300.0 3827.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 0.09 rate 0.00 
+     16 setID 0x000E pid 785 pos 6.6 -4300.0 3682.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 0.09 rate 0.00 bl
+set 12	K1 ok
+set 13	K1 ok
+set 14	K1 ok
+== 8 s later 19:16:41
+-- A
+     16 setID 0x0000 pid 823 pos 94.4 3739.0 3141.6 ang -32483 hp 2 mode 4 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x07 [ATTN BODY_CO WEAK_TG] bck 0x0B JUMP attr 2 seq 0 morf 0 frame 2.00 rate 
+     16 setID 0x0001 pid 824 pos -295.0 3715.0 4784.8 ang -32768 hp 2 mode 1 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x04 [BODY_CO] bck 0x0F WAIT attr 0 seq 0 morf 0 frame 2.00 rate 0.00 blur 0
+     16 setID 0x0002 pid 825 pos 299.8 3715.0 4792.3 ang -32768 hp 2 mode 1 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x04 [BODY_CO] bck 0x0F WAIT attr 0 seq 0 morf 0 frame 2.00 rate 0.00 blur 0 
+     16 setID 0x0003 pid 826 pos 28.9 3742.0 3098.1 ang 27762 hp 2 mode 4 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x07 [ATTN BODY_CO WEAK_TG] bck 0x0B JUMP attr 2 seq 0 morf 0 frame 2.00 rate 1
+     16 setID 0x0004 pid 827 pos 153.4 3739.0 3103.3 ang -27794 hp 2 mode 4 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x07 [ATTN BODY_CO WEAK_TG] bck 0x0B JUMP attr 2 seq 0 morf 0 frame 2.00 rate
+     16 setID 0x0005 pid 828 pos 3.5 3715.0 4486.4 ang -32768 hp 2 mode 1 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x04 [BODY_CO] bck 0x0F WAIT attr 0 seq 0 morf 0 frame 2.00 rate 0.00 blur 0 sc
+     16 setID 0x0006 pid 829 pos 21.7 3739.0 3025.8 ang 22456 hp 2 mode 4 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x07 [ATTN BODY_CO WEAK_TG] bck 0x0B JUMP attr 2 seq 0 morf 0 frame 2.00 rate 1
+set 0	K1 ok
+set 1	K1 ok
+set 2	K1 ok
+set 3	K1 ok
+set 4	K1 ok
+set 5	K1 ok
+set 6	K1 ok
+-- B
+     16 setID 0x000C pid 783 pos -303.6 -4300.0 3827.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 0.09 rate 0.00
+     16 setID 0x000D pid 784 pos 302.4 -4300.0 3827.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 0.09 rate 0.00 
+     16 setID 0x000E pid 785 pos 6.6 -4300.0 3682.0 ang -32768 hp 2 mode 12 action 1 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x05 [ATTN BODY_CO] bck 0x0F WAIT attr 2 seq 0 morf 0 frame 0.09 rate 0.00 bl
+set 12	K1 ok
+set 13	K1 ok
+set 14	K1 ok
