@@ -27,3 +27,16 @@ for t2-t7 (intro bit kept). Both bound world b83d8a075d861acb (`bound the file`,
   `boss_kill 52: waiting (mMode 0x2, m302 1, m304 0)` once.
 - B: same flower poke, no request poke: `boss_kill 92: applied (mMode 0x3, m302 2, m304 1)` once; B's mMode 0xB, own t04 byte
   0x30 -> 0x38, Warpf (proc 0x006A) created (shots/kalle-B.png). The force recipe (previously inferred) is confirmed on both.
+
+## Jalhalla (M_DaiB 0 0): PASS
+- Hop note: leaving kinBOSS needed Makar's rescue dialogue tapped through (`input 0x0100` x ~24) on both; `stage-hop` refuses
+  ("an event is running") until it ends. Vanilla, not a co-op issue.
+- Both: body (proc 0xD4) health 15/15, kantera + ball present, 0 Poes.
+- A: JH-1 forced gate (`body+0x444 = 0x00030064`) + A's request `00D4424B`: APPLIED `0x0103650F`; health 0, death demo
+  (mBodyAction 4, mActionState 0x79..0x88), A's live t06 byte 0x31 -> 0x39, then no body (NO_ACTOR).
+- B: `holding t06 ET boss defeated back ...`, `the partner killed Jalhalla ... once it is frozen by light ...`,
+  `boss_kill 93: waiting (mBodyAction 0, mActionState 0x3, health 15)` once.
+- B: same gate poke, no request poke: `boss_kill 167: applied (mBodyAction 3, mActionState 0x65, health 15); this game's
+  Jalhalla falls on this landing in the spikes ...` once; B's death demo, own t06 byte 0x31 -> 0x39, Warpf (0x006A).
+- Caveat: the poked 0x65 is itself the spike landing, so the "next throw" was poked, not a real Mirror Shield freeze + throw
+  (the real-item path passed on the PC, handoff real-items/LIVE-2.md:22).
