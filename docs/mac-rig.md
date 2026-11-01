@@ -77,6 +77,7 @@ scripts/mac-rig.sh stop <rig>         # end this rig's Dolphins by PID; then rel
   fails on: "bind: address already in use"). `MP_LOCAL_PORT=0` takes a free port on 127.0.0.1 and
   logs it ("Server listening on localhost:<port>"); pass that address to `pose-fake-loop`.
 - **Don't use bare `wwdev dolphin2` on the shared Mac**: it adopts any running Dolphin as Dolphin 1, which is another agent's. `mac-rig.sh pair` launches both itself and finds each by its own `-u` argument.
+- **Pass `--coop-iso ~/ww-shared/disc/WW-mp.iso`** to `mp-local --coop` and every `join --coop`: without it co-op takes its stage tables from "the disc last patched", one setting for the whole Mac user that any agent's `patch` moves (once it named another agent's deleted scratch ISO, and the session ran with room puzzles, memory switches, keys and kills off; `docs/live/wind9-c3-mac.md`).
 - **Always pin `MP_LOCAL_PIDS`** (the script does): other agents' Dolphins run on the same Mac and
   enumeration order would otherwise pick theirs. For one Dolphin use `WW_DOLPHIN_PID=<pid>`.
 - **Co-op on the rig** (`mac-rig.sh mp-local <rig> --coop=new ...`): the script exports the rig's

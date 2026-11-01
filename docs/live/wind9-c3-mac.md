@@ -52,3 +52,32 @@ is elsewhere).
 Crash sweep: no ISI, DSI or invalid access in the three `dolphin.log` files; no panic in the
 session or join logs. Dolphins stopped by PID; leases released. Logs in
 `~/ww-shared/runs/wind9-c3/`.
+
+## Second run: C3-1, C3-2 and C3-4 (with #243's fix)
+
+Three Dolphins again (leases `ww/dolphin-slot-4` and `-5`): A 38285, B 38336, C 38450, all
+consoles fed from files, so A's `/status` could be read too. World 45a06e76caa16459 hosted with
+`--coop-iso ~/ww-shared/disc/WW-mp.iso` (see "Stage tables" below), C joined with the same flag;
+all three armed with room puzzles on (103 latching dan switches in 6 tables).
+
+- **C3-2 passed** (DRC's one synced dan switch, 0x80, the `takara4` chest; `mDan.mSwitch[0]` at
+  0x803C53A8 bit 0). A in M_NewD2 room 3, B in room 4, C in Hyrule. B set 0x80: A logged
+  `set the partner's dan switch 0x80 (0x803C53AB |= 0x01)` within seconds; C's word stayed 0.
+  Then B left for Hyrule and C hopped `M_NewD2 6 3` with A still there: C logged the same `set
+  the partner's dan switch 0x80` and read 0x00000001. The store reached C through A, a partner
+  in scope, after the switch's setter had gone: the "any partner" rule of item 171.
+- **C3-1 passed**: A's `/status Aryll`: `partners: Medli in M_NewD2 room 3; Tetra in Hyrule room 0`.
+  After C's process ended for good, A's `/warp Aryll to Medli`: `no partner Medli here (partners:
+  Tetra)`: C dropped alone.
+- **C3-4 passed**: C's join restarted (the hub: Medli co-op 3, then co-op 4). A's `/status`
+  afterwards: still `partners: Medli in M_NewD2 room 3; Tetra in Hyrule room 0`, Medli once.
+
+Crash sweep: no ISI, DSI or invalid access in the three `dolphin.log` files; no panic.
+
+### Stage tables on the shared Mac
+
+Without `--coop-iso`, co-op finds its stage tables through "the disc last patched", which is
+one setting for the whole Mac user: any agent's `patch` moves it. In this run it named another
+agent's deleted scratch ISO, so the host had no stage tables and turned room puzzles, memory
+switches, keys and kills off for the session (NOTICE SCHEMA to each joiner). On the shared rig,
+pass `--coop-iso ~/ww-shared/disc/WW-mp.iso` to `mp-local --coop` and to every `join --coop`.
