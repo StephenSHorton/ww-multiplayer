@@ -64,3 +64,40 @@ The Hero's Sword and Hero's Shield were poked into B's `mSelectEquip` (38 3B), t
   frame (they looked normal in every shot).
 - B's equipment was restored to 3E 3C afterwards. Neither dolphin.log has an ISI, DSI or invalid
   access.
+
+## V4 name tags, the rest: pass in part
+
+A in Hyrule, B warped into A's view. Item pokes: A's X button set to the telescope (save
+`mSelectItem` slot 0, live 0x803CA7DB = 0x20) and then the deluxe Picto Box (slot 8, 0x26), pressed
+with `wwdev input 0x0400`. Restored to 0x22 afterwards.
+
+- **Telescope:** B warped straight ahead, so it is inside the telescope view. B's mini-Link is drawn
+  and has no tag. `nt-A-telescope-B-in-view-no-tag.png`. After putting it away (B), the tag is back
+  over B. `nt-A-tag-back-after-telescope.png`.
+- **Picto Box:** B is in the viewfinder, with no tag. `nt-A-pictobox-B-in-view-no-tag.png`.
+- **`WW_NAMETAGS=off`** (mp-local restarted with it): B is drawn with no tag. `nt-A-nametags-off.png`.
+- **Not run:** a cutscene or event.
+
+## V5 sea chart, the rest: pass in part
+
+Both games hopped to `sea 0 44` (Outset), both in hero clothes. A opened the chart with D-pad Up
+(`input 0x0008`), not D-pad Right (which only toggles the minimap zoom), and zoomed with A.
+
+- **Heading:** at zoom 2, A's own yellow arrow points north and B's green marker points another way,
+  matching where B faced. `sc-A-zoom2-B-heading.png`.
+- **Live turn:** with A's chart open, B turned (stick right, 300 ms), and B's arrow on A's chart
+  turned with it. `sc-A-zoom2-B-turned-live.png`.
+- **Zoom:** the marker stays on Outset's island through zoom 1 -> 2. `sc-A-chart-open.png`.
+- **`WW_SEACHART=off`:** only A's own arrow, no marker for B. `sc-A-seachart-off.png`.
+- The chart closed cleanly each time (B twice). Visuals block `peek 0x804138B0 16` after the chart:
+  `3E0D EDDA 046D 0000`.
+- **Not run:** a move while B sails (V5's core run moved B by warp), chart comparison, the Fishman,
+  and the island and dungeon no-marker cases.
+
+## Observation: a yellow crown on B's cap for one frame
+
+On the sea at Outset's pier, one frame of A (`obs-A-yellow-crown-one-frame.png`) showed B's mini-Link
+(hero clothes, 0x2A80 set on B) with yellow on its crown above the cap rim, as if the katsura were drawn
+over the cap. Four later frames from the same spot show a normal green cap, and B's own view of A is
+normal. This rig switched B casual -> hero -> casual -> hero earlier (V2/V9). It was not seen again, so
+no card yet. The V2/V9 hero frames (`v2-A-B-back-to-hero.png`, the V8 crops) have a green crown.
