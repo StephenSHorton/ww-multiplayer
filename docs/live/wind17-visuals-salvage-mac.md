@@ -89,8 +89,9 @@ Both games hopped to `sea 0 44` (Outset), both in hero clothes. A opened the cha
   turned with it. `sc-A-zoom2-B-turned-live.png`.
 - **Zoom:** the marker stays on Outset's island through zoom 1 -> 2. `sc-A-chart-open.png`.
 - **`WW_SEACHART=off`:** only A's own arrow, no marker for B. `sc-A-seachart-off.png`.
-- The chart closed cleanly each time (B twice). Visuals block `peek 0x804138B0 16` after the chart:
-  `3E0D EDDA 046D 0000`.
+- The chart closed cleanly each time (B twice). Visuals block (`include/wwvis.h` +0xE0..+0xEF: tags queued, equipment models,
+  sea markers drawn, last error) on A after the chart: `3E0D EDDA 046D 0000`. The last-error word
+  is 0, which is a pass, and it was still 0 on both games at the end (smoke's `rel last error` checks).
 - **Not run:** a move while B sails (V5's core run moved B by warp), chart comparison, the Fishman,
   and the island and dungeon no-marker cases.
 
@@ -101,3 +102,12 @@ On the sea at Outset's pier, one frame of A (`obs-A-yellow-crown-one-frame.png`)
 over the cap. Four later frames from the same spot show a normal green cap, and B's own view of A is
 normal. This rig switched B casual -> hero -> casual -> hero earlier (V2/V9). It was not seen again, so
 no card yet. The V2/V9 hero frames (`v2-A-B-back-to-hero.png`, the V8 crops) have a green crown.
+
+## V6 regression sweep: pass
+
+`wwdev smoke --no-boot --hop "Hyrule 0 0"` attached to the pair (`MP_LOCAL_PIDS`, `USER_DIR_1/2` = the
+rig's u1/u2) ran its own mp-local: 54 checks, 0 failed. That covers heartbeats at about 30 fps, the
+REL linked, no JUTException, visuals last error 0 on both, pose publish and feed, A tracked on B
+(0.9 off) and B tracked on A (4.0 off), the hop and back, and mp-local exiting 0. The first try,
+`--hop "sea 0 44"`, was refused because A was already in sea. Both dolphin.logs have no ISI, DSI or
+invalid access across the whole session, and no mp-local log has a panic.
