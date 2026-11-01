@@ -255,8 +255,8 @@ function memberRow(m, lobby) {
 	const kick = m.canKick
 		? el("button", { type: "button", class: "kick", title: "Remove " + m.name, onclick: () => confirmKick(m) }, "Kick")
 		: null;
-	// Warp to: co-op's warp goes to the one other player (v1.0 is two
-	// players), so only that row has it.
+	// Warp to: the warp names its partner (co-op for three or more), so
+	// every other player's row co-op has heard from has it.
 	const warp = m.canWarp
 		? el("button", { type: "button", class: "rowact", title: "Go to " + m.name + ": the same room at once, else their stage's entrance", onclick: () => warpTo(m) }, "Warp to")
 		: null;
@@ -639,7 +639,7 @@ async function dialogAction(id, d, st, arg = "") {
 
 async function warpTo(m) {
 	try {
-		await call("CoopCommand", "warp");
+		await call("WarpTo", m.name);
 		toast("Warping to " + m.name + ": the log says how it went.");
 	} catch (e) {
 		toast(e.message, { bad: true });

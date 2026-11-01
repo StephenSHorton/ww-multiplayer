@@ -87,10 +87,12 @@ var golden = []struct {
 	hex  string
 }{
 	{"CO_HELLO", Up, &CoHello{
-		Schema: 1, ClassHash: 0x0102030405060708, StageTblHash: 0x1112131415161718,
+		Schema: 2, ClassHash: 0x0102030405060708, StageTblHash: 0x1112131415161718,
 		WorldID: idA, BindNonce: idB, Slot: 2, ClearCount: 0, NameHash: 0xDEADBEEF,
 		FileState: FileBound, Want: 0xF,
-	}, "01 | 0001 | 0102030405060708 | 1112131415161718 | a0a1a2a3a4a5a6a7 | b0b1b2b3b4b5b6b7 | 02 | 00 | deadbeef | 01 | 0000000f"},
+	}, "01 | 0002 | 0102030405060708 | 1112131415161718 | a0a1a2a3a4a5a6a7 | b0b1b2b3b4b5b6b7 | 02 | 00 | deadbeef | 01 | 0000000f"},
+	{"CLAIM ask", Up, &Claim{Op: ClaimAsk, Table: 3, No: 2, Room: 13}, "09 | 01 | 03 | 02 | 0d"},
+	{"CLAIM consumed", Down, &Claim{Op: ClaimConsumed, Table: 14, No: 31, Room: -1}, "09 | 05 | 0e | 1f | ff"},
 	{"CO_WELCOME", Down, &CoWelcome{
 		Status: StatusOK, Features: 0xF, WorldID: idA, Seq: 0x102, FreshBind: true,
 	}, "02 | 01 | 00 | 0000000f | a0a1a2a3a4a5a6a7 | 0000000000000102 | 01"},
@@ -108,13 +110,17 @@ var golden = []struct {
 		Stage: Stage{'M', '_', 'N', 'e', 'w', 'D', '2'}, Table: 3, Room: 5, Layer: -1, Point: -2,
 		Flags: PresenceInGame | PresenceArmed,
 	}, "05 | 4d5f4e6577443200 | 03 | 05 | ff | fffe | 11"},
-	{"PRESENCE relayed, title screen", Down, &Presence{
+	{"PRESENCE relayed, title screen", Down, &PresenceDown{Presence: Presence{
 		Stage: Stage{'s', 'e', 'a', '_', 'T'}, Table: -1, Room: -1, Layer: -1,
-	}, "05 | 7365615f54000000 | ff | ff | ff | 0000 | 00"},
+	}, Origin: 3, Name: "Tetra"}, "05 | 7365615f54000000 | ff | ff | ff | 0000 | 00 | 03 | 05 | 5465747261"},
 	{"SCOPED KILL", Up, &Scoped{
 		Kind: ScopeKill, Stage: Stage{'M', '_', 'N', 'e', 'w', 'D', '2'}, Table: 3, Room: 5,
 		Words: []ScopedWord{{0, 0x80000001}, {15, 0x100}},
 	}, "06 | 04 | 4d5f4e6577443200 | 03 | 05 | 02 | 00 80000001 | 0f 00000100"},
+	{"SCOPED PKILL", Down, &Scoped{
+		Kind: ScopePlaced, Stage: Stage{'k', 'i', 'n', 'd', 'a', 'n'}, Table: 9, Room: 1,
+		Words: []ScopedWord{{0, 0x30}},
+	}, "06 | 05 | 6b696e64616e0000 | 09 | 01 | 01 | 00 00000030"},
 	{"SCOPED DAN", Down, &Scoped{
 		Kind: ScopeDan, Stage: Stage{'M', '_', 'N', 'e', 'w', 'D', '2'}, Table: 3, Room: -1,
 		Words: []ScopedWord{{1, 0x4}},
@@ -191,6 +197,7 @@ func TestBodySizes(t *testing.T) {
 		{&GainsUp{Gains: gains}, 6 + 3*len(gains)},
 		{&GainsDown{Gains: gains}, 11 + 3*len(gains)},
 		{&Presence{Table: -1, Room: -1, Layer: -1}, 14},
+		{&PresenceDown{Presence: Presence{Table: -1, Room: -1, Layer: -1}, Origin: 1, Name: "Link"}, 14 + 2 + 4},
 		{&Scoped{Kind: ScopeDan, Stage: Stage{'s'}, Room: -1, Words: words}, 12 + 5*len(words)},
 		{&Notice{Code: NoticeSchema, Text: "abc"}, 2 + 3},
 		{&Ctrl{Op: CtrlResync}, 5},
@@ -245,7 +252,7 @@ func randMsg(rng *rand.Rand, dir Dir) Msg {
 	room := func() int8 { return int8(rng.Intn(addr.RoomCount)) }
 	table := func() int8 { return int8(rng.Intn(addr.TableCount)) }
 	for {
-		switch Sub(1 + rng.Intn(8)) {
+		switch Sub(1 + rng.Intn(9)) {
 		case SubCoHello:
 			if dir != Up {
 				continue
@@ -276,8 +283,17 @@ func randMsg(rng *rand.Rand, dir Dir) Msg {
 			}
 			return &GainsDown{Seq: rng.Uint64(), Origin: uint8(rng.Intn(256)), Gains: randGains(rng, rng.Intn(40))}
 		case SubPresence:
-			return &Presence{Stage: stage(), Table: int8(rng.Intn(addr.TableCount+1)) - 1, Room: int8(rng.Intn(addr.RoomCount+1)) - 1,
+			p := Presence{Stage: stage(), Table: int8(rng.Intn(addr.TableCount+1)) - 1, Room: int8(rng.Intn(addr.RoomCount+1)) - 1,
 				Layer: int8(rng.Intn(MaxLayer+2)) - 1, Point: int16(rng.Intn(65536)), Flags: PresenceFlags(rng.Intn(presenceFlagsKnown + 1))}
+			if dir == Up {
+				return &p
+			}
+			name := []rune{}
+			for range 1 + rng.Intn(MaxSenderName/4) {
+				rs := []rune("LinkTetraあ日 ")
+				name = append(name, rs[rng.Intn(len(rs))])
+			}
+			return &PresenceDown{Presence: p, Origin: uint8(1 + rng.Intn(255)), Name: string(name)}
 		case SubScoped:
 			m := &Scoped{Kind: ScopeKind(1 + rng.Intn(4)), Stage: nonEmptyStage(), Table: table(), Room: room()}
 			if m.Kind == ScopeDan && rng.Intn(2) == 0 {
@@ -308,6 +324,12 @@ func randMsg(rng *rand.Rand, dir Dir) Msg {
 				m.Arg = TombstoneArg(off, bit)
 			}
 			return m
+		case SubClaim:
+			ops := []ClaimOp{ClaimAsk, ClaimRelease}
+			if dir == Down {
+				ops = []ClaimOp{ClaimGrant, ClaimDeny, ClaimConsumed}
+			}
+			return &Claim{Op: ops[rng.Intn(len(ops))], Table: table(), No: uint8(rng.Intn(MaxChestNo + 1)), Room: int8(rng.Intn(addr.RoomCount+1)) - 1}
 		}
 	}
 }
@@ -397,7 +419,7 @@ func TestDecodeRejects(t *testing.T) {
 	}{
 		{"empty payload", Up, nil, "empty payload"},
 		{"unknown sub 0", Up, []byte{0}, "unknown sub-message 0x00"},
-		{"unknown sub 9", Down, []byte{9, 1, 2}, "unknown sub-message 0x09"},
+		{"unknown sub 10", Down, []byte{10, 1, 2}, "unknown sub-message 0x0A"},
 		{"bad direction", Dir(0), []byte{byte(SubCtrl), 1, 0, 0, 0, 0}, "unknown direction"},
 		{"CO_HELLO going down", Down, hello, "CO_HELLO does not travel s->c"},
 		{"CO_WELCOME going up", Up, welcome(1, 0, 0, 0), "CO_WELCOME does not travel c->s"},
@@ -452,7 +474,13 @@ func TestDecodeRejects(t *testing.T) {
 		{"PRESENCE stage space", Up, presence([]byte("se a\x00\x00\x00\x00"), 0, 0, 0, 0), "byte 0x20"},
 		{"PRESENCE stage control", Up, presence([]byte("se\x1b\x00\x00\x00\x00\x00"), 0, 0, 0, 0), "byte 0x1B"},
 		{"PRESENCE table 16", Up, presence([]byte("sea\x00\x00\x00\x00\x00"), 16, 0, 0, 0), "table 16"},
-		{"PRESENCE table -2", Down, presence([]byte("sea\x00\x00\x00\x00\x00"), -2, 0, 0, 0), "table -2"},
+		{"PRESENCE table -2", Down, append(presence([]byte("sea\x00\x00\x00\x00\x00"), -2, 0, 0, 0), 1, 1, 'L'), "table -2"},
+		{"PRESENCE s->c without its sender", Down, presence([]byte("sea\x00\x00\x00\x00\x00"), 0, 0, 0, 0), "shorter than 16"},
+		{"PRESENCE s->c origin 0", Down, append(presence([]byte("sea\x00\x00\x00\x00\x00"), 0, 0, 0, 0), 0, 1, 'L'), "origin 0"},
+		{"PRESENCE s->c no name", Down, append(presence([]byte("sea\x00\x00\x00\x00\x00"), 0, 0, 0, 0), 1, 0), "names no player"},
+		{"PRESENCE s->c name length", Down, append(presence([]byte("sea\x00\x00\x00\x00\x00"), 0, 0, 0, 0), 1, 3, 'L'), "name length 3, but 1 bytes follow"},
+		{"PRESENCE s->c name control", Down, append(presence([]byte("sea\x00\x00\x00\x00\x00"), 0, 0, 0, 0), 1, 2, 'L', 0x07), "control character"},
+		{"PRESENCE s->c name not UTF-8", Down, append(presence([]byte("sea\x00\x00\x00\x00\x00"), 0, 0, 0, 0), 1, 1, 0xFF), "not valid UTF-8"},
 		{"PRESENCE room 64", Up, presence([]byte("sea\x00\x00\x00\x00\x00"), 0, 64, 0, 0), "room 64"},
 		{"PRESENCE room -2", Up, presence([]byte("sea\x00\x00\x00\x00\x00"), 0, -2, 0, 0), "room -2"},
 		{"PRESENCE layer 12", Up, presence([]byte("sea\x00\x00\x00\x00\x00"), 0, 0, 12, 0), "layer 12"},
@@ -463,7 +491,7 @@ func TestDecodeRejects(t *testing.T) {
 		{"SCOPED count too high", Up, scoped(1, "sea", 0, 0, ScopedWord{0, 1})[:15], "count 1 needs 5 bytes, 2 follow"},
 		{"SCOPED trailing", Up, append(scoped(1, "sea", 0, 0), 0), "count 0 needs 0 bytes, 1 follow"},
 		{"SCOPED kind 0", Up, scoped(0, "sea", 0, 0), "kind 0"},
-		{"SCOPED kind 5", Down, scoped(5, "sea", 0, 0), "kind 5"},
+		{"SCOPED kind 6", Down, scoped(6, "sea", 0, 0), "kind 6"},
 		{"SCOPED no stage", Up, scoped(1, "", 0, 0), "has no stage"},
 		{"SCOPED bad stage", Up, scoped(1, "sea\x00wD", 0, 0), "bytes after its NUL"},
 		{"SCOPED table -1", Up, scoped(2, "sea", -1, 0), "table -1"},
@@ -488,6 +516,16 @@ func TestDecodeRejects(t *testing.T) {
 		{"NOTICE escape", Down, append([]byte{byte(SubNotice), 1, 4}, "\x1b[2J"...), "control character U+001B"},
 		{"NOTICE newline", Down, append([]byte{byte(SubNotice), 1, 2}, "a\n"...), "control character U+000A"},
 
+		{"CLAIM short", Up, []byte{byte(SubClaim), 1, 0, 0}, "CLAIM body is 3 bytes"},
+		{"CLAIM long", Up, []byte{byte(SubClaim), 1, 0, 0, 0, 0}, "CLAIM body is 5 bytes"},
+		{"CLAIM op 0", Up, []byte{byte(SubClaim), 0, 0, 0, 0}, "CLAIM op 0"},
+		{"CLAIM op 6", Down, []byte{byte(SubClaim), 6, 0, 0, 0}, "CLAIM op 6"},
+		{"CLAIM grant up", Up, []byte{byte(SubClaim), 3, 0, 0, 0}, "GRANT does not travel c->s"},
+		{"CLAIM ask down", Down, []byte{byte(SubClaim), 1, 0, 0, 0}, "CLAIM does not travel s->c"},
+		{"CLAIM table 16", Up, []byte{byte(SubClaim), 1, 16, 0, 0}, "CLAIM table 16"},
+		{"CLAIM table -1", Up, []byte{byte(SubClaim), 1, 0xFF, 0, 0}, "CLAIM table -1"},
+		{"CLAIM chest 32", Up, []byte{byte(SubClaim), 1, 0, 32, 0}, "CLAIM chest 32"},
+		{"CLAIM room 64", Down, []byte{byte(SubClaim), 3, 0, 0, 64}, "CLAIM room 64"},
 		{"CTRL short", Up, []byte{byte(SubCtrl), 1, 0, 0, 0}, "CTRL body is 4 bytes"},
 		{"CTRL long", Up, []byte{byte(SubCtrl), 1, 0, 0, 0, 0, 0}, "CTRL body is 6 bytes"},
 		{"CTRL op 0", Up, []byte{byte(SubCtrl), 0, 0, 0, 0, 0}, "op 0"},
@@ -519,7 +557,7 @@ func TestDecodeRejects(t *testing.T) {
 // TestSchemaMismatch: a CO_HELLO of another schema is ErrSchema (not
 // ErrMalformed), whatever its length, so the hub can answer NOTICE SCHEMA.
 func TestSchemaMismatch(t *testing.T) {
-	for _, body := range [][]byte{{0, 2}, append([]byte{0, 2}, make([]byte, 43)...), append([]byte{0xFF, 0xFF}, make([]byte, 60)...)} {
+	for _, body := range [][]byte{{0, 1}, append([]byte{0, 1}, make([]byte, 43)...), append([]byte{0xFF, 0xFF}, make([]byte, 60)...)} {
 		_, err := Decode(append([]byte{byte(SubCoHello)}, body...), Up)
 		if !errors.Is(err, ErrSchema) || errors.Is(err, ErrMalformed) {
 			t.Errorf("CO_HELLO body %x: err = %v, want ErrSchema alone", body, err)
@@ -546,6 +584,8 @@ func TestEncodeRefuses(t *testing.T) {
 		&GainsUp{Gains: []Gain{{offMaxLife, 1}}},
 		&GainsDown{Gains: make([]Gain, MaxGains+1)},
 		&Presence{Stage: Stage{'s', 'e', 'a', ' '}},
+		&PresenceDown{Presence: Presence{Table: -1, Room: -1, Layer: -1}, Name: "Link"},
+		&PresenceDown{Presence: Presence{Table: -1, Room: -1, Layer: -1}, Origin: 1, Name: strings.Repeat("x", MaxSenderName+1)},
 		&Scoped{Kind: ScopeZone, Stage: Stage{'s'}, Room: -1},
 		&Notice{Code: NoticeSchema, Text: strings.Repeat("x", MaxNoticeLen+1)},
 		&Notice{Code: NoticeSchema, Text: "two\nlines"},

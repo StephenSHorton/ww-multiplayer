@@ -356,9 +356,12 @@ func (pp *partnerPos) set(p Pos) {
 	pp.p, pp.ok = p, true
 }
 
-func (pp *partnerPos) get() (Pos, bool) {
+func (pp *partnerPos) get(name string) (Pos, bool) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
+	if name != testPartner {
+		return Pos{}, false
+	}
 	return pp.p, pp.ok
 }
 
@@ -501,7 +504,7 @@ func TestEscapeRefusals(t *testing.T) {
 			er.store(addr.CurStagePoint, []byte{0xFF, 0xFD})
 			er.ticks(gate.StableTicks + 2)
 		}, EscapeRefresh, "by a restart (point -3)", false, false},
-		{"no word of the partner", nil, EscapeWarp, "no word of the partner", false, false},
+		{"no word of a partner", nil, EscapeWarp, "no word of a partner", false, false},
 		{"the partner changes stage", func(er *escRig) {
 			er.presence("sea", 0, 0, 44, inGame|wire.PresenceTransitioning)
 		}, EscapeWarp, "changing stage", true, false},
@@ -596,7 +599,7 @@ func TestEscapeWarpRoomNotLoaded(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("warp: %v\n%s", res.Err, er.log)
 	}
-	if !strings.Contains(res.Did, "room 12, where the partner is, is not loaded here") || !strings.Contains(res.Did, "as you came in by it") {
+	if !strings.Contains(res.Did, "room 12, where Tetra is, is not loaded here") || !strings.Contains(res.Did, "as you came in by it") {
 		t.Errorf("did %q", res.Did)
 	}
 	if h := nextStage(er); h != (StageRequest{Name: "sea", Point: 0, Room: 44, Layer: -1}) {
@@ -663,7 +666,7 @@ func TestEscapeWarpOtherStage(t *testing.T) {
 	if seq, _ := er.warpSeq(); seq != 1 {
 		t.Fatalf("warp_seq %d after the stage change, want 1\n%s", seq, er.log)
 	}
-	if !er.log.has("co-op: warp: warping to the partner at (7, 8, 9) in room 6") {
+	if !er.log.has("co-op: warp: warping to Tetra at (7, 8, 9) in room 6") {
 		t.Errorf("log:\n%s", er.log)
 	}
 }

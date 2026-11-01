@@ -71,6 +71,12 @@ LOCAL_EXTRA = [
      [("src/d/d_stage.cpp", 1933, "RODE_KORL"),
       ("src/d/actor/d_a_player_main.cpp", 10853, "RODE_KORL"),
       ("src/d/d_com_inf_game.cpp", 1305, "RODE_KORL")]),
+    (0x2A80, "set by this player's own clothes-change demo; while it is clear (or the clear count "
+             "is nonzero) playerInit puts Link in the casual clothes, so a partner's bit would put "
+             "this player in the hero's clothes. Grandma and Aryll read it for their own lines",
+     [("src/d/actor/d_a_demo00.cpp", 654, "dSv_event_flag_c::UNK_2A80"),
+      ("src/d/actor/d_a_player_main.cpp", 12345, "dComIfGs_isEventBit(dSv_event_flag_c::UNK_2A80)"),
+      ("src/d/actor/d_a_npc_ba1.cpp", 1637, "dComIfGs_isEventBit(dSv_event_flag_c::UNK_2A80)")]),
     (0x3820, "the Hyrule statue recomputes it from the story every time it is created",
      [("src/d/actor/d_a_obj_YLzou.cpp", 143, "offEventBit(dSv_event_flag_c::MOVED_HYRULE_STATUE)"),
       ("src/d/actor/d_a_obj_YLzou.cpp", 145, "onEventBit(dSv_event_flag_c::MOVED_HYRULE_STATUE)")]),

@@ -24,6 +24,8 @@ const (
 	FeatureKeys         = proto.FeatureKeys
 	FeatureLife         = proto.FeatureLife
 	FeatureMagic        = proto.FeatureMagic
+	FeaturePlacedKill   = proto.FeaturePlacedKill
+	FeatureChestClaim   = proto.FeatureChestClaim
 	FeatureMerge        = proto.FeatureMerge
 	FeatureBind         = proto.FeatureBind
 	AskUnsaved          = proto.AskUnsaved
@@ -67,8 +69,15 @@ func KillFilter(synced func(table int, stage string, room, setID int) bool) func
 	return proto.KillFilter(synced)
 }
 
+// PlacedFilter is proto.PlacedFilter: the scoped stores' filter for
+// PKILL keys over the host's verdict (Config.SyncedPlaced).
+func PlacedFilter(placed func(table int, stage string, room, ordinal int) bool) func(world.Key, int) uint32 {
+	return proto.PlacedFilter(placed)
+}
+
 // Filter is proto.Filter: a session's scoped stores' filter, ScopeFilter
-// for the switches and KillFilter for the kills.
-func Filter(scoped func(table int, stage string, room, no int) bool, kill func(table int, stage string, room, setID int) bool) func(world.Key, int) uint32 {
-	return proto.Filter(scoped, kill)
+// for the switches, KillFilter for the kills and PlacedFilter for the
+// placed kills.
+func Filter(scoped func(table int, stage string, room, no int) bool, kill, placed func(table int, stage string, room, id int) bool) func(world.Key, int) uint32 {
+	return proto.Filter(scoped, kill, placed)
 }

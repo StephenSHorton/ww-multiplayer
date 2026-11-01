@@ -96,6 +96,7 @@ ww-multiplayer/
 │   ├── extract_blob.py          # Diffs original.dol vs patched.dol → internal/inject/blob.go
 │   ├── gen_event_masks.py       # Generates mods/coop/class/syncmask_gen.go from the decomp
 │   └── build-mac.sh, setup-mac-dolphin.sh   # macOS release build (WW Multiplayer.app + ditto zip); one-time Dolphin re-sign
+│       mac-rig.sh                           # The macOS test rig: per-rig user dirs, pair/one/mp-local/stop by PID, shot, fps, recapture (docs/mac-rig.md)
 ├── packaging/
 │   └── ww-multiplayer.exe.manifest  # Windows app manifest (DPI, Common Controls 6, asInvoker), in cmd/ww-multiplayer/ww_windows.syso via go generate
 ├── tools/
@@ -114,6 +115,8 @@ ww-multiplayer/
     ├── 04-ww-addresses.md, 05-known-issues.md, 06-history.md
     ├── 07-bettersunshine-research.md (Kuribo/BetterSunshineEngine notes, input to docs/api Phase E)
     ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md, 11-self-hosting.md (the dedicated server: Tailscale, port forwarding, owner key, status, Docker)
+    ├── coop-remaining.md        # what is left for a whole-game co-op run: blockers, owed live checks, release, polish (as of a named main)
+    ├── mac-rig.md               # the macOS test rig: MEM1 override, Mac start save, screenshots, hotkeys, dolphin-slot leases
     ├── api/                     # the modding API: 00-design, 01-events, 02-mods, 03-writing-a-mod
     ├── release-notes/           # v<version>.md per release (the release body); README.md = how; a "<!-- draft" first line blocks the tag
     └── TESTING.md               # the pre-push check matrix, goldens, flakes, live checks
@@ -147,9 +150,11 @@ go build -o wwdev.exe ./cmd/wwdev
 #   picks the boss-dead relay's rows (default all six, gohdan (SirenB) included since v0.6.1;
 #   docs/TESTING.md "Batch D"), the host's --coop-live-switches[=off] (live switches, on by default
 #   since v0.6.1: the current table's switches apply when idle; =off (false, no, 0) waits for the next
-#   room change; a joiner may not name it), and
+#   room change; a joiner may not name it), the host's --coop-placed-kill[=on|off] (off by default: placement-matched kills
+#   of unkeyed enemies, M6.1, docs/08 §7.2a: a partner's kill of an unkeyed placed enemy light-shrinks one live instance in
+#   the other game while both are in the room; needs combat; docs/TESTING.md P1-P8; a joiner may not name it), and
 #   --coop-refresh=stone2,leaves,item,tbox,saku,wall,floor,ice,mjdoor,mkie,mkiek,mknjd,vfan,swhit0,warpt,mflft,kokiie,vmc[,dry]|none
-#   turns on actor_refresh (default off: nothing asked), which asks the REL to bring up to date an actor this game placed before the
+#   picks actor_refresh's tokens (default tbox,leaves,saku,kokiie,stone2,item, replica.RefreshDefault; none = off), which asks the REL to bring up to date an actor this game placed before the
 #   partner's bit landed (mods/coop/replica refresh_relay.go): delete a boulder, bush, pickup, barricade, wall, floor, ice block or
 #   statue, or delete and re-create in its set state a chest, crystal switch, warp jar, flame lift, flower house or soil mound
 #   (review idea 11; door10/door12 are refused until the ST1 key-door check). dry logs one line per candidate and writes nothing.
@@ -173,7 +178,7 @@ go build -o wwdev.exe ./cmd/wwdev
 ./wwdev.exe screenshot [path]                           # PNG of the selected Dolphin's window (Win32; default path = dolphin-<pid>-<ts>.png)
 ./wwdev.exe input <btns-hex> <stickX> <stickY> [ms=1000]   # Drive synthetic controller input via pad_read_shim. ms=0 holds until input-release.
 ./wwdev.exe input-release                               # Disable pad_read_shim override (zero input_enable). Pair with `input ... 0`.
-./wwdev.exe auto-recapture [out=saves/start.sav]   # Cold-boot Dolphin + drive menus + prompt for one Shift+F1 + cp the new state. Win-only.
+./wwdev.exe auto-recapture [out=saves/start.sav]   # Cold-boot Dolphin + drive menus + Shift+F1 + cp the new state. Windows (may prompt for the key) and macOS (unattended, held CGEvent Shift+F1; docs/mac-rig.md)
 ./wwdev.exe auto-recapture-pair [out1=saves/start.sav] [out2=saves/start2.sav] [delay-secs=5]   # Same as auto-recapture, but captures TWO states with a delay between (distinct btp phases). Pair with SAVE_STATE_2 in dolphin2 to validate face-sync (#5).
 ./wwdev.exe send-shift-f1                               # Diagnostic: probe whether your Dolphin build accepts synthetic Shift+F1 hotkeys
 ./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
@@ -214,16 +219,18 @@ WW_ENEMY_HIT_V1=1                           # enemy-host applies a client's hit 
 WW_ENEMY_HIT_FALLBACK=shrink                # enemy-host: a v2 hit that crossed nothing after two Sets falls back to the shrink kill
 WW_ENEMY_HIT_DEMO=0                         # enemy-host: no cutscene gate on client hits (default: a hit during the host Link's demo is dropped)
 WW_ENEMY_MIRROR_KINDS=<kinds>               # Enemy kinds mirrored (mods/enemysync/kinds.go): mo2, bk, cc, ki (Keese), am (Armos Knight), am2 (Armos), tn (Darknut),
-                                            #   bb (Kargaroc), mt (Magtail) joined by "," (default mo2,bk+u,cc+u,ki+u: am, am2, tn, bb, mt are off until named); a "+u"
-                                            #   suffix (bk+u, ki+u, tn+u, bb+u, mt+u) also takes that kind's unkeyed (setID 0xFFFF) placements (ki+u: fly-type Keese only,
+                                            #   bb (Kargaroc), mt (Magtail), st (Stalfos) joined by "," (default mo2,bk+u,cc+u,ki+u,am2+u,tn+u: am, bb, mt, st are off until
+                                            #   named); a "+u" suffix (bk+u, ki+u, tn+u, bb+u, mt+u, st+u) also takes that kind's unkeyed (setID 0xFFFF) placements (ki+u: fly-type Keese only,
                                             #   never on GanonK; tn+u: the cave Darknuts; BOSS, behaviour 12..15 and caped Darknuts are always refused; bb: the keyed
                                             #   DRC perches, bb+u also the sea birds, a rider carrying a Moblin/Bokoblin (type 5/6) is always refused; mt+u: opt-in,
                                             #   every DRC Magtail is unkeyed, so mt alone takes none; batch D restored the row, kind 8, with the retail body
-                                            #   builders behind a fingerprint, and it needs a REL of this build); "none". Host and client each set theirs: a kind is
+                                            #   builders behind a fingerprint, and it needs a REL of this build; st: wind#27's kind 9, intact phase only (the
+                                            #   copy hides at the break and never shows the loose head; BOSS (the M_DaiMB trio) and the split's upper half refused),
+                                            #   st keyed (ET, WT), st+u the unkeyed ones (GT Earth trial, Savage Labyrinth), docs/TESTING.md "ST Stalfos row"); "none". Host and client each set theirs: a kind is
                                             #   mirrored only when both enable it (the STATE's host kind mask AND the client's; u16 since batch C)
 WW_ENEMY_QUIET_DEATH=<kinds>                # enemy-client: kinds whose copies die quietly (stay paused, shrink in the REL, deleted; the client sets the zone bit and
-                                            #   death switch), default mo2,bk,cc,ki,am,am2,tn,bb,mt; bk,cc brings back the Moblin's legacy em_die (which drops an item
-                                            #   on the client too); ki, am, am2, tn, bb and mt always die quietly (the REL forces it for kind ids >= 3)
+                                            #   death switch), default mo2,bk,cc,ki,am,am2,tn,bb,mt,st; bk,cc brings back the Moblin's legacy em_die (which drops an item
+                                            #   on the client too); ki, am, am2, tn, bb, mt and st always die quietly (the REL forces it for kind ids >= 3)
 WW_ENEMY_SELECT=legacy                      # host and client: the prototype's lowest-setID slot order (default distance: the host lists by player distance, each
                                             #   client keeps its 4 block slots with KEEP_R/ENTER_R/MIN_HOLD hysteresis)
 WW_ENEMY_STATE_30HZ=1                       # enemy-host: send a STATE only when the host REL's frame counter moved (and at least every 250 ms)
@@ -232,7 +239,7 @@ WW_ENEMY_ANNEX=<kind>:<field>=<v>,...       # Enemy block overrides (mods/enemys
                                             #   (u8 quiet-death frames: 20, 90 light) and hooks (hook_disable: a number or model_eq attach eye legacy_death attn
                                             #   mtx_plain special extra joined by +). mo2, bk, cc: the annex. ki, am, am2, tn: hooks in their annex bytes
                                             #   +0x1FC..+0x1FF; quiet, invuln and tg_hit_up in layout 4's knob table (0x80413750; batch C, e.g. ki:quiet=60).
-                                            #   bb, mt: hooks in the block's bytes +0x28/+0x29 (0x80413128/9), quiet/invuln/tg_hit_up in the knob table.
+                                            #   bb, mt, st: hooks in the block's bytes +0x28/+0x29/+0x2A (0x80413128/9/A), quiet/invuln/tg_hit_up in the knob table (st:tg_hit_up, compiled 100).
                                             #   special = AM's bomb swallow and AM2's direct apply (am2:hooks=special on either side restores the old sphere
                                             #   path), extra = btk/brk play and collider radii. Per-kind names (docs/TESTING.md B1, batch C): tn shield (=model_eq)
                                             #   attach sword (=eye) coll (=legacy_death) attn adopt_anm (=mtx_plain); bk ambush (=special: the hidden ambusher's
@@ -288,6 +295,8 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 #   WW_POSE_TEST_RATE=<hz>[:<jitter ms>[:<latency ms>]]  wwdev's broadcasts (mp-local, broadcast-pose) sample at hz and send each sample late
 #                 by latency + up to jitter, in order (feed.TestRate; the shipped exe has no such knob); smoke --smooth sets it on its mp-local
 #   MP_LOCAL_STOP_FILE=<path>  mp-local stops, with its normal teardown, once that file exists (smoke's child run)
+#   MP_LOCAL_PORT=<n>  mp-local's server port (default 25565); 0 = a free port on 127.0.0.1, named in "Server listening on"
+#                 (one per rig when several rigs share a Mac: docs/mac-rig.md)
 # Env knobs honored by `dolphin2` and `auto-recapture` (defaults: wwapi/emu/launch Defaults;
 # DOLPHIN_EXE, ISO_PATH and USER_DIR_1 also override the app's saved settings, as WW_COLOR does):
 #   DOLPHIN_EXE   path to Dolphin (Windows default: %USERPROFILE%\Desktop\Dolphin-x64\Dolphin.exe;

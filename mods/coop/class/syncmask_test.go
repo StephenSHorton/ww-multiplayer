@@ -69,10 +69,10 @@ func TestStoryListsGolden(t *testing.T) {
 	for _, m := range syncMask {
 		n += bits.OnesCount8(m)
 	}
-	// 487 named bits minus 35 LocalOnly (the 31 D8 among them) minus the
+	// 487 named bits minus 36 LocalOnly (the 31 D8 among them) minus the
 	// 4 refight bits.
-	if n != 448 {
-		t.Errorf("SyncMask holds %d bits, want 448", n)
+	if n != 447 {
+		t.Errorf("SyncMask holds %d bits, want 447", n)
 	}
 	gz := 0
 	files := map[string]bool{}
@@ -86,8 +86,8 @@ func TestStoryListsGolden(t *testing.T) {
 		t.Errorf("%d offEventBit calls in %d files, %d in GZLE01; want 50 in 10 (§6.5), 46 in GZLE01",
 			len(offEventBitSites), len(files), gz)
 	}
-	if len(gameClearedBits) != 31 || len(localOnlyBits) != 35 || len(refightBits) != 4 {
-		t.Errorf("D8 %d, LocalOnly %d, refight %d bits; want 31, 35, 4",
+	if len(gameClearedBits) != 31 || len(localOnlyBits) != 36 || len(refightBits) != 4 {
+		t.Errorf("D8 %d, LocalOnly %d, refight %d bits; want 31, 36, 4",
 			len(gameClearedBits), len(localOnlyBits), len(refightBits))
 	}
 
@@ -99,7 +99,7 @@ func TestStoryListsGolden(t *testing.T) {
 		}
 		return false
 	}
-	for _, id := range []uint16{0x0A02, 0x2A08, 0x3820, 0x3B20, 0x3F40, 0x2D01, 0x1301, 0x3C02, 0x4080} {
+	for _, id := range []uint16{0x0A02, 0x2A08, 0x2A80, 0x3820, 0x3B20, 0x3F40, 0x2D01, 0x1301, 0x3C02, 0x4080} {
 		if !in(localOnlyBits, id) {
 			t.Errorf("0x%04X is not LocalOnly", id)
 		}
@@ -178,6 +178,8 @@ func TestEventSyncs(t *testing.T) {
 	}{
 		{0x0F80, true},  // MET_KORL
 		{0x0A02, false}, // ENDLESS_NIGHT, LocalOnly
+		{0x2A80, false}, // hero's clothes: per player, a casual partner stays casual (wind#25)
+		{0x2A88, false}, // with RODE_KORL, both LocalOnly
 		{0x3D80, false}, // refight
 		{0x0A00, false}, // no mask
 		{0x0A01, true},  // the byte's other bits still sync

@@ -907,6 +907,8 @@ func TestCombatStatus(t *testing.T) {
 		{"on", replica.Status{Combat: on}, "combat: on; 4 partner kill bit(s) held for M_NewD2 (table 3); 3 written to zones, 2 light-shrunk, 1 held (link demo 13, link demo 1), 1 refused, 0 verify failures"},
 		{"nothing held", replica.Status{Combat: replica.CombatStatus{Granted: true, Tables: true, Place: world.Nowhere}},
 			"combat: on; 0 partner kill bit(s) held for nowhere; 0 written to zones, 0 light-shrunk, 0 held, 0 refused, 0 verify failures"},
+		{"pause menu", replica.Status{Combat: replica.CombatStatus{Granted: true, Tables: true, Place: in, StoreBits: 1, Waiting: "the pause menu is open"}},
+			"combat: on; 1 partner kill bit(s) held for M_NewD2 (table 3); 0 written to zones, 0 light-shrunk, 0 held (all waiting: the pause menu is open), 0 refused, 0 verify failures"},
 		{"not granted", replica.Status{Combat: replica.CombatStatus{Tables: true}}, "combat: not granted by the host (its co-op stage tables are not this side's, or it turned it off)"},
 		{"no tables", replica.Status{Combat: replica.CombatStatus{Granted: true}}, "combat: granted, but this side has no co-op enemy table, so no kill is written"},
 		{"dry run", replica.Status{DryRun: true}, "combat: none in a dry run, which asks the host for the shared image alone"},
@@ -948,5 +950,22 @@ func TestHubCombatStatus(t *testing.T) {
 	logHubStatus(l, func() (hub.Status, error) { return hs, nil })
 	if !l.has("co-op: host: combat off; 2 kill store(s) held") {
 		t.Errorf("logHubStatus:\n%s", l)
+	}
+}
+
+// TestPlacedStatus: /status's M6.1 line, empty unless granted.
+func TestPlacedStatus(t *testing.T) {
+	var st replica.Status
+	if got := placedStatus(st); got != "" {
+		t.Errorf("not granted: %q", got)
+	}
+	st.Combat.Placed = replica.PlacedStatus{Granted: true, Tracked: 3, Sent: 2, Unsent: map[string]int{"offroom": 1, "nosig": 4}, Pending: 1, Taken: 5, Gone: 1, Refused: 2}
+	want := "placed kills: on; 3 tracked, 2 sent, not sent: nosig 4, offroom 1; 1 pending, 5 taken, 1 gone, 0 expired, 0 dropped, 2 refused"
+	if got := placedStatus(st); got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+	st.DryRun = true
+	if got := placedStatus(st); got != "" {
+		t.Errorf("dry run: %q", got)
 	}
 }

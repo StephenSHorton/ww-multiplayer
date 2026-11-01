@@ -21,7 +21,7 @@ func TestPublishPartner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := wire.Encode(&wire.Presence{Stage: st, Table: 3, Room: 1, Layer: -1, Flags: wire.PresenceInGame})
+	b, err := wire.Encode(&wire.PresenceDown{Presence: wire.Presence{Stage: st, Table: 3, Room: 1, Layer: -1, Flags: wire.PresenceInGame}, Origin: 2, Name: "Tetra"})
 	if err != nil {
 		t.Fatal(err)
 	}

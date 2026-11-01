@@ -121,6 +121,27 @@ const (
 	StageFileSelect = "Name"  // file select and naming (dScnName_c::create, d_s_name.cpp:111)
 )
 
+// The ending's stages, in the order the game plays them: GTower point 2's
+// `endhr` goes to ENDING (the staff roll), whose `ending` event (ENDumi
+// point 0, sw114) leads to sea_E's `epilogue` (r44 point 0, sw118), then
+// the clear save and the title (GT slice; overworld slice :214, :232,
+// :321).
+const (
+	StageEnding    = "ENDING"
+	StageEndingSea = "ENDumi"
+	StageEpilogue  = "sea_E"
+)
+
+// InCredits reports whether name is one of the ending's stages. GT Q5:
+// from the credits on, a player's game has left the co-op world. The
+// gates treat these stages as they treat the title: nothing is written
+// into them and nothing they set is sent, so the ending's own switches
+// (sw114, sw118) never reach a partner who has not finished, whose own
+// ending would then skip its events.
+func InCredits(name string) bool {
+	return name == StageEnding || name == StageEndingSea || name == StageEpilogue
+}
+
 // dStage_roomControl_c statics: per-room status and the current room.
 const (
 	// RoomStatus is dStage_roomControl_c::mStatus[64] (sym:17429,

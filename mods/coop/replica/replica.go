@@ -130,8 +130,8 @@ type Config struct {
 	// replica uses: proto.FeatureImage, and with Apply proto.FeatureSwitches,
 	// proto.FeatureLiveSwitches, proto.M4Features, proto.FeaturePuzzle and
 	// proto.FeatureCombat too
-	// (the host decides whether to allow the live-switch opt-in,
-	// --coop-live-switches). A dry run asks for what M2 did,
+	// (the host decides whether to allow live switches, on by default
+	// since v0.6.1, --coop-live-switches=off). A dry run asks for what M2 did,
 	// proto.FeatureImage. Bits outside proto.SessionFeatures are ignored.
 	Want proto.Feature
 	// Policy limits what the replica proposes, plans and writes to the
@@ -176,11 +176,11 @@ type Config struct {
 	// OnPreflight is called, likewise, with each new join preflight of
 	// an unbound file against the hub's world.
 	OnPreflight func(PreflightReport)
-	// PartnerPos returns the partner's position, the latest pose sync
-	// has, for a warp to the partner on the same stage (Escape). It is
-	// called under the replica's lock, so it must not call back into
-	// the replica. Nil leaves only the warps that change stage.
-	PartnerPos func() (Pos, bool)
+	// PartnerPos returns partner name's position, the latest pose sync
+	// has, for a warp to that partner on the same stage (Escape, WarpTo).
+	// It is called under the replica's lock, so it must not call back
+	// into the replica. Nil leaves only the warps that change stage.
+	PartnerPos func(name string) (Pos, bool)
 	// Claimed is this game's enemy-mirror claims (enemysync.ClaimSet's
 	// Claimed, enemy-mirror-general.json D8): M6 never light-shrinks a
 	// pid it claims, as the host's enemy owns that death. It is this
@@ -314,8 +314,11 @@ type Status struct {
 	Offer  *Offer // waiting for Confirm or Decline
 	// Preflight is the last join preflight, while the file is unbound.
 	Preflight *PreflightReport
-	// Partner is the last PRESENCE the hub relayed.
+	// Partner is the one partner's last PRESENCE while there is exactly
+	// one; nil with none, or with two or more (see Partners).
 	Partner *wire.Presence
+	// Partners is every partner's last PRESENCE, by name.
+	Partners []PartnerStatus
 	// Derive is how the derived small keys and max life stand (the
 	// Deriver's tables, and each key table's last tick).
 	Derive derive.Status
@@ -337,6 +340,8 @@ type Status struct {
 	// Salvage is how the salvage catch-up stands (salvage.go): the points
 	// marked emptied, and those held.
 	Salvage SalvageStatus
+	// Chests is how M9's chest claims stand (chests.go).
+	Chests ChestStatus
 	// Room is what the session's world holds, read from this replica's
 	// view of it (roomitems.Of, the app's Room items card); nil before
 	// the hub's world came in.
@@ -383,7 +388,10 @@ type Replica struct {
 	armedNow bool // the last tick was armed
 	presence *wire.Presence
 	presAt   time.Time
-	partner  *wire.Presence
+	// partners is each other player's last relayed PRESENCE and its
+	// track, by co-op connection (schema 2: PRESENCE s->c names its
+	// sender; partners.go).
+	partners map[uint8]*partnerView
 	bad      int // malformed payloads dropped
 	// early is a WORLD that came before the CO_WELCOME naming the
 	// session's world, which a joiner learns there (onWorld): kept for
@@ -429,8 +437,7 @@ type Replica struct {
 	follow  *followWarp
 	stopped bool              // Run has returned: no tick comes to make an escape
 	entries map[entryKey]int8 // entrances this game came in by, and their rooms
-	heard   map[entryKey]int8 // the partner's, from its PRESENCE (inferred)
-	track   partnerTrack
+	heard   map[entryKey]int8 // the partners', from their PRESENCE (inferred)
 
 	// The boss-dead relay (bosskill.go), and the request this tick makes
 	// after the lock is released; bossOn is Config.BossKill's procs.
@@ -443,6 +450,7 @@ type Replica struct {
 	ar actorRefresh
 	// sv is the salvage catch-up (salvage.go).
 	sv    salvageState
+	ch    chestState // M9 chest claims (chests.go)
 	arNow *refreshReq
 	rfOn  refreshSet
 
@@ -500,6 +508,7 @@ func New(cfg Config) (*Replica, error) {
 		declined: map[helloKey]bool{},
 		entries:  map[entryKey]int8{},
 		heard:    map[entryKey]int8{},
+		partners: map[uint8]*partnerView{},
 		bossOn:   bossOn,
 		rfOn:     rfOn,
 		ar:       newActorRefresh(),
@@ -522,7 +531,7 @@ func New(cfg Config) (*Replica, error) {
 	}
 	w, err := NewFrameWriter(WriterConfig{Mem: r.m, DryRun: true})
 	if cfg.Apply {
-		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | RefreshTargets | TargetEscape | TargetBoss | TargetRefresh | TargetSalvage, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
+		wg := NewWriteGuard(GuardConfig{Targets: M3Targets | M4Targets | M5Targets | M6Targets | RefreshTargets | TargetEscape | TargetBoss | TargetRefresh | TargetSalvage | TargetChestHold, Policy: r.policy, GBA: &r.gba.mask, Breaker: cfg.Breaker, Logf: r.logf, Label: r.label})
 		w, err = NewFrameWriter(WriterConfig{Mem: r.m, Guard: wg, BeatTimeout: cfg.BeatTimeout, Logf: r.logf, Label: r.label, GBA: r.gba.switches > 0})
 	}
 	if err != nil {
@@ -548,7 +557,7 @@ func New(cfg Config) (*Replica, error) {
 		t := cfg.Tables
 		r.differ.ShareScopes(proto.Filter(r.scopedSynced, func(table int, stage string, room, setID int) bool {
 			return synctables.SyncedKill(t, table, stage, room, setID)
-		}))
+		}, nil)) // the differ never proposes PKILL: the placed sender does (placed.go)
 		r.differ.HoldScopes(proto.ScopeFilter(r.scopedHeld))
 	}
 	r.planner = NewPlanner(r.policy)
@@ -564,7 +573,7 @@ func (r *Replica) Guard() *Guard { return r.guard }
 func (r *Replica) want() proto.Feature {
 	if r.cfg.Want == 0 {
 		if r.cfg.Apply {
-			return proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches | proto.M4Features | proto.FeaturePuzzle | proto.FeatureCombat
+			return proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches | proto.M4Features | proto.FeaturePuzzle | proto.FeatureCombat | proto.FeaturePlacedKill | proto.FeatureChestClaim
 		}
 		return proto.FeatureImage
 	}
@@ -637,8 +646,8 @@ func (r *Replica) resetSession() {
 	r.tr, r.hello, r.welcome = nil, nil, nil
 	r.helloKey = helloKey{}
 	r.features, r.worldUp, r.armedNow = 0, false, false
-	r.presence, r.partner, r.early = nil, nil, nil
-	r.track = partnerTrack{}
+	r.presence, r.early = nil, nil
+	clear(r.partners)
 	r.bindAsk, r.bindGranted = nil, false
 	// The next session's hub sends the stores again as the first PRESENCE
 	// enters their scopes, and an old one's are no store it holds.
@@ -705,7 +714,8 @@ func (r *Replica) Status() Status {
 		DryRun:   r.writer.DryRun(),
 		Writes:   r.writer.Stats(),
 		Offer:    r.offer,
-		Partner:  r.partner,
+		Partner:  r.onlyPartner(),
+		Partners: r.partnerStatus(),
 		Derive:   r.m4.deriver.Status(),
 		Puzzle:   r.puzzleStatus(),
 		GBA:      GBAStatus{MayLink: r.gba.held, Switches: r.gba.switches},
@@ -713,6 +723,7 @@ func (r *Replica) Status() Status {
 		BossKill: r.bossKillStatus(),
 		Refresh:  r.refreshStatus(),
 		Salvage:  r.salvageStatus(),
+		Chests:   r.chestStatus(),
 	}
 	if r.haveView && r.viewWorld == r.sessionWorld {
 		var h *hearts.Result
@@ -788,6 +799,8 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	cm := r.m6.take()
 	sp := r.sv.plan
 	r.sv.plan = nil
+	cp := r.ch.plan
+	r.ch.plan = nil
 	r.toWrite, r.window, r.escNow, r.bossNow, r.arNow = nil, windows{}, nil, nil, nil
 	r.unlockAndFlush(&out)
 	var werr error
@@ -815,6 +828,7 @@ func (r *Replica) tickContext(ctx context.Context) Report {
 	r.applyBossKill(ctx, bq, &rep)
 	r.applyRefresh(ctx, aq, &rep)
 	r.applySalvage(ctx, sp, &rep)
+	r.applyChests(ctx, cp, &rep)
 	return rep
 }
 
@@ -923,7 +937,14 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 	r.reconcileM4(o, armed, &rep)
 	r.reconcileM5(o, armed)
 	r.reconcileM6(o, armed)
+	for _, sc := range r.m6.pl.takePlacedOut() {
+		if armed && r.worldUp && r.features&proto.FeaturePlacedKill != 0 {
+			out.send(&sc)
+			rep.Scoped++
+		}
+	}
 	r.reconcileSalvage(o, armed)
+	r.reconcileChests(o, armed, out)
 	r.escapeTick(o, armed)
 	r.bossTick(o, armed)
 	r.actorRefreshTick(armed)
@@ -934,8 +955,11 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 
 // scopeFeature is the feature a SCOPED kind needs (as the hub has it).
 func scopeFeature(k wire.ScopeKind) proto.Feature {
-	if k == wire.ScopeKill {
+	switch k {
+	case wire.ScopeKill:
 		return proto.FeatureCombat
+	case wire.ScopePlaced:
+		return proto.FeaturePlacedKill
 	}
 	return proto.FeaturePuzzle
 }
@@ -1088,15 +1112,15 @@ func (r *Replica) handle(m wire.Msg, out *outbox) {
 		}
 	case *wire.Scoped:
 		r.onScoped(m)
-	case *wire.Presence:
-		p := *m
-		r.notePartnerRest(&p)
-		r.learnPartner(&p)
-		r.partner = &p
+	case *wire.PresenceDown:
+		r.onPartnerPresence(m)
 	case *wire.Notice:
 		r.logf("co-op: the host says (%s): %s", m.Code, m.Text)
 	case *wire.Ctrl:
 		r.onCtrl(m, out)
+	case *wire.Claim:
+		r.ch.init()
+		r.onChestClaim(m)
 	}
 }
 
@@ -1217,6 +1241,12 @@ func (r *Replica) onScoped(m *wire.Scoped) {
 		// Relayed live, never kept (§6.3): only the room it is for, at
 		// this moment, could apply it.
 		r.m5Edge(m)
+		return
+	}
+	if m.Kind == wire.ScopePlaced {
+		// A partner's kill of an unkeyed enemy (§7.2a, M6.1): pending
+		// for one live instance, never kept as a store.
+		r.onPlaced(m)
 		return
 	}
 	if k.kind == wire.ScopeDan {

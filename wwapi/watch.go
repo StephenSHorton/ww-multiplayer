@@ -69,7 +69,7 @@ func placeOf(s *state.Snapshot) events.Place {
 // menu reports whether s is on the title screen or file select, or has
 // no stage at all.
 func menu(s *state.Snapshot) bool {
-	return s.StageName == "" || s.StageName == addr.StageTitle || s.StageName == addr.StageFileSelect
+	return s.StageName == "" || s.StageName == addr.StageTitle || s.StageName == addr.StageFileSelect || addr.InCredits(s.StageName)
 }
 
 // saveEvents is diag.DiffSave and edgeNote reduced to the edges the core

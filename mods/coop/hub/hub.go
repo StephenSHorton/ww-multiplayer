@@ -156,6 +156,14 @@ type Config struct {
 	// SyncedScoped's. Nil, a host without tables, keeps none (and such a
 	// host grants no FeatureCombat anyway).
 	SyncedKill func(table int, stage string, room, setID int) bool
+	// SyncedPlaced is the host's M1 verdict on the placement ordinals
+	// SCOPED PKILL carries (synctables.SyncedPlaced; §7.2a, M6.1):
+	// whether a kill of the unkeyed enemy of ordinal in room of stage, in
+	// a game of save table table, may be shared. The hub relays only the
+	// bits it grants (PlacedFilter) and keeps none (world.ScopePlaced);
+	// the rest are dropped and counted in PeerStatus.ScopedRefused. Nil, a
+	// host without tables, relays none.
+	SyncedPlaced func(table int, stage string, room, ordinal int) bool
 	// IsHost reports whether a connection is the host's own, which alone
 	// may tombstone over the wire (CTRL TOMBSTONE). Nil means a
 	// connection from a loopback address.
@@ -195,6 +203,7 @@ type Hub struct {
 	byID     map[world.Player]*peer
 	order    []*peer // every peer, by ID: relays go out in a fixed order
 	scopes   *world.Scopes
+	leases   map[chestKey]chestLease // chest claims (claims.go)
 }
 
 var _ network.CoopHandler = (*Hub)(nil)
@@ -248,7 +257,7 @@ func newHub(cfg Config, direct bool) (*Hub, error) {
 		pol = SwitchPolicy(pol, cfg.SyncedSwitch)
 	}
 	h.store.SetPolicy(pol)
-	h.scopes.Filter = Filter(cfg.SyncedScoped, cfg.SyncedKill)
+	h.scopes.Filter = Filter(cfg.SyncedScoped, cfg.SyncedKill, cfg.SyncedPlaced)
 	return h, nil
 }
 
@@ -497,6 +506,7 @@ func (h *Hub) onAttach(l *link) error {
 }
 
 func (h *Hub) onDetach(p *peer) {
+	h.dropClaims(p)
 	h.leaveBound(p)
 	h.leaveView(p)
 	delete(h.peers, p.link.conn)

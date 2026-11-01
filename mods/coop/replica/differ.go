@@ -37,6 +37,10 @@ func screenOf(s *state.Snapshot) screen {
 	switch {
 	case s.StageName == "", s.StageName == addr.StageTitle, s.StageName == addr.StageFileSelect:
 		return screenOut
+	case addr.InCredits(s.StageName):
+		// GT Q5: the ending's stages are off the co-op world, so what the
+		// ending sets (sw114, sw118, the clear save) is never a gain.
+		return screenOut
 	case !addr.ValidTable(int(s.Table)):
 		// mDan.mStageNo is -1 from dSv_info_c::init (d_save.cpp:1392)
 		// until the next stage load: boot or a New Game.

@@ -30,6 +30,13 @@ func TestParseCoopCommand(t *testing.T) {
 		{"/warp", coopCommand{verb: "warp"}, ""},
 		{"/warp Tetra", coopCommand{verb: "warp", who: "Tetra"}, ""},
 		{"/Warp  Tetra ", coopCommand{verb: "warp", who: "Tetra"}, ""},
+		{"/warp to Medli", coopCommand{verb: "warp", target: "Medli"}, ""},
+		{"/warp Link TO Medli", coopCommand{verb: "warp", who: "Link", target: "Medli"}, ""},
+		{"/warp to", coopCommand{}, "name one partner after"},
+		{"/warp to Medli Tetra", coopCommand{}, "name one partner after"},
+		{"/warp Link to Medli Tetra", coopCommand{}, "name one partner after"},
+		{"/warp to " + strings.Repeat("y", 40), coopCommand{}, "player name is 40 bytes long"},
+		{"/refresh to Medli", coopCommand{}, "at most a player's name"},
 		{"/status", coopCommand{verb: "status"}, ""},
 		{"/status Link", coopCommand{verb: "status", who: "Link"}, ""},
 		{"/coop off", coopCommand{verb: "coop off"}, ""},
@@ -71,7 +78,7 @@ func TestParseCoopCommand(t *testing.T) {
 // of its verbs, for a valid player or none, and the command it returns
 // parses back to itself.
 func FuzzParseCoopCommand(f *testing.F) {
-	for _, s := range []string{"/help", "/warp Tetra", "/coop off Link", "/coop", "/refresh\x00", "/status \t x", "/"} {
+	for _, s := range []string{"/help", "/warp Tetra", "/warp Link to Medli", "/coop off Link", "/coop", "/refresh\x00", "/status \t x", "/"} {
 		f.Add(s)
 	}
 	verbs := map[string]bool{"help": true, "refresh": true, "warp": true, "status": true, "coop off": true, "coop on": true}
@@ -89,9 +96,15 @@ func FuzzParseCoopCommand(f *testing.F) {
 		if cmd.who != "" && (cmd.verb == "help" || network.ValidatePlayerName(cmd.who) != nil || strings.ContainsAny(cmd.who, " \t\n")) {
 			t.Fatalf("%q: player %q for /%s", line, cmd.who, cmd.verb)
 		}
+		if cmd.target != "" && (cmd.verb != "warp" || network.ValidatePlayerName(cmd.target) != nil || strings.ContainsAny(cmd.target, " \t\n")) {
+			t.Fatalf("%q: target %q for /%s", line, cmd.target, cmd.verb)
+		}
 		again := "/" + cmd.verb
 		if cmd.who != "" {
 			again += " " + cmd.who
+		}
+		if cmd.target != "" {
+			again += " to " + cmd.target
 		}
 		if back, err := parseCoopCommand(again); err != nil || back != cmd {
 			t.Fatalf("%q parsed to %+v, which parses back to %+v, %v", line, cmd, back, err)
@@ -209,9 +222,9 @@ func TestCoopConsole(t *testing.T) {
 	})
 }
 
-// TestCoopPartnerPos: a warp's partner position is the one other player's
+// TestCoopPartnerPos: a warp's partner position is the named partner's
 // that pose sync heard, never the player's own (mp-local's twins hear
-// each other); with two others there is none.
+// each other); with two others each is found by its name (co-op 3+).
 func TestCoopPartnerPos(t *testing.T) {
 	srv := network.NewServer(0)
 	if err := srv.Start(); err != nil {
@@ -220,7 +233,7 @@ func TestCoopPartnerPos(t *testing.T) {
 	defer srv.Stop()
 	at := fmt.Sprintf("127.0.0.1:%d", srv.Addr().(*net.TCPAddr).Port)
 	cs := &Session{poses: map[string]*network.Client{}}
-	if _, ok := cs.partnerPos("Link")(); ok {
+	if _, ok := cs.partnerPos("Link")("Tetra"); ok {
 		t.Fatal("a position without a pose client")
 	}
 	var nilSession *Session
@@ -237,7 +250,7 @@ func TestCoopPartnerPos(t *testing.T) {
 		if err := tetra.SendPosition(&want); err != nil {
 			t.Fatal(err)
 		}
-		if p, ok := cs.partnerPos("Link")(); ok {
+		if p, ok := cs.partnerPos("Link")("Tetra"); ok {
 			if p != (replica.Pos{X: 1, Y: 2, Z: 3}) {
 				t.Fatalf("partner at %+v, want Tetra's", p)
 			}
@@ -253,13 +266,25 @@ func TestCoopPartnerPos(t *testing.T) {
 		if err := aryll.SendPosition(&network.PlayerPosition{PosX: 4, PosY: 5, PosZ: 6}); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := cs.partnerPos("Link")(); !ok {
+		if p, ok := cs.partnerPos("Link")("Aryll"); ok {
+			if p != (replica.Pos{X: 4, Y: 5, Z: 6}) {
+				t.Fatalf("Aryll at %+v, want hers", p)
+			}
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("a partner position with two others")
+			t.Fatal("Aryll's position never came")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+	if p, ok := cs.partnerPos("Link")("Tetra"); !ok || p != (replica.Pos{X: 1, Y: 2, Z: 3}) {
+		t.Fatalf("with two others, Tetra at %+v (%v), want hers", p, ok)
+	}
+	if _, ok := cs.partnerPos("Link")("Link"); ok {
+		t.Fatal("a warp onto the player's own position")
+	}
+	if _, ok := cs.partnerPos("Link")("Medli"); ok {
+		t.Fatal("a position for a player pose sync never heard")
 	}
 }
 

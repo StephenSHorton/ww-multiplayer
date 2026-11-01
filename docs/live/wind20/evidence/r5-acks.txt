@@ -1,0 +1,8 @@
+enemy client: ACK setID 0xFFFF handle 8 hit 1 applied_at/none frames 1 sets 1 health -3
+enemy client: ACK setID 0x0 handle 16 hit 2 applied_at/none frames 1 sets 1 health 8
+enemy client: ACK setID 0x0 handle 16 hit 3 applied_at/none frames 1 sets 1 health 6
+enemy client: ACK setID 0x0 handle 16 hit 4 applied_at/none frames 1 sets 1 health 4
+enemy client: ACK setID 0x0 handle 16 hit 5 applied_at/none frames 1 sets 1 health 2
+enemy client: ACK setID 0x0 handle 16 hit 6 parried/none frames 1 sets 1 health 2
+enemy client: ACK setID 0x0 handle 16 hit 7 parried/none frames 1 sets 1 health 2
+enemy client: ACK setID 0x0 handle 16 hit 8 applied_at/none frames 1 sets 1 health 0

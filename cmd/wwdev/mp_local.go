@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"slices"
 	"strconv"
@@ -355,7 +356,11 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	}
 
 	// Server
-	srv := network.NewServer(25565)
+	port, err := mpLocalPort()
+	if err != nil {
+		fail(err.Error())
+	}
+	srv := network.NewServer(port)
 	srvRep := log.Prefix(rep, "[server]")
 	srv.OnLog = func(msg string) { srvRep.Log(log.Info, msg) }
 	var coop *coopsession.Session
@@ -373,13 +378,13 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		coop.Stop()
 		fail(fmt.Sprintf("server start: %v", err))
 	}
-	rep.Log(log.OK, "Server listening on :25565")
+	addr := mpLocalDialAddr(srv.Addr())
+	rep.Log(log.OK, "Server listening on "+addr)
 
 	// Give the listener a tick before the first connect — mirrors the
 	// 2 s sleep in the retired mplay2.sh that suppressed accept-races on Windows.
 	time.Sleep(500 * time.Millisecond)
 
-	addr := "localhost:25565"
 	var wg sync.WaitGroup
 
 	// spawn launches one client goroutine running run with the label's
@@ -477,6 +482,34 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 
 // envStopFile names the file whose appearance stops mp-local (smoke).
 const envStopFile = "MP_LOCAL_STOP_FILE"
+
+// envPort sets mp-local's server port (default 25565). Several rigs on one
+// Mac each run their own mp-local, so each needs its own port; 0 takes a free
+// port on 127.0.0.1 (the log line names it, for pose-fake-loop's address).
+const envPort = "MP_LOCAL_PORT"
+
+// mpLocalPort reads MP_LOCAL_PORT: unset or empty is 25565.
+func mpLocalPort() (int, error) {
+	v := strings.TrimSpace(os.Getenv(envPort))
+	if v == "" {
+		return 25565, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 || n > 65535 {
+		return 0, fmt.Errorf("%s=%q: want a port 0-65535", envPort, v)
+	}
+	return n, nil
+}
+
+// mpLocalDialAddr is where mp-local's own clients connect: localhost and the
+// port the listener got (which is the free one when MP_LOCAL_PORT=0).
+func mpLocalDialAddr(a net.Addr) string {
+	port := 25565
+	if t, ok := a.(*net.TCPAddr); ok {
+		port = t.Port
+	}
+	return "localhost:" + strconv.Itoa(port)
+}
 
 // watchStopFile calls stop once path exists, polling every poll, until
 // ctx ends. An empty path watches nothing.

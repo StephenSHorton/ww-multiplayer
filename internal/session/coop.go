@@ -29,8 +29,11 @@ type CoopOptions struct {
 	// by default since v0.6.1, so the zero value (the TUI's choices, a
 	// CLI host without the flag) has them on.
 	LiveSwitchesOff bool
-	DryRun          bool   // --coop-dry-run
-	ISO             string // --coop-iso; "" for the disc patch last wrote
+	// PlacedKill is --coop-placed-kill (docs/08 §7.2a, M6.1): the host
+	// allows placement-matched kills of unkeyed enemies. Off by default.
+	PlacedKill bool
+	DryRun     bool   // --coop-dry-run
+	ISO        string // --coop-iso; "" for the disc patch last wrote
 	// Yes answers every question yes at once (--yes).
 	Yes bool
 	// BossKill is --coop-boss-kill, the boss-dead relay's row set; "" is
@@ -131,11 +134,22 @@ const (
 	VerbStatus  Verb = "status"   // where co-op is
 )
 
+// CoopPartner is one partner in CoopStatus.Partners: Stage "" while it
+// is in no stage, Room -1 at a stage start.
+type CoopPartner struct {
+	Name  string
+	Stage string
+	Room  int
+}
+
 // Command is one console command. Player picks the Dolphin when the
 // session runs two; "" is the only one, or, for /coop and /status, all.
 type Command struct {
 	Verb   Verb
 	Player string
+	// Target is /warp's partner with two or more ("/warp to <Target>");
+	// "" goes to the one partner.
+	Target string
 }
 
 // CoopWorld is one co-op world on disk, as a host's world choice lists
@@ -206,10 +220,14 @@ type CoopStatus struct {
 	NoKeyTable bool
 	Life       bool
 	LifeWhy    string
-	// Partner is where the partner is (its last PRESENCE): Stage "" for
-	// unknown, Room -1 at a stage start.
+	// Partner is where the partner is (its last PRESENCE) while there is
+	// exactly one: Stage "" for unknown (or with two or more), Room -1 at
+	// a stage start.
 	PartnerStage string
 	PartnerRoom  int
+	// Partners is every partner by name (co-op for three or more), each
+	// where its last PRESENCE put it.
+	Partners []CoopPartner
 	// Room is what the session's world holds, from this pipeline's view
 	// of it (the app's Room items card); nil before the hub's world came
 	// in.

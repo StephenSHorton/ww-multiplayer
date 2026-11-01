@@ -78,7 +78,7 @@ func TestParseKinds(t *testing.T) {
 		in, want string
 		mask     uint32
 	}{
-		{"", "mo2,bk+u,cc+u,ki+u", 15},
+		{"", "mo2,bk+u,cc+u,ki+u,am2+u,tn+u", 111},
 		{"mo2", "mo2", 1},
 		{"none", "none", 0},
 		{"mo2,bk", "mo2,bk", 3},
@@ -103,10 +103,10 @@ func TestParseKinds(t *testing.T) {
 	if !s.Has(KindBK) || !s.TakesUnkeyed(KindBK) || s.Has(KindMO2) || s.TakesUnkeyed(KindCC) || s.Has(KindNone) {
 		t.Errorf("bk+u = %+v", s)
 	}
-	if a := AllKinds(); a.String() != "mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u,mt+u" {
+	if a := AllKinds(); a.String() != "mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u,mt+u,st+u" {
 		t.Errorf("AllKinds = %s", a)
 	}
-	if !strings.Contains(func() string { _, err := ParseKinds("zz"); return err.Error() }(), "mo2, bk, cc, ki, am, am2, tn, bb, mt") {
+	if !strings.Contains(func() string { _, err := ParseKinds("zz"); return err.Error() }(), "mo2, bk, cc, ki, am, am2, tn, bb, mt, st") {
 		t.Error("the unknown-kind error does not list the kinds")
 	}
 }

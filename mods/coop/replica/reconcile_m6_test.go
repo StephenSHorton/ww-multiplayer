@@ -110,7 +110,13 @@ func m6Tables(t testing.TB) *tables.Tables {
 func m6Enemies() *fakegame.Enemies {
 	var es []fakegame.Enemy
 	for i, p := range m6Placed {
-		es = append(es, fakegame.Enemy{Stage: drc.Name, Room: p.room, SetID: p.setID, Proc: p.proc, Boss: p.boss, Weapon: i == m6BK})
+		// At its entry's position (tablestest.Enemy): M6.1 matches an
+		// unkeyed one to its entry by home.pos.
+		e := fakegame.Enemy{Stage: drc.Name, Room: p.room, SetID: p.setID, Proc: p.proc, Boss: p.boss, Weapon: i == m6BK, Pos: [3]float32{100, 0, -50}}
+		if p.boss {
+			e.Params = 0xA
+		}
+		es = append(es, e)
 	}
 	return fakegame.PlaceEnemies(es...)
 }
@@ -382,8 +388,16 @@ func TestReconcileM6Gates(t *testing.T) {
 			if st := rr.r.Status().Combat; st.Held == 0 && c.name != "pause menu" && c.name != "event" {
 				t.Errorf("nothing held: %+v", st)
 			}
+			// A shut IDLE gate plans no target, so Held stays 0: Waiting
+			// names it instead (docs/08 §8.2 K7).
+			if st := rr.r.Status().Combat; c.name == "pause menu" && (st.Waiting != "the pause menu is open" || st.StoreBits == 0) {
+				t.Errorf("pause menu: Waiting %q, StoreBits %d", st.Waiting, st.StoreBits)
+			}
 			c.open(rr)
 			rr.ticks(5)
+			if st := rr.r.Status().Combat; st.Waiting != "" {
+				t.Errorf("still waiting once the gate opened: %q", st.Waiting)
+			}
 			if rr.timer(c.enemy) <= 0 {
 				t.Fatalf("not shrunk once the gate opened: timer %d\n%s", rr.timer(c.enemy), rr.log)
 			}

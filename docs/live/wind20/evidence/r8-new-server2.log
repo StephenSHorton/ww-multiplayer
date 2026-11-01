@@ -1,0 +1,9 @@
+=== WW Multiplayer Server ===
+
+[01:05:53] Server listening on port 25612
+Owner key made for this run (set WW_OWNER_KEY to keep one across restarts):
+  owner key: (redacted)
+The app player who joins with it (Join, Advanced: dedicated server owner key) becomes the lobby's host.
+Press Ctrl+C to stop
+[01:05:55] refused "OldFake": this host runs a newer ww-multiplayer (network protocol 6, yours is 3); please upgrade to the host's version
+Server stopped.

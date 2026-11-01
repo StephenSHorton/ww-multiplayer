@@ -168,6 +168,32 @@ func TestScopeRoomEdge(t *testing.T) {
 	}
 }
 
+// TestScopePlaced: a PKILL (§7.2a, M6.1) reaches only the players in its
+// room, as ROOMEDGE does, and nothing of it is kept: a player entering
+// the room later gets nothing (reached), and no store keeps the stage's
+// players' presence alive.
+func TestScopePlaced(t *testing.T) {
+	s := NewScopes()
+	s.SetPresence(playerA, at("kindan", 9, 1))
+	s.SetPresence(playerB, at("kindan", 9, 3))
+	k := roomKey(ScopePlaced, "kindan", 9, 1)
+	if r := mustApply(t, s, playerA, k, Word{0, 1 << 4}); !slices.Equal(r.Delta, []Word{{0, 1 << 4}}) || r.To != nil {
+		t.Errorf("PKILL with nobody else in the room: %+v", r)
+	}
+	if m := s.SetPresence(playerB, at("kindan", 9, 1)); len(m.Enter) != 0 {
+		t.Errorf("B entering the room got %+v", m.Enter)
+	}
+	if r := mustApply(t, s, playerA, k, Word{0, 1 << 4}); !slices.Equal(r.To, []Player{playerB}) || !slices.Equal(r.Delta, []Word{{0, 1 << 4}}) {
+		t.Errorf("PKILL relayed: %+v", r)
+	}
+	if ks := s.Keys(); len(ks) != 0 {
+		t.Errorf("a PKILL was stored: %v", ks)
+	}
+	if _, err := s.Apply(playerB, roomKey(ScopePlaced, "kindan", 9, 3), []Word{{0, 1}}); !errors.Is(err, ErrNotPresent) {
+		t.Errorf("a PKILL for another room: %v, want ErrNotPresent", err)
+	}
+}
+
 // TestScopeApplyRefuses: a malformed key or word fails with ErrScope
 // (these would halt the game's setters, d_save.cpp:1540-1701), and a
 // player reporting for a scope it is not in fails with ErrNotPresent.
@@ -206,7 +232,7 @@ func TestScopeApplyRefuses(t *testing.T) {
 	if _, err := s.Apply(playerB, roomKey(ScopeKill, "M_NewD2", 3, 1), []Word{{0, 1}}); !errors.Is(err, ErrNotPresent) {
 		t.Errorf("unknown player: %v", err)
 	}
-	for _, p := range []Place{at("sea_T", 0, 0), at("Name", 0, 0), at("sea", -1, 0), at("sea", 16, 0), Nowhere} {
+	for _, p := range []Place{at("sea_T", 0, 0), at("Name", 0, 0), at("ENDING", 0, 0), at("ENDumi", 0, 0), at("sea_E", 0, 44), at("sea", -1, 0), at("sea", 16, 0), Nowhere} {
 		s.SetPresence(playerB, p)
 		if _, err := s.Apply(playerB, roomKey(ScopeKill, p.Stage, 0, 0), []Word{{0, 1}}); err == nil {
 			t.Errorf("a player at %+v stored a kill", p)

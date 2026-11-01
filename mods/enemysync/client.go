@@ -1780,7 +1780,7 @@ func (c *Mirror) OwnerOf(handle uint16) uint16 {
 // (and HitCFBack); every other hit with 0. The REL writes no verdict with
 // AM2's HKD_SPECIAL set on this side, so the host takes the old path. A
 // Magtail's collider 2 is whichever body sphere holds the hit object
-// (mtHitCollider), and its code 4 (HitMtKill, a custody death) goes out
+// (mtHitCollider; a Stalfos's, stHitCollider), and its code 4 (HitMtKill, a custody death) goes out
 // untyped at the copy's current.pos (batch C MT-4).
 func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, h mailbox.EnemyHitEntry) (*Hit, error) {
 	col := ColliderOff(kind, h.Collider)
@@ -1794,6 +1794,9 @@ func (c *Mirror) readHit(st *State, wire *Slot, pid uint32, kind KindID, i int, 
 	}
 	if kind == KindMT && h.Collider == HitTg {
 		col = mtHitCollider(c.m, stat.Actor)
+	}
+	if kind == KindST && h.Collider == HitTg {
+		col = stHitCollider(c.m, stat.Actor) // wind#27: any of spheres 1..6
 	}
 	// The special collider (AM's mouth, code 3) reports a Co hit, which has
 	// no Tg hit object: its hit goes out untyped. So does a Magtail's

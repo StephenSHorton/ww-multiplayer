@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -475,9 +476,18 @@ func (b *Bridge) patchConverter() *patch.Converter {
 	return patch.ConverterFor(exes...)
 }
 
+// setupOS is runtime.GOOS; tests set it to word another system's advice.
+var setupOS = runtime.GOOS
+
 // patchError is a failed patch in the setup's words.
 func patchError(err error) string {
 	var nt *patch.NoDolphinToolError
+	if errors.As(err, &nt) && setupOS == "darwin" && len(nt.Unusable) == 0 {
+		// Dolphin for macOS ships no DolphinTool (inject.ConvertSteps), so
+		// setting Dolphin up won't help: the steps in Dolphin are the way.
+		return fmt.Sprintf("Your disc is a compressed %s image. %s.",
+			nt.Format.Format, strings.Replace(inject.ConvertSteps("darwin"), "then patch the .iso it writes", "then choose the .iso it writes here", 1))
+	}
 	if errors.As(err, &nt) {
 		where := "no Dolphin was found yet"
 		if looked := nt.Looked(); len(looked) > 0 {

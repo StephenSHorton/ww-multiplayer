@@ -28,7 +28,7 @@ const (
 	ev0101          = 0x0101 // UNK_0101: Outset's layer 9, held until MET_KORL
 	ev0E20          = 0x0E20 // UNK_0E20: Outset's layer 2/3, held until MET_KORL
 	ev2D01          = 0x2D01 // UNK_2D01, the rescue in FF2: LocalOnly
-	ev2A80          = 0x2A80 // UNK_2A80, :318: synced, held by nothing
+	ev2A40          = 0x2A40 // UNK_2A40, :319: synced, held by nothing (0x2A80 is LocalOnly since wind#25)
 	ev3910          = 0x3910 // UNK_3910, :436: synced, held by nothing
 
 	regLetter = 0x7A // LETTER_ROCK_SPIRE_SHOP_AD 0x7A03: MAX, field 0x03

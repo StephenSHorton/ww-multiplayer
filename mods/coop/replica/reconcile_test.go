@@ -615,7 +615,7 @@ func TestReconcileAsksForSwitches(t *testing.T) {
 		cfg  Config
 		want proto.Feature
 	}{
-		{"writing", Config{Apply: true}, proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches | proto.M4Features | proto.FeaturePuzzle | proto.FeatureCombat},
+		{"writing", Config{Apply: true}, proto.FeatureImage | proto.FeatureSwitches | proto.FeatureLiveSwitches | proto.M4Features | proto.FeaturePuzzle | proto.FeatureCombat | proto.FeaturePlacedKill | proto.FeatureChestClaim},
 		{"a dry run asks for what M2 did", Config{}, proto.FeatureImage},
 		{"Want wins", Config{Apply: true, Want: proto.FeatureImage | proto.FeaturePuzzle}, proto.FeatureImage | proto.FeaturePuzzle},
 	}

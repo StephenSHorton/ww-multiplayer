@@ -1,0 +1,66 @@
+Joining 127.0.0.1:25642 as "JoinB".
+co-op: backed up 1 memory-card file(s) to ~/Library/Application Support/ww-multiplayer/backups/20261101T073644Z (`coop-world restore 20261101T073644Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind20/u2/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind20/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>.
+Ctrl+C to stop.
+=== Enemy client: JoinB <- 127.0.0.1:25642 ===
+=== Puppet Sync: JoinB <- 127.0.0.1:25642 ===
+=== Broadcast Link + Pose: JoinB -> 127.0.0.1:25642 ===
+Dolphin found.
+enemy client: mirroring the host's enemies (kinds mo2,bk+u,cc+u,ki+u), remote bodies step6; quiet deaths for mo2,bk,cc,ki,am,am2,tn,bb,mt (WW_ENEMY_QUIET_DEATH), selecting by distance (WW_ENEMY_SELECT)
+enemy client: remote-Link block on, flags 0x24FF
+[net] Connected for enemy sync (enemy ID 2)
+enemy client: game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+enemy client: REL module linked (build 1CE30685, frame 2815)
+enemy client: not mirroring: no STATE from the host yet
+Dolphin found.
+game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+Filtering self-echo: remotes named "JoinB" will be ignored.
+[net] Connected as player 3
+puppet-sync session 1 armed (server epoch 1793518598790647000)
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+co-op: small keys: not derived: no key table (coop-tables)
+co-op: max life: not derived: no heart table (coop-tables)
+[net] Connected for co-op (co-op ID 2)
+Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[net] Connected as player 4
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:4) in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 2 (HostA)
+co-op: the host says (NOT_BOUND): your file is not bound to co-op world 1490569c486b64cf; nothing is synced until you bind it
+co-op: the host serves world 1490569c486b64cf; this file is not bound to it (NOT_BOUND)
+co-op: preflight: same: the file and the world have the same shared progress
+  the file adds: nothing
+  the world adds: nothing
+enemy client: mirroring: the host lists 5 enemies in Hyrule room 0
+enemy client: 5 enemies (mo2,bk+u,cc+u,ki+u) of ours in Hyrule room 0
+Bind this save file to co-op world 1490569c486b64cf?
+  file slot 0, "Abahbob", clear count 0, saved and loaded
+  ww-multiplayer writes a 0x30-byte tag at 0x803C532C (dSv_reserve_c, which the game
+  saves with the file and never reads). It lands on the memory card at your next
+  in-game save. Nothing else in the file is written.
+Bind it?
+  yes (--yes)
+co-op: bound the file to world 1490569c486b64cf (nonce 145800c6849b98c2): save in-game so the card keeps it
+co-op: welcome to world 1490569c486b64cf (seq 1; image)
+co-op: armed in world 1490569c486b64cf (dry run: planned writes are logged, not made)
+player 2 (HostA) is between stages: hidden until it is back here (Hyrule)
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+enemy client: not mirroring: this game is not in play
+player 2 (HostA) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy client: mirroring: the host lists 2 enemies in M_NewD2 room 0
+enemy client: 2 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 0
+Shutting down... (press Ctrl+C again to force quit)
+Disconnected.
+Disconnected.
+co-op: disconnected: armed offline, queueing gains until the host is back

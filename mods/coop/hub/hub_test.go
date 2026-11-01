@@ -3,6 +3,7 @@ package hub
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"slices"
 	"strings"
@@ -356,8 +357,9 @@ func codes(ms []wire.Msg) []wire.NoticeCode {
 // TestHelloClassification: every kind of CO_HELLO gets the welcome §4.4
 // and §5.2-5.3 call for.
 func TestHelloClassification(t *testing.T) {
-	schema2 := mustEncode(t, hello(wire.FileBound, testWorld, 1))
-	schema2[1], schema2[2] = 0, 2
+	// schema1 is a build before PRESENCE s->c named its sender.
+	schema1 := mustEncode(t, hello(wire.FileBound, testWorld, 1))
+	schema1[1], schema1[2] = 0, 1
 
 	cases := []struct {
 		name     string
@@ -415,7 +417,7 @@ func TestHelloClassification(t *testing.T) {
 			m.ClearCount = 1
 			return m
 		}, status: wire.StatusRefused, reason: wire.NoticeClearCount, notice: []wire.NoticeCode{wire.NoticeClearCount}, state: StateRefused},
-		{name: "another schema", raw: schema2,
+		{name: "another schema", raw: schema1,
 			status: wire.StatusRefused, reason: wire.NoticeSchema, notice: []wire.NoticeCode{wire.NoticeSchema}, state: StateRefused},
 	}
 	for _, tc := range cases {
@@ -585,7 +587,7 @@ func TestUnboundPeer(t *testing.T) {
 	r.send(a, presence("sea", 0, 11))
 	a.take(t)
 	ms := r.exchange(u, hello(wire.FileUnbound, world.ID{}, 0))
-	if ps := pick[*wire.Presence](ms); len(ps) != 1 || ps[0].Room != 11 {
+	if ps := pick[*wire.PresenceDown](ms); len(ps) != 1 || ps[0].Room != 11 || ps[0].Name != "alice" || ps[0].Origin != 1 {
 		t.Fatalf("newcomer got %s, want alice's PRESENCE", subs(ms))
 	}
 
@@ -593,7 +595,7 @@ func TestUnboundPeer(t *testing.T) {
 		t.Fatalf("unbound GAINS: notices %v, want NOT_BOUND", got)
 	}
 	r.send(u, presence("sea", 0, 11))
-	if ps := pick[*wire.Presence](a.take(t)); len(ps) != 1 {
+	if ps := pick[*wire.PresenceDown](a.take(t)); len(ps) != 1 || ps[0].Name != "unbound" {
 		t.Fatalf("alice got no relay of the unbound peer's PRESENCE")
 	}
 	r.send(u, scoped(wire.ScopeKill, "sea", 0, 11, wire.ScopedWord{Word: 0, Bits: 1}))
@@ -779,7 +781,7 @@ func TestScopedStores(t *testing.T) {
 	b := r.join(newConn(2, "bob"))
 	r.send(a, presence(stage, 3, 1))
 	r.send(b, presence(stage, 3, 1))
-	if ps := pick[*wire.Presence](a.take(t)); len(ps) != 1 || ps[0].Room != 1 {
+	if ps := pick[*wire.PresenceDown](a.take(t)); len(ps) != 1 || ps[0].Room != 1 || ps[0].Name != "bob" {
 		t.Fatalf("alice got %+v, want bob's PRESENCE", ps)
 	}
 	b.take(t)
@@ -927,12 +929,43 @@ func TestDetachRelaysNowhere(t *testing.T) {
 	b.take(t)
 	r.h.detach(a)
 	r.sync()
-	ps := pick[*wire.Presence](b.take(t))
-	if len(ps) != 1 || !ps[0].Stage.IsEmpty() || ps[0].Flags != 0 || ps[0].Table != -1 {
-		t.Fatalf("bob got %+v, want one PRESENCE of nowhere", ps)
+	ps := pick[*wire.PresenceDown](b.take(t))
+	if len(ps) != 1 || !ps[0].Stage.IsEmpty() || ps[0].Flags != 0 || ps[0].Table != -1 || ps[0].Name != "alice" || ps[0].Origin != 1 {
+		t.Fatalf("bob got %+v, want one PRESENCE of nowhere under alice's name", ps)
 	}
 	if st := r.status(); len(st.Peers) != 1 {
 		t.Fatalf("%d peers after the detach, want 1", len(st.Peers))
+	}
+}
+
+// TestPresenceNamesSender: with three players each hears the other two
+// apart (PRESENCE s->c names its sender, schema 2), and a newcomer is
+// told where each one is, by name.
+func TestPresenceNamesSender(t *testing.T) {
+	r := newRig(t, fullCfg())
+	a := r.join(newConn(1, "alice"))
+	b := r.join(newConn(2, "bob"))
+	c := r.join(newConn(3, "carol"))
+	r.send(a, presence("sea", 0, 11))
+	r.send(b, presence("M_NewD2", 3, 1))
+	r.send(c, presence("M_NewD2", 3, 5))
+	heard := func(ms []wire.Msg) map[string]int8 {
+		got := map[string]int8{}
+		for _, p := range pick[*wire.PresenceDown](ms) {
+			got[fmt.Sprintf("%s/%d", p.Name, p.Origin)] = p.Room
+		}
+		return got
+	}
+	if got := heard(a.take(t)); !maps.Equal(got, map[string]int8{"bob/2": 1, "carol/3": 5}) {
+		t.Errorf("alice heard %v", got)
+	}
+	if got := heard(c.take(t)); !maps.Equal(got, map[string]int8{"alice/1": 11, "bob/2": 1}) {
+		t.Errorf("carol heard %v", got)
+	}
+	d := newConn(4, "dave")
+	r.attach(d)
+	if got := heard(r.exchange(d, hello(wire.FileUnbound, world.ID{}, 0))); !maps.Equal(got, map[string]int8{"alice/1": 11, "bob/2": 1, "carol/3": 5}) {
+		t.Errorf("the newcomer heard %v", got)
 	}
 }
 
@@ -1340,9 +1373,10 @@ func TestFeatureString(t *testing.T) {
 		want string
 	}{
 		{0, "none"},
-		{DefaultFeatures, "image|puzzle|combat|switches|story|inventory|keys|life|magic"},
-		{TableFeatures, "puzzle|combat|live-switches|switches|keys|life"},
+		{DefaultFeatures, "image|puzzle|combat|switches|story|inventory|keys|life|magic|chest-claim"},
+		{TableFeatures, "puzzle|combat|live-switches|switches|keys|life|placed-kill"},
 		{FeatureBind | AskBind | 1<<20, "bind|ask-bind|0x100000"},
+		{FeatureChestClaim, "chest-claim"},
 	}
 	for _, tc := range cases {
 		if got := tc.f.String(); got != tc.want {

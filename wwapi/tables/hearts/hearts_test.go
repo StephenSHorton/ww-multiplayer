@@ -80,10 +80,10 @@ func vanilla() []stagetest.Stage {
 		{Name: "Salvage", Params: 0<<28 | 5<<20 | uint32(hp)<<4}, // and another
 		{Name: "Salvage", Params: 3<<28 | 2<<20 | uint32(hp)<<4}, // an ocean bit
 		{Name: "kotubo", Params: 0x14<<16 | 0x21},                // a random drop
-		chest(25, 0x01),                     // not a piece
-		bitem(tableFF),                      // Forsaken Fortress's container
-		{Name: "TagKb", Params: 0xFFFF0207}, // a pig's dig spot, item bit 2
-		{Name: "TagKb", Params: 0xE101FFFF}, // an enemy kind, no item
+		chest(25, 0x01),                                          // not a piece
+		bitem(tableFF),                                           // Forsaken Fortress's container
+		{Name: "TagKb", Params: 0xFFFF0207},                      // a pig's dig spot, item bit 2
+		{Name: "TagKb", Params: 0xE101FFFF},                      // an enemy kind, no item
 	}
 	var rest []a
 	for bit := uint32(3); len(rest) < ExpectedPieces-len(Catalogue)-9; bit++ {

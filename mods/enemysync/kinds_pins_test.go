@@ -32,7 +32,7 @@ func kindsHeader(t *testing.T) ([]byte, map[string]int64) {
 	return src, out
 }
 
-// emkRowFields are the fields every row (MO2, BK, CC, KI, AM, AM2, TN, BB, MT)
+// emkRowFields are the fields every row (MO2, BK, CC, KI, AM, AM2, TN, BB, MT, ST)
 // defines: the em_kind struct's (inject/rel/enemy_mirror.h), one
 // EMK_<KIND>_<FIELD> each, 0 for "none".
 var emkRowFields = []string{"ID", "PROC", "CLASS_SIZE", "BCK_FIRST", "BCK_LAST", "BCK_WAIT", "MORF", "GATE", "DR", "DR_MODE", "DR_ACTION",
@@ -47,7 +47,7 @@ var emkRowFields = []string{"ID", "PROC", "CLASS_SIZE", "BCK_FIRST", "BCK_LAST",
 func TestKindTablePins(t *testing.T) {
 	src, defs := kindsHeader(t)
 	prefix := map[KindID]string{KindMO2: "EMK_MO2_", KindBK: "EMK_BK_", KindCC: "EMK_CC_", KindKI: "EMK_KI_", KindAM: "EMK_AM_", KindAM2: "EMK_AM2_", KindTN: "EMK_TN_",
-		KindBB: "EMK_BB_", KindMT: "EMK_MT_"}
+		KindBB: "EMK_BB_", KindMT: "EMK_MT_", KindST: "EMK_ST_"}
 	if len(prefix) != len(Kinds) {
 		t.Fatalf("the pins name %d rows, Kinds has %d", len(prefix), len(Kinds))
 	}
@@ -75,7 +75,7 @@ func TestKindTablePins(t *testing.T) {
 		// kind ids and the masks they make
 		"EMK_KIND_MO2": int64(KindMO2), "EMK_KIND_BK": int64(KindBK), "EMK_KIND_CC": int64(KindCC), "EMK_KIND_NONE": int64(KindNone),
 		"EMK_KIND_KI": int64(KindKI), "EMK_KIND_AM": int64(KindAM), "EMK_KIND_AM2": int64(KindAM2), "EMK_KIND_TN": int64(KindTN),
-		"EMK_KIND_BB": int64(KindBB), "EMK_KIND_MT": int64(KindMT),
+		"EMK_KIND_BB": int64(KindBB), "EMK_KIND_MT": int64(KindMT), "EMK_KIND_ST": int64(KindST),
 		// the hit collider codes
 		"EMK_HIT_HEAD": int64(HitHead), "EMK_HIT_TG": int64(HitTg), "EMK_HIT_SPECIAL": int64(HitSpecial), "EMK_HIT_MT_KILL": int64(HitMtKill),
 		"EMK_KIND_COUNT": int64(len(Kinds)),
@@ -228,7 +228,28 @@ func TestKindTablePins(t *testing.T) {
 		"EMK_MT_FP_EXEC3": int64(addr.MtFpExec[3]), "EMK_MT_FP_BC1_0": int64(addr.MtFpBc1[0]), "EMK_MT_FP_BC1_1": int64(addr.MtFpBc1[1]),
 		"EMK_MT_FP_BC1_2": int64(addr.MtFpBc1[2]), "EMK_MT_FP_BC1_3": int64(addr.MtFpBc1[3]), "EMK_MT_FP_BC2_0": int64(addr.MtFpBc2[0]),
 		"EMK_MT_FP_BC2_1": int64(addr.MtFpBc2[1]), "EMK_MT_FP_BC2_2": int64(addr.MtFpBc2[2]), "EMK_MT_FP_BC2_3": int64(addr.MtFpBc2[3]),
-		"EMK_WITH_MT": int64(len(Kinds) - int(KindMT)),
+		"EMK_WITH_MT": func() int64 {
+			if Kinds[KindMT].Proc != 0 {
+				return 1
+			}
+			return 0
+		}(),
+		// wind#27's Stalfos row (wwapi/addr/st.go, stalfos.go)
+		"EMK_ST_CLASS_SIZE": addr.StClassSize, "EMK_ST_CO_CYL": addr.StOffSph + addr.StSphStride, "EMK_ST_TG_CYL": addr.StOffSph + addr.StSphStride,
+		"EMK_ST_HEAD_SPH": addr.StOffSph, "EMK_ST_SPH_SRC": addr.StOffSph, "EMK_ST_HEAD_CENTER": addr.ActorOffEyePos,
+		"EMK_ST_TG_HIT_UP": addr.StTgHitUp, "EMK_ST_INVULN": addr.StOffInvuln, "EMK_ST_DEATH_SWITCH": addr.StOffDeathSwitch,
+		"EMK_ST_DRAW_GATE": addr.StOffDrawGate, "EMK_ST_M02C4": addr.StOffM02C4, "EMK_ST_ACTION": addr.StOffAction,
+		"EMK_ST_TIMERS": addr.StOffTimers, "EMK_ST_HAIR_TIMER": addr.StOffHairTimer, "EMK_ST_M02FA": addr.StOffM02FA,
+		"EMK_ST_M0304": addr.StOffM0304, "EMK_ST_PARTS_LEFT": addr.StOffPartsLeft, "EMK_ST_PARTS_WHOLE": addr.StPartsWhole,
+		"EMK_ST_PARTS": addr.StOffParts, "EMK_ST_PART_STRIDE": addr.StPartStride, "EMK_ST_PART_COUNT": addr.StPartCount,
+		"EMK_ST_HEAD_STATE": addr.StOffHeadState, "EMK_ST_HEAD_POS": addr.StOffHeadPos, "EMK_ST_HEAD_DEAD": addr.StHeadStateDead,
+		"EMK_ST_NUNCHAKU": addr.StOffNunchaku, "EMK_ST_BOKO_PID": addr.StOffBokoPID, "EMK_ST_MACE": addr.StOffMace,
+		"EMK_ST_MACE_CARRIED": addr.StMaceCarried, "EMK_ST_UPPER_PID": addr.StOffUpperPID, "EMK_ST_UPPER_NONE": addr.StUpperNone,
+		"EMK_ST_HEAD_OFF": addr.StOffHeadOff, "EMK_ST_SHAKE": addr.StOffShake, "EMK_ST_DEATH_COUNT": addr.StOffDeathWait,
+		"EMK_ST_SPH": addr.StOffSph, "EMK_ST_SPH_STRIDE": addr.StSphStride, "EMK_ST_SPHS": addr.StSphs,
+		"EMK_ST_BEHAVIOR_UPPER": addr.StBehaviorUpper, "EMK_ST_ACT_JYUNKAI": addr.StActJyunkai, "EMK_ST_ACT_FIGHT": addr.StActFight,
+		"EMK_ST_ACT_UNDERGROUND": addr.StActUnderground, "EMK_ST_ACT_COFFIN": addr.StActCoffin,
+		"EMK_ST_F2_HAS_WEAPON": int64(StF2HasWeapon), "EMK_ST_F2_ATTN": int64(StF2Attn), "EMK_ST_ATTN_F2": int64(StF2Attn),
 	}
 	for name, want := range pins {
 		got, ok := defs[name]
@@ -247,7 +268,7 @@ func TestKindTablePins(t *testing.T) {
 	}
 	for _, b := range []uint8{BkF2HasWeapon, BkF2PlaySkip, BkF2BlurOn, BkF2Attn, CcF2Tg, CcF2Co, CcF2Squash, CcF2LowEye, CcF2NoShadow, CcF2Attn,
 		KiF2Attn, KiF2Lunge, AmF2Attn, AmF2PlaySkip, Am2F2Attn, Am2F2WeakTg, Am2F2BodyCo, Am2F2Carried, TnF2HasWeapon, TnF2PlaySkip, TnF2Attn,
-		BbF2Attn, MtF2Phase, MtF2Shield, MtF2Dive, MtF2Attn} {
+		BbF2Attn, MtF2Phase, MtF2Shield, MtF2Dive, MtF2Attn, StF2HasWeapon, StF2Attn} {
 		if b&0xC0 != 0 {
 			t.Errorf("per-kind flags2 bit 0x%02X overlaps SF2_LIGHT/QUIET", b)
 		}
@@ -257,7 +278,8 @@ func TestKindTablePins(t *testing.T) {
 		defs["EMK_BK_CAPS"] != defs["EMK_CAP_DR"]|defs["EMK_CAP_MODEL_EQ"]|defs["EMK_CAP_FOPEN"] || defs["EMK_CC_CAPS"] != defs["EMK_CAP_FOPEN"] ||
 		defs["EMK_KI_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_PKEY_NO_POS"]|defs["EMK_CAP_SPH_COLL"] || defs["EMK_AM_CAPS"] != defs["EMK_CAP_FOPEN"] ||
 		defs["EMK_AM2_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_MODEL_EQ"] || defs["EMK_TN_CAPS"] != defs["EMK_CAP_DR"]|defs["EMK_CAP_FOPEN"] ||
-		defs["EMK_BB_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_SPH_COLL"]|defs["EMK_CAP_TILT_CUR"] || defs["EMK_MT_CAPS"] != defs["EMK_CAP_FOPEN"] {
+		defs["EMK_BB_CAPS"] != defs["EMK_CAP_FOPEN"]|defs["EMK_CAP_SPH_COLL"]|defs["EMK_CAP_TILT_CUR"] || defs["EMK_MT_CAPS"] != defs["EMK_CAP_FOPEN"] ||
+		defs["EMK_ST_CAPS"] != defs["EMK_CAP_FOPEN"] {
 		t.Error("a row's caps are not the type table's")
 	}
 	if defs["EMK_MO2_MTX"] != defs["EMK_MTX_DR"] || defs["EMK_BK_MTX"] != defs["EMK_MTX_DR"] || defs["EMK_CC_MTX"] != defs["EMK_MTX_CC"] ||
@@ -266,7 +288,9 @@ func TestKindTablePins(t *testing.T) {
 		defs["EMK_TN_EYE"] != defs["EMK_EYE_NONE"] ||
 		defs["EMK_BB_MTX"] != defs["EMK_MTX_TRYXZ"] || defs["EMK_BB_COLL"] != defs["EMK_COLL_STD"] || defs["EMK_BB_ATTACH"] != defs["EMK_ATTACH_NONE"] ||
 		defs["EMK_BB_EYE"] != defs["EMK_EYE_NONE"] || defs["EMK_MT_MTX"] != defs["EMK_MTX_MT"] || defs["EMK_MT_COLL"] != defs["EMK_COLL_MT"] ||
-		defs["EMK_MT_ATTACH"] != defs["EMK_ATTACH_NONE"] || defs["EMK_MT_EYE"] != defs["EMK_EYE_NONE"] {
+		defs["EMK_MT_ATTACH"] != defs["EMK_ATTACH_NONE"] || defs["EMK_MT_EYE"] != defs["EMK_EYE_NONE"] ||
+		defs["EMK_ST_MTX"] != defs["EMK_MTX_PLAIN"] || defs["EMK_ST_COLL"] != defs["EMK_COLL_ST"] || defs["EMK_ST_ATTACH"] != defs["EMK_ATTACH_ST"] ||
+		defs["EMK_ST_EYE"] != defs["EMK_EYE_NONE"] {
 		t.Error("a row's hooks are not the type table's")
 	}
 	// Batch C (D7): the hook ids are new, distinct values; no BB or MT
@@ -275,6 +299,18 @@ func TestKindTablePins(t *testing.T) {
 	// clear of the generic names ParseAnnex also takes.
 	if defs["EMK_MTX_TRYXZ"] != 5 || defs["EMK_MTX_MT"] != 6 || defs["EMK_COLL_MT"] != 3 || defs["EMK_CAP_TILT_CUR"] != 0x80 {
 		t.Error("batch C's hook ids or cap moved")
+	}
+	// wind#27: ST's collider and attach hooks are new ids next to MT's.
+	if defs["EMK_COLL_ST"] != 4 || defs["EMK_ATTACH_ST"] != 3 {
+		t.Error("ST's hook ids moved")
+	}
+	for name, want := range map[string]string{"EMK_ST_BCK_WAIT": "WAIT", "EMK_ST_BCK_FIRST": "ATTACKL1", "EMK_ST_BCK_LAST": "YOKO_START"} {
+		if got := BckName(KindST, uint8(defs[name])); got != want {
+			t.Errorf("%s 0x%X is %s, want %s", name, defs[name], got, want)
+		}
+	}
+	if len(stBckNames) != KindST.Row().BckCount() {
+		t.Error("the ST BCK name list does not cover its range")
 	}
 	for name, m := range map[string]map[string]uint8{"bk": bkHookNames, "bb": bbHookNames, "mt": mtHookNames, "tn": tnHookNames} {
 		for h, b := range m {
@@ -410,7 +446,7 @@ func TestKindsBatchC(t *testing.T) {
 // table change (hosts and clients of different builds refuse each other)
 // and must be deliberate.
 func TestKindHash(t *testing.T) {
-	const want = 0xB826567A // batch D: the MT row restored, kind 8 (batch C shipped 0x587E10C2, the BB row with MT cut by R-20 after P0-MT; was 0x0F3064EE, TN batch B1; 0x97EDB0F9, allow batch A1; before it 0x73A3A496). An MT cut (cut_order 1) re-pins 0x587E10C2.
+	const want = 0x5B1C4C7C // wind#27: the ST row, kind 9 (batch D shipped 0xB826567A, the MT row restored, kind 8; batch C 0x587E10C2, the BB row with MT cut by R-20 after P0-MT; was 0x0F3064EE, TN batch B1; 0x97EDB0F9, allow batch A1; before it 0x73A3A496). An MT cut (cut_order 1) leaves a zero row at 8 and re-pins.
 	if got := KindHash(); got != want {
 		t.Errorf("KindHash() = 0x%08X, pinned 0x%08X: the Kinds table changed", got, want)
 	}

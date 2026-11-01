@@ -462,3 +462,38 @@ func scopedEqual(a, b []wire.Scoped) bool {
 		return x.Kind == y.Kind && x.Stage == y.Stage && x.Table == y.Table && x.Room == y.Room && slices.Equal(x.Words, y.Words)
 	})
 }
+
+// TestDifferCreditsSendNothing: GT Q5. The ending's stages are off the
+// co-op world: a bit the ending sets in the epilogue (sea_E, a sea-table
+// stage with Link) is never a gain, and back in play the differ takes a
+// new baseline, so it is not sent later either.
+func TestDifferCreditsSendNothing(t *testing.T) {
+	off, m := chest(addr.TableSea, 4)
+	for _, st := range []fakegame.Stage{
+		{Name: addr.StageEnding, Room: 0, Table: addr.TableSea},
+		{Name: addr.StageEndingSea, Room: 0, Table: addr.TableSea},
+		{Name: addr.StageEpilogue, Room: 44, Table: addr.TableSea},
+	} {
+		t.Run(st.Name, func(t *testing.T) {
+			dr := newDifferRig(t, nil)
+			dr.ticks(3)
+			dr.load(st)
+			if e := dr.ticks(6); len(e.Gains) > 0 {
+				t.Fatalf("entering the credits: gains %s", fmtGains(e.Gains))
+			}
+			dr.set(off, m)
+			if e := dr.ticks(6); len(e.Gains) > 0 {
+				t.Fatalf("a bit set in the credits: gains %s", fmtGains(e.Gains))
+			}
+			dr.load(outset)
+			if e := dr.ticks(6); len(e.Gains) > 0 {
+				t.Fatalf("back in play: the credits' bit sent late: %s", fmtGains(e.Gains))
+			}
+			o2, m2 := chest(addr.TableSea, 20)
+			dr.set(o2, m2)
+			if e := dr.tick(); !slices.Equal(e.Gains, []world.Gain{{Off: uint16(o2), Val: m2}}) {
+				t.Fatalf("a gain after the credits: %s", fmtGains(e.Gains))
+			}
+		})
+	}
+}

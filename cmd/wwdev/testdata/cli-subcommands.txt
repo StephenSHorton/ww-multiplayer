@@ -26,6 +26,7 @@ eye-fix-chain
 eye-fix-find-shape
 eye-fix-gates
 eye-fix-probe
+face
 face-dl-loop
 face-hook-arm
 face-hook-disarm
@@ -60,6 +61,7 @@ region-probe
 remote-flags
 remote-slot
 remote-watch
+rf-ask
 rf-probe
 scan-pos
 screenshot

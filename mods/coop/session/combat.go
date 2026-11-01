@@ -12,6 +12,7 @@ package coopsession
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
@@ -89,8 +90,37 @@ func combatStatus(st replica.Status) string {
 	if c.Held > 0 {
 		held = fmt.Sprintf("%d held (%s, link demo %d)", c.Held, c.LastHeld, c.DemoHeld)
 	}
+	if c.Waiting != "" {
+		held += fmt.Sprintf(" (all waiting: %s)", c.Waiting)
+	}
 	return fmt.Sprintf("combat: on; %d partner kill bit(s) held for %s; %d written to zones, %d light-shrunk, %s, %d refused, %d verify failures",
 		c.StoreBits, where, c.ZoneSet, c.Shrunk, held, c.Refused, c.VerifyFail)
+}
+
+// placedStatus is /status's line for M6.1's placement-matched kills of
+// unkeyed enemies (docs/08 §7.2a), "" while they are not granted: what
+// the sender tracks and sent, the deaths it did not send by reason, and
+// what the receiver has pending, took, and dropped.
+func placedStatus(st replica.Status) string {
+	p := st.Combat.Placed
+	if st.DryRun || !p.Granted {
+		return ""
+	}
+	unsent := "none"
+	if len(p.Unsent) > 0 {
+		keys := make([]string, 0, len(p.Unsent))
+		for k := range p.Unsent {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		parts := make([]string, len(keys))
+		for i, k := range keys {
+			parts[i] = fmt.Sprintf("%s %d", k, p.Unsent[k])
+		}
+		unsent = strings.Join(parts, ", ")
+	}
+	return fmt.Sprintf("placed kills: on; %d tracked, %d sent, not sent: %s; %d pending, %d taken, %d gone, %d expired, %d dropped, %d refused",
+		p.Tracked, p.Sent, unsent, p.Pending, p.Taken, p.Gone, p.Expired, p.Dropped, p.Refused)
 }
 
 // hubCombatStatus is /status's lines of the host's hub for combat:

@@ -6,10 +6,11 @@
 //	0x02 CO_WELCOME  s->c   the hub's verdict and the world it serves
 //	0x03 WORLD       both   a whole 0x778-byte image (join, reconnect, resync)
 //	0x04 GAINS       both   bytes that gained bits (c->s and s->c bodies differ)
-//	0x05 PRESENCE    both   where a player is (sent c->s, relayed s->c)
+//	0x05 PRESENCE    both   where a player is (sent c->s, relayed s->c with its sender)
 //	0x06 SCOPED      both   dan, zone, room-edge or kill words for one stage or room
 //	0x07 NOTICE      s->c   a coded, human-readable reason
 //	0x08 CTRL        both   resync, co-op off, tombstone
+//	0x09 CLAIM       both   a chest claim and the hub's verdict (M9, claim.go)
 //
 // No raw address travels: offsets index the canonical dSv_save_c image
 // (wwapi/addr Off* offsets) and words index one game array, and
@@ -47,8 +48,9 @@ import (
 )
 
 // Schema is the layout version of the sub-messages below. CO_HELLO carries
-// it; bump it on any change to a body.
-const Schema uint16 = 1
+// it; bump it on any change to a body. 2: PRESENCE s->c names its sender
+// (PresenceDown), for co-op with three or more players.
+const Schema uint16 = 2
 
 // MaxPayload is the most an 'O' payload can hold: a frame's length field is
 // a u16 (network.MaxPayload). Every message this package encodes is far
@@ -67,6 +69,7 @@ const (
 	SubScoped    Sub = 0x06
 	SubNotice    Sub = 0x07
 	SubCtrl      Sub = 0x08
+	SubClaim     Sub = 0x09
 )
 
 func (s Sub) String() string {
@@ -87,6 +90,8 @@ func (s Sub) String() string {
 		return "NOTICE"
 	case SubCtrl:
 		return "CTRL"
+	case SubClaim:
+		return "CLAIM"
 	}
 	return fmt.Sprintf("Sub(0x%02X)", uint8(s))
 }
@@ -117,7 +122,7 @@ func (s Sub) travels(d Dir) bool {
 		return d == Up
 	case SubCoWelcome, SubNotice:
 		return d == Down
-	case SubWorld, SubGains, SubPresence, SubScoped, SubCtrl:
+	case SubWorld, SubGains, SubPresence, SubScoped, SubCtrl, SubClaim:
 		return d == Up || d == Down
 	}
 	return false
@@ -138,7 +143,7 @@ func bad(format string, args ...any) error {
 }
 
 // Msg is one decoded sub-message: *CoHello, *CoWelcome, *World, *GainsUp,
-// *GainsDown, *Presence, *Scoped, *Notice or *Ctrl.
+// *GainsDown, *Presence (c->s), *PresenceDown, *Scoped, *Notice, *Ctrl or *Claim.
 type Msg interface {
 	Sub() Sub
 	// validate reports why the message can't be sent, or nil.
@@ -184,11 +189,16 @@ func Decode(payload []byte, dir Dir) (Msg, error) {
 		}
 		return asMsg(decodeGainsDown(body))
 	case SubPresence:
-		return asMsg(decodePresence(body))
+		if dir == Up {
+			return asMsg(decodePresence(body))
+		}
+		return asMsg(decodePresenceDown(body))
 	case SubScoped:
 		return asMsg(decodeScoped(body))
 	case SubNotice:
 		return asMsg(decodeNotice(body))
+	case SubClaim:
+		return asMsg(decodeClaim(body, dir))
 	default: // SubCtrl
 		return asMsg(decodeCtrl(body))
 	}

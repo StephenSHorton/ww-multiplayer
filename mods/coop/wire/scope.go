@@ -3,6 +3,8 @@ package wire
 import (
 	"encoding/binary"
 	"fmt"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 )
@@ -30,8 +32,9 @@ const MaxLayer = 11
 //
 //	[stage:8][table:s8][room:s8][layer:s8][point:s16][flags:u8]   = 14 B
 //
-// The relayed copy is the same bytes and names no sender, which is enough
-// for the two players v1.0 supports.
+// That is the c->s body. The hub relays it as a PresenceDown, which names
+// the player it came from (schema 2), so a replica with two or more
+// partners keeps each one's place apart.
 type Presence struct {
 	Stage Stage // mCurStage.mName; empty before the first stage
 	Table int8  // mDan.mStageNo: the loaded save table, or -1
@@ -86,6 +89,75 @@ func decodePresence(body []byte) (*Presence, error) {
 	return validated(m)
 }
 
+// MaxSenderName is the longest player name a PresenceDown carries: the
+// server admits names up to network.MaxNameLen (32) bytes.
+const MaxSenderName = 32
+
+// PresenceDown (0x05, s->c) is a player's PRESENCE as the hub relays it:
+// the 14-byte body, then the co-op connection it came from
+// (network.CoopConn.ID, as GAINS s->c names its Origin) and that player's
+// name, the key pose sync and the console name players by:
+//
+//	[presence:14][origin:u8][nameLen:u8][name:nameLen]
+//
+// A gone player's is a PRESENCE of nowhere under its name (hub.leaveView).
+// Origin is never 0: 0 is the hub itself, which has no place.
+type PresenceDown struct {
+	Presence
+	Origin uint8
+	Name   string
+}
+
+func (*PresenceDown) Sub() Sub { return SubPresence }
+
+func (m *PresenceDown) validate() error {
+	if err := m.Presence.validate(); err != nil {
+		return err
+	}
+	if m.Origin == 0 {
+		return bad("PRESENCE s->c origin 0 (the hub has no place)")
+	}
+	return checkSenderName(m.Name)
+}
+
+func checkSenderName(n string) error {
+	switch {
+	case n == "":
+		return bad("PRESENCE s->c names no player")
+	case len(n) > MaxSenderName:
+		return bad("PRESENCE s->c name is %d bytes (max %d)", len(n), MaxSenderName)
+	case !utf8.ValidString(n):
+		return bad("PRESENCE s->c name is not valid UTF-8")
+	}
+	for _, r := range n {
+		if unicode.IsControl(r) {
+			return bad("PRESENCE s->c name has control character %U", r)
+		}
+	}
+	return nil
+}
+
+func (m *PresenceDown) appendBody(b []byte) []byte {
+	b = m.Presence.appendBody(b)
+	b = append(b, m.Origin, byte(len(m.Name)))
+	return append(b, m.Name...)
+}
+
+func decodePresenceDown(body []byte) (*PresenceDown, error) {
+	if len(body) < presenceLen+2 {
+		return nil, bad("PRESENCE s->c body is %d bytes, shorter than %d", len(body), presenceLen+2)
+	}
+	p, err := decodePresence(body[:presenceLen])
+	if err != nil {
+		return nil, err
+	}
+	n := int(body[presenceLen+1])
+	if len(body) != presenceLen+2+n {
+		return nil, bad("PRESENCE s->c name length %d, but %d bytes follow", n, len(body)-presenceLen-2)
+	}
+	return validated(&PresenceDown{Presence: *p, Origin: body[presenceLen], Name: string(body[presenceLen+2:])})
+}
+
 // ScopeKind is what a SCOPED message's words are. Word w of a kind is
 // element w of the game array named below, and bit b of it is the bit the
 // game's setter sets with array[w] |= 1 << b.
@@ -108,6 +180,12 @@ const (
 	// by setID (dSv_zoneActor_c, d_save.h:782; on, d_save.cpp:1325-1328).
 	// Stored per stage and room.
 	ScopeKill ScopeKind = 4
+	// ScopePlaced: placement-matched kills of unkeyed enemies (§7.2a,
+	// M6.1), u32[16] like KILL's, but bit b of word w is placement
+	// ordinal 32w+b of the room (enemies.Table.PlacedIn), not a setID. No
+	// game records these deaths; the hub relays them to the players in the
+	// same room and keeps none (world.ScopePlaced).
+	ScopePlaced ScopeKind = 5
 )
 
 func (k ScopeKind) String() string {
@@ -120,6 +198,8 @@ func (k ScopeKind) String() string {
 		return "ROOMEDGE"
 	case ScopeKill:
 		return "KILL"
+	case ScopePlaced:
+		return "PKILL"
 	}
 	return fmt.Sprintf("ScopeKind(%d)", uint8(k))
 }
@@ -134,7 +214,7 @@ func (k ScopeKind) words() (first, last int, bits uint32, ok bool) {
 		return 0, 1, 0xFFFF, true
 	case ScopeRoomEdge:
 		return 2, 2, 0xFFFF, true
-	case ScopeKill:
+	case ScopeKill, ScopePlaced:
 		return 0, addr.ZoneActorCount/32 - 1, 0xFFFFFFFF, true
 	}
 	return 0, 0, 0, false

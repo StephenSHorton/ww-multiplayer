@@ -15,8 +15,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
-func u16(v uint16) []byte { b := make([]byte, 2); binary.BigEndian.PutUint16(b, v); return b }
-func u32(v uint32) []byte { b := make([]byte, 4); binary.BigEndian.PutUint32(b, v); return b }
+func u16(v uint16) []byte  { b := make([]byte, 2); binary.BigEndian.PutUint16(b, v); return b }
+func u32(v uint32) []byte  { b := make([]byte, 4); binary.BigEndian.PutUint32(b, v); return b }
 func f32(v float32) []byte { return u32(math.Float32bits(v)) }
 
 const (

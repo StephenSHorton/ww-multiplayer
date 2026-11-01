@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,5 +87,22 @@ func TestBackupUserDirsMatchDolphin2(t *testing.T) {
 	_, _, ud1, ud2 := dolphin2Defaults()
 	if a, b := backup.DefaultUserDirs(); a != ud1 || b != ud2 {
 		t.Errorf("backup.DefaultUserDirs() = %q, %q; dolphin2 uses %q, %q", a, b, ud1, ud2)
+	}
+}
+
+func TestMpLocalPort(t *testing.T) {
+	for _, c := range []struct {
+		env  string
+		want int
+		bad  bool
+	}{{"", 25565, false}, {"25600", 25600, false}, {" 0 ", 0, false}, {"x", 0, true}, {"70000", 0, true}, {"-1", 0, true}} {
+		t.Setenv(envPort, c.env)
+		got, err := mpLocalPort()
+		if (err != nil) != c.bad || got != c.want {
+			t.Errorf("%s=%q: got %d, %v; want %d, bad=%v", envPort, c.env, got, err, c.want, c.bad)
+		}
+	}
+	if got := mpLocalDialAddr(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 40123}); got != "localhost:40123" {
+		t.Errorf("dial addr = %q", got)
 	}
 }

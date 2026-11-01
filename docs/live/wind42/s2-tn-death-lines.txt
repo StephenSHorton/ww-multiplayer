@@ -1,0 +1,2 @@
+[enemy-A] enemy host: actors: the actor changed since the walk: proc 0x00C0 setID 0x0000 pkey 0x735C79FF pid 586 at 0x80AAACF0; walking again
+[enemy-B] enemy client: proc 0x00C0 setID 0x0000 pkey 0x00000000 died here; its death switch 0x87 set

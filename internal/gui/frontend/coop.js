@@ -187,6 +187,7 @@ const SHARES = [
 	["keys", "Small keys", "Each dungeon's small keys, counted from the chests and doors"],
 	["life", "Hearts", "Max hearts, from every Heart Container and Piece of Heart the world has taken"],
 	["magic", "Magic", "The magic meter"],
+	["chest-claim", "Chest claims", "When you both stand at one chest, only the first to reach it can open it"],
 	["live-switches", "Live switches", "Switches of the room you stand in, while you are idle"],
 ];
 
@@ -456,9 +457,10 @@ function renderPanel(st, show) {
 	pb.textContent = paused ? "Resume co-op writes" : "Pause co-op writes";
 	pb.dataset.paused = String(paused);
 	pb.title = paused ? "Write the world into your game again" : "Stop writing the world into your game; pose sync goes on";
-	// Co-op v1.0 is two players (docs/08 §2): the warp goes to the one
-	// other player, so there is no one to pick.
-	$("coop-warp").disabled = p.partners.length === 0;
+	// The panel's warp goes to the one other player; with two or more,
+	// each Players row's Warp to names its partner.
+	$("coop-warp").disabled = p.partners.length !== 1;
+	$("coop-warp").title = p.partners.length > 1 ? "Two or more partners: use Warp to on a player's row" : "";
 	if (document.activeElement !== $("coop-autoyes")) $("coop-autoyes").checked = !!st.coop.autoYes;
 }
 
