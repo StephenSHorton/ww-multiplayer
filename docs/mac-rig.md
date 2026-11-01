@@ -73,6 +73,9 @@ scripts/mac-rig.sh fps <pid> <pid>    # 30 = full speed
 scripts/mac-rig.sh stop <rig>         # end this rig's Dolphins by PID; then release the lease
 ```
 
+- **Give each rig its own `MP_LOCAL_PORT`** (default 25565, which a second rig's mp-local then
+  fails on: "bind: address already in use"). `MP_LOCAL_PORT=0` takes a free port on 127.0.0.1 and
+  logs it ("Server listening on localhost:<port>"); pass that address to `pose-fake-loop`.
 - **Always pin `MP_LOCAL_PIDS`** (the script does): other agents' Dolphins run on the same Mac and
   enumeration order would otherwise pick theirs. For one Dolphin use `WW_DOLPHIN_PID=<pid>`.
 - **Input**: `wwdev input` / `input-release` work unchanged (they write the mailbox; no OS

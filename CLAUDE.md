@@ -291,6 +291,8 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 #   WW_POSE_TEST_RATE=<hz>[:<jitter ms>[:<latency ms>]]  wwdev's broadcasts (mp-local, broadcast-pose) sample at hz and send each sample late
 #                 by latency + up to jitter, in order (feed.TestRate; the shipped exe has no such knob); smoke --smooth sets it on its mp-local
 #   MP_LOCAL_STOP_FILE=<path>  mp-local stops, with its normal teardown, once that file exists (smoke's child run)
+#   MP_LOCAL_PORT=<n>  mp-local's server port (default 25565); 0 = a free port on 127.0.0.1, named in "Server listening on"
+#                 (one per rig when several rigs share a Mac: docs/mac-rig.md)
 # Env knobs honored by `dolphin2` and `auto-recapture` (defaults: wwapi/emu/launch Defaults;
 # DOLPHIN_EXE, ISO_PATH and USER_DIR_1 also override the app's saved settings, as WW_COLOR does):
 #   DOLPHIN_EXE   path to Dolphin (Windows default: %USERPROFILE%\Desktop\Dolphin-x64\Dolphin.exe;
