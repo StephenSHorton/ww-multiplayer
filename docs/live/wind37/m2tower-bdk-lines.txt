@@ -1,0 +1,5 @@
+m2tower-A-actors.txt:   0  0x80ABCE30  pid 333    proc 0x00B5        set -     actor  room   0  (     -4.1       0.2    2695.8)
+m2tower-A-actors.txt:  24  0x80AA80DC  pid 1012   proc 0x00B5        set -     actor  room   0  (   2400.0    9807.8   -3600.0)
+0  params 0xFFFFFFFF  BOSS
+m2tower-B-actors.txt:   0  0x80ABCE30  pid 333    proc 0x00B5        set -     actor  room   0  (     -4.1       0.2    2695.8)
+0  params 0xFFFFFFFF  BOSS
