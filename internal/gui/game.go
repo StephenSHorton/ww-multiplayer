@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/seachart"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 )
@@ -43,23 +44,36 @@ type GameDolphinView struct {
 	Err       string `json:"err,omitempty"`
 }
 
-// MapView is the Session screen's minimap (the TUI's, design §2.7): the
-// other players' ground-plane offsets from this player, +X right and +Z
-// down as the TUI draws them. SelfOK is false until this player's
-// position is known.
+// MapView is the Session screen's sea chart (wind#51): every Link at its
+// place on the Great Sea, in world units (+X east, +Z south; the sea is
+// 7x7 squares of seachart.SquareUnits centred on 0). A Link on the sea is
+// where it is; one in an island's house, cave or dungeon is pinned to that
+// island's centre with the place's name; one whose stage is unknown is
+// listed but not drawn. The island art comes separately, from SeaChart.
 type MapView struct {
-	SelfOK  bool         `json:"selfOk"`
+	SelfOK  bool         `json:"selfOk"` // this player's own dot is known
+	Self    MapDotView   `json:"self"`
 	Players []MapDotView `json:"players"`
-	Color   string       `json:"color"` // this player's color, for the center dot
-	Units   int          `json:"units"` // sameAreaUnits, for the map's ring
+	Color   string       `json:"color"` // this player's color
+	// ChartRev changes when the island art changes (SeaChart): 0 while
+	// there is none, and the chart draws its grid alone.
+	ChartRev int `json:"chartRev"`
 }
 
-// MapDotView is one remote Link on the minimap.
+// MapDotView is one Link on the chart.
 type MapDotView struct {
 	Name  string  `json:"name"`
 	Color string  `json:"color"`
-	DX    float64 `json:"dx"`
-	DZ    float64 `json:"dz"`
+	X     float64 `json:"x"` // world units
+	Z     float64 `json:"z"`
+	// Drawn is false when the Link can't be placed (a stage the chart
+	// doesn't know): it is listed, not drawn.
+	Drawn bool `json:"drawn"`
+	// Pinned: off the sea, drawn at its island's centre.
+	Pinned bool   `json:"pinned"`
+	Square string `json:"square"` // "G2"; "" when not drawn
+	Island string `json:"island"` // the square's island
+	Where  string `json:"where"`  // the place, "Dragon Roost Cavern"; "" on the sea
 }
 
 // dolphinLabels are the Dolphin chip's words for each state.
@@ -148,23 +162,55 @@ func dolphinBanner(st session.State, running bool) *BannerView {
 		Text: "Start it again to keep playing, or Leave."}
 }
 
-// mapView is the minimap of st.
-func mapView(st session.State, self string, mk masker) *MapView {
-	m := &MapView{SelfOK: st.LocalOK, Players: []MapDotView{}, Color: self, Units: sameAreaUnits}
-	if !st.LocalOK {
-		return m
+// mapView is the sea chart of st, placed with ch (nil: no disc read
+// yet, so the known dungeons are still placed, the rest of the stages not).
+func mapView(st session.State, self string, mk masker, ch *seachart.Chart) *MapView {
+	m := &MapView{SelfOK: st.LocalOK, Players: []MapDotView{}, Color: self}
+	if st.LocalOK {
+		m.Self = placeDot(ch, "You", self, float64(st.LocalX), float64(st.LocalZ), st.LocalPlace, st.LocalHasPlace)
+		m.SelfOK = m.Self.Drawn
 	}
 	for _, p := range st.Players {
 		if p.X == 0 && p.Y == 0 && p.Z == 0 {
 			continue // no position yet
 		}
-		dot := MapDotView{Name: mk.text(p.Name), DX: float64(p.X - st.LocalX), DZ: float64(p.Z - st.LocalZ)}
+		color := ""
 		if p.HasColor {
-			dot.Color = p.Color.Hex()
+			color = p.Color.Hex()
 		}
-		m.Players = append(m.Players, dot)
+		m.Players = append(m.Players, placeDot(ch, mk.text(p.Name), color, float64(p.X), float64(p.Z), p.Place, p.HasPlace))
 	}
 	return m
+}
+
+// placeDot places one Link. Without a place (a build from before the place
+// trailer, or a game between stages) its position is taken as the sea's,
+// as the chart drew it before.
+func placeDot(ch *seachart.Chart, name, color string, x, z float64, pl session.Place, has bool) MapDotView {
+	d := MapDotView{Name: name, Color: color}
+	if !has || seachart.IsSea(pl.Stage) {
+		sq := seachart.SquareAt(x, z)
+		d.X, d.Z, d.Drawn, d.Square, d.Island = x, z, true, sq.Name(), seachart.IslandName(sq)
+		return d
+	}
+	sq, where, ok := ch.Where(pl.Stage)
+	if !ok {
+		d.Where = pl.Stage
+		return d
+	}
+	d.X, d.Z = float64(sq.GX*seachart.SquareUnits), float64(sq.GZ*seachart.SquareUnits)
+	if ch != nil {
+		for _, is := range ch.Islands {
+			if is.Square == sq {
+				d.X, d.Z = float64(is.CX), float64(is.CZ)
+			}
+		}
+	}
+	d.Drawn, d.Pinned, d.Square, d.Island, d.Where = true, true, sq.Name(), seachart.IslandName(sq), where
+	if d.Where == "" {
+		d.Where = d.Island
+	}
+	return d
 }
 
 // area is a remote player's "same area" hint: "near" within

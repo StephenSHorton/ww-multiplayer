@@ -18,8 +18,11 @@ package main
 
 import (
 	_ "embed"
+	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/StephenSHorton/ww-multiplayer/internal/seachart"
 	"log"
 	"net/http"
 	"os"
@@ -33,7 +36,18 @@ var fakeJS []byte
 func main() {
 	dir := flag.String("dir", filepath.Join("internal", "gui", "frontend"), "the frontend folder to serve")
 	port := flag.Int("port", 8765, "port on 127.0.0.1")
+	chart := flag.String("chart", "", "a sea chart cache folder (internal/seachart, e.g. the app's) whose island art the fake SeaChart serves; never committed")
 	flag.Parse()
+	if *chart != "" {
+		b, err := seaChartJSON(*chart)
+		if err != nil {
+			log.Fatalf("uipreview: -chart: %v", err)
+		}
+		http.HandleFunc("/__seachart.json", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(b)
+		})
+	}
 	if _, err := os.Stat(filepath.Join(*dir, "index.html")); err != nil {
 		log.Fatalf("uipreview: %s has no index.html (run it from the repo root, or pass -dir)", *dir)
 	}
@@ -67,6 +81,39 @@ func handler(dir string) http.Handler {
 		}
 		files.ServeHTTP(w, r)
 	})
+}
+
+// seaChartJSON is the cache in dir as the Bridge's SeaChart answers it.
+func seaChartJSON(dir string) ([]byte, error) {
+	c, err := seachart.Load(dir)
+	if err != nil {
+		return nil, err
+	}
+	type island struct {
+		GX  int    `json:"gx"`
+		GZ  int    `json:"gz"`
+		CX  int    `json:"cx"`
+		CZ  int    `json:"cz"`
+		Src string `json:"src"`
+	}
+	v := struct {
+		Rev       int         `json:"rev"`
+		Islands   []island    `json:"islands"`
+		TileUnits int         `json:"tileUnits"`
+		Squares   int         `json:"squareUnits"`
+		Names     [][7]string `json:"names"`
+	}{Rev: 1, TileUnits: seachart.TileUnits, Squares: seachart.SquareUnits}
+	for gz := seachart.GridMin; gz <= seachart.GridMax; gz++ {
+		var row [7]string
+		for gx := seachart.GridMin; gx <= seachart.GridMax; gx++ {
+			row[gx-seachart.GridMin] = seachart.IslandName(seachart.Square{GX: gx, GZ: gz})
+		}
+		v.Names = append(v.Names, row)
+	}
+	for _, is := range c.Islands {
+		v.Islands = append(v.Islands, island{is.GX, is.GZ, is.CX, is.CZ, "data:image/png;base64," + base64.StdEncoding.EncodeToString(is.PNG)})
+	}
+	return json.Marshal(v)
 }
 
 // inject puts the fake Bridge's script tag before the first <script> (or

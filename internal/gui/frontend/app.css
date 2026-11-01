@@ -479,16 +479,28 @@ summary:hover { color: var(--text); }
 .rules li b { color: var(--text); }
 .rules li.on b { color: var(--green-ink); }
 
-/* the sea chart */
+/* the sea chart (chart.js): the Great Sea at true scale */
+.chartbox { position: relative; }
 .mappanel .map {
-	display: block; width: 100%; max-height: max(220px, calc(100vh - 460px)); aspect-ratio: 1; margin: 0 auto;
-	background: radial-gradient(circle, #8fd0e8 0, #4ea7cf 70%, #2f7fae 100%); border: 1px solid var(--line-strong); border-radius: 12px;
+	display: block; width: 100%; max-height: max(260px, calc(100vh - 420px)); aspect-ratio: 1; margin: 0 auto;
+	background: #1d4f73; border: 1px solid var(--line-strong); border-radius: 12px;
+	touch-action: none; cursor: grab; user-select: none;
 }
-.map .ring { fill: none; stroke: rgba(255, 255, 255, 0.6); stroke-width: 1.2; stroke-dasharray: 4 4; }
-.map .axis { stroke: rgba(255, 255, 255, 0.25); stroke-width: 0.8; }
-.map .dot { stroke: #142408; stroke-width: 2.4; }
-.map text { font: 400 11px var(--display); fill: #fff; paint-order: stroke fill; stroke: #0c2236; stroke-width: 3px; stroke-linejoin: round; }
-.map .self { stroke: #fff; stroke-width: 2.4; }
+.mappanel .map:active { cursor: grabbing; }
+.map .sea { fill: #2e6f9e; }
+.map #chart-grid line { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.map image { image-rendering: auto; }
+/* text outlines are sized in chart units by chart.js (they scale with the view) */
+.map text { font-family: var(--display); fill: #fff; paint-order: stroke fill; stroke: #0c2236; stroke-linejoin: round; pointer-events: none; }
+.map .sqname { fill: rgba(255, 255, 255, 0.75); }
+.map .isname { fill: #fff6dc; }
+.map .dot { stroke: #142408; stroke-width: 2.4px; vector-effect: non-scaling-stroke; }
+.map .self { stroke: #fff; }
+.chartbtns { position: absolute; top: 8px; right: 8px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.chartbtns .btn { box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
+.chartbtns .btn[aria-pressed=true] { color: #0b2a12; background: linear-gradient(180deg, var(--green-hi), #5fb544); }
+.wherelist { list-style: none; margin: 8px 0 4px; padding: 0; display: grid; gap: 2px; }
+.wherelist b { font-weight: 700; color: var(--text); }
 
 /* the co-op panel: one card per game, a lamp for its state */
 .cooppanel .pipe, .cooppanel .hub { margin-bottom: 10px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 11px; }

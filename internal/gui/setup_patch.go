@@ -442,6 +442,7 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 		b.upd.mu.Lock()
 		b.upd.plan = "" // the disc is this build's now
 		b.upd.mu.Unlock()
+		b.refreshChart() // the sea chart's art, read from the new disc in the background
 	}
 	update(func(v *PatchView) {
 		v.Running = false
