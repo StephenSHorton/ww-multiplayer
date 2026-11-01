@@ -203,6 +203,7 @@ type Hub struct {
 	byID     map[world.Player]*peer
 	order    []*peer // every peer, by ID: relays go out in a fixed order
 	scopes   *world.Scopes
+	leases   map[chestKey]chestLease // chest claims (claims.go)
 }
 
 var _ network.CoopHandler = (*Hub)(nil)
@@ -505,6 +506,7 @@ func (h *Hub) onAttach(l *link) error {
 }
 
 func (h *Hub) onDetach(p *peer) {
+	h.dropClaims(p)
 	h.leaveBound(p)
 	h.leaveView(p)
 	delete(h.peers, p.link.conn)
