@@ -26,7 +26,7 @@ import (
 // Target is one part of the WriteGuard's allowlist (§4.2). A Guard is
 // built for the targets its milestone writes, so a planner bug can't
 // reach bytes a later milestone has yet to validate.
-type Target uint16
+type Target uint32
 
 const (
 	// TargetStage is every save table's saved memBit and the live one:
@@ -124,10 +124,18 @@ const (
 	// salvage catch-up, salvage.go). WriteGuard.checkSalvage lets through
 	// exactly that write (FrameWriter.ApplySalvage).
 	TargetSalvage
+	// TargetChestHold is a live chest's action word, mActionFunc's
+	// function word (+0x348 of a daTbox_c): from actionOpenWait to
+	// actionWait (a hold) or back (a restore), both inside d_a_tbox.rel
+	// behind its fingerprint, of a chest the tick's plan names (M9 chest
+	// claims, chests.go). WriteGuard.checkChest lets through exactly that
+	// write (FrameWriter.ApplyChests); a restore needs neither ARMED nor
+	// IDLE, and a chest whose key is consumed is never restored.
+	TargetChestHold
 
 	// AllTargets is the most any milestone writes: NewGuard's allowlist.
 	AllTargets = TargetStage | TargetOcean | TargetStory | TargetInventory | TargetDerived |
-		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1 | TargetBoss | TargetLock | TargetRefresh | TargetSalvage
+		TargetCounters | TargetSelectItem | TargetScoped | TargetKills | TargetTag | TargetEscape | TargetK1 | TargetBoss | TargetLock | TargetRefresh | TargetSalvage | TargetChestHold
 	// M3Targets is what M3's reconciler writes (§9 M3): the stage
 	// progress bits and memory switches, the ocean, the charts and the
 	// sea map. A replica's WriteGuard adds TargetEscape for the escape
@@ -156,7 +164,7 @@ const (
 
 var targetNames = [...]string{
 	"stage", "ocean", "story", "inventory", "derived",
-	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1", "boss", "lock", "refresh", "salvage",
+	"counters", "select-item", "scoped", "kills", "tag", "escape", "k1", "boss", "lock", "refresh", "salvage", "chest-hold",
 }
 
 func (t Target) String() string {
@@ -170,7 +178,7 @@ func (t Target) String() string {
 		}
 	}
 	if rest := t &^ AllTargets; rest != 0 {
-		parts = append(parts, fmt.Sprintf("0x%X", uint16(rest)))
+		parts = append(parts, fmt.Sprintf("0x%X", uint32(rest)))
 	}
 	return strings.Join(parts, "|")
 }
@@ -1058,6 +1066,8 @@ type WriteGuard struct {
 	// starts over at SetTick too.
 	salvage   SalvageTick
 	salvageOK bool
+	chests    ChestPlan
+	chestsOK  bool
 	closed    string // why the guard is shut until the next SetTick
 	checked   int
 	refused   [numRefusals]int
@@ -1105,6 +1115,7 @@ func (w *WriteGuard) SetTick(t Tick) {
 	w.tick, w.have, w.closed = t, true, ""
 	w.combat, w.combatOK, w.shrunk = CombatTick{}, false, nil
 	w.salvage, w.salvageOK = SalvageTick{}, false
+	w.chests, w.chestsOK = ChestPlan{}, false
 }
 
 // Close shuts the guard until the next SetTick: the game moved on since
