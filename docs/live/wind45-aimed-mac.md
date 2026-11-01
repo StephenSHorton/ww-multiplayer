@@ -67,10 +67,16 @@ The eye switch is `Hys`/`Hys2` (proc 0x1C8, `d_a_hys.cpp`: Tg takes normal/fire/
   from about 500 units (normal x2): **no hit on A itself** (mode stays 0, switch 7 stays clear on A
   and B); B made a copy of each (copies 6 -> 10). `wind45/4-A-eye-aim.png` is the aim of the last
   one, `wind45/4-A-eye-after.png` after it.
-So the eye half can't be judged by the rig's input yet: the thrower's own shot doesn't hit, which
-has nothing to do with sync. Torch baskets 218 units away were hit with the same aim rule. Next
-idea: find where the arrow goes (a normal arrow leaves no stuck shaft on the wall here), or aim
-from directly below/level with the eye from a ledge in front of it.
+So the eye half is **not driven, cause unknown**: the thrower's own shot doesn't register, which is
+before any sync. It is not shown to be undrivable. The eye's Tg sphere is small: centred on the
+actor's `current.pos`, radius `m_tg_r[mType]` = 35 (Hys) or 70 (Hys2) (`d_a_hys.cpp:21,101`), and
+every shot was aimed at the drawn eye on the assumption that the shot goes to the view's centre at
+every range (true for the torch at 218 units, not checked at 500+). Next run:
+1. After one normal-arrow shot, `wwdev actors` and read the arrow's resting position (a stuck arrow
+   stays an actor; no shaft was seen on the wall, so it went somewhere) against the eye at
+   (-5467.5, -1177.1, -2358.3). That says high, low, wide or short.
+2. Correct the aim by that offset, or shoot from a ledge level with the eye, and read +0x450 and
+   switch 7 again.
 
 ### 5. P5 light arrow on a client mirror: PASS in part
 
@@ -83,6 +89,11 @@ from (-4915, -2352). B's copies 10 -> 11, B shows the light arrow and its burst
 (`HitNoCross 0 HitAborted 0`); both Armos 2/2 on both games. **But A's own arrow did not damage
 A's dormant Armos either** (`wind45/5-A-light-after.png`), so this shows a light copy flying past a
 client mirror with nothing relayed, not a copy that touched one.
+
+Next run: a mirrored enemy that A's own light arrow does kill. Siren r11's ChuChus (`cc`, K1 ok;
+the default mirror kinds include `cc+u`). A kills one with a light arrow; on B the copy passes
+through B's mirrored ChuChu, and the host's `phits` and B's canaries stay flat while B's copy dies
+by the mirror (one quiet death, no second hit).
 
 ## Rig notes
 
