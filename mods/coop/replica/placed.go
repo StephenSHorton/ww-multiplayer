@@ -10,7 +10,6 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/tables/enemies"
 )
@@ -280,11 +279,9 @@ func (r *Replica) placedTick(w *actors.Walk, st wire.Stage, table, room int8, se
 	if len(p.pending) == 0 || pr == nil {
 		return
 	}
-	counter, err := mem.ReadU32(r.m, addr.ProcessIDCounter)
-	if err != nil {
-		r.m6.lastHeld = "placed: the process ID counter is unreadable"
-		return
-	}
+	// The walk read the process ID counter before the queue: every actor
+	// it lists has a lower pid, and a later create a higher one.
+	counter := w.ProcCounter
 	taken := map[uint32]bool{}
 	for _, t := range r.m6.targets {
 		taken[t.Carrier.PID] = true
