@@ -249,6 +249,11 @@ func TestUpdateInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := waitUpd(t, b, "restarting")
+	// restartIfReady publishes "restarting" and only then calls quit:
+	// wait for the quit instead of racing it (the TestUpdateInstall flake).
+	for deadline := time.Now().Add(10 * time.Second); quits.Load() == 0 && time.Now().Before(deadline); {
+		time.Sleep(time.Millisecond)
+	}
 	if v.Percent != 100 || quits.Load() != 1 {
 		t.Fatalf("restarting: %+v, quit %d", v, quits.Load())
 	}
