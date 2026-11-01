@@ -1,9 +1,9 @@
-co-op: backed up 2 memory-card file(s) to /Users/stephenhorton/Library/Application Support/ww-multiplayer/backups/20261101T073638Z (`coop-world restore 20261101T073638Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
-co-op:   slot A GCI folder /Users/stephenhorton/ww-shared/rigs/wind20/u1/GC/USA/Card A (default, in use):
-co-op:     /Users/stephenhorton/ww-shared/rigs/wind20/u1/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
-co-op:   slot A GCI folder /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A (default, in use):
-co-op:     /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
-co-op: stage tables 07fce914c47490e7, /Users/stephenhorton/ww-shared/disc/WW-mp.iso built from the disc in 0.0 s: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
+co-op: backed up 2 memory-card file(s) to ~/Library/Application Support/ww-multiplayer/backups/20261101T073638Z (`coop-world restore 20261101T073638Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind20/u1/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind20/u1/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind20/u2/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind20/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op: stage tables 07fce914c47490e7, ~/ww-shared/disc/WW-mp.iso built from the disc in 0.0 s: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
 Co-op world 1490569c486b64cf at seq 1 (dry run: planned writes are logged, not made; only a binding tag is ever written, after a yes).
 co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>.
 [srv 01:36:38] Server listening on port 25642

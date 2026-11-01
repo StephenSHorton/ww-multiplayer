@@ -1,9 +1,9 @@
-co-op: backed up 2 memory-card file(s) to /Users/stephenhorton/Library/Application Support/ww-multiplayer/backups/20261101T074254Z (`coop-world restore 20261101T074254Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
-co-op:   slot A GCI folder /Users/stephenhorton/ww-shared/rigs/wind20/u1/GC/USA/Card A (default, in use):
-co-op:     /Users/stephenhorton/ww-shared/rigs/wind20/u1/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
-co-op:   slot A GCI folder /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A (default, in use):
-co-op:     /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
-co-op: stage tables 07fce914c47490e7, /Users/stephenhorton/ww-shared/disc/WW-mp.iso from the cache: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
+co-op: backed up 2 memory-card file(s) to ~/Library/Application Support/ww-multiplayer/backups/20261101T074254Z (`coop-world restore 20261101T074254Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind20/u1/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind20/u1/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind20/u2/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind20/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op: stage tables 07fce914c47490e7, ~/ww-shared/disc/WW-mp.iso from the cache: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
 co-op: shared progression this session: story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic; derived from the stage tables: the small keys of DRC, FW, TotG, ET, WT and max hearts.
 co-op: room puzzles this session: a partner's latching dan switches (103 in 6 save table(s)) sync while both are in the same stage, its zone switches (13) while both are in the same room, and its room switches (410) as it sets them, in 115 room(s); timed and other switches that clear never travel.
 co-op: combat this session: a partner's kills of keyed enemies (333 in 14 stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; 1070 unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.

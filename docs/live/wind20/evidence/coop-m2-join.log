@@ -1,7 +1,7 @@
 Joining 127.0.0.1:25642 as "JoinB".
-co-op: backed up 1 memory-card file(s) to /Users/stephenhorton/Library/Application Support/ww-multiplayer/backups/20261101T073644Z (`coop-world restore 20261101T073644Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
-co-op:   slot A GCI folder /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A (default, in use):
-co-op:     /Users/stephenhorton/ww-shared/rigs/wind20/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op: backed up 1 memory-card file(s) to ~/Library/Application Support/ww-multiplayer/backups/20261101T073644Z (`coop-world restore 20261101T073644Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind20/u2/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind20/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
 co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>.
 Ctrl+C to stop.
 === Enemy client: JoinB <- 127.0.0.1:25642 ===
