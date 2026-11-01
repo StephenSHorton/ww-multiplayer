@@ -90,6 +90,9 @@ func combatStatus(st replica.Status) string {
 	if c.Held > 0 {
 		held = fmt.Sprintf("%d held (%s, link demo %d)", c.Held, c.LastHeld, c.DemoHeld)
 	}
+	if c.Waiting != "" {
+		held += fmt.Sprintf(" (all waiting: %s)", c.Waiting)
+	}
 	return fmt.Sprintf("combat: on; %d partner kill bit(s) held for %s; %d written to zones, %d light-shrunk, %s, %d refused, %d verify failures",
 		c.StoreBits, where, c.ZoneSet, c.Shrunk, held, c.Refused, c.VerifyFail)
 }

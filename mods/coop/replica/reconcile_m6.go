@@ -84,6 +84,8 @@ type m6 struct {
 	shrunk    int
 	released  int
 	refused   int // the store's bits this side's tables do not sync, as the last tick counted them
+	// waiting is CombatStatus.Waiting, set each tick.
+	waiting string
 }
 
 // CombatStatus is how the M6 receiver stands (Status.Combat), for /status.
@@ -105,6 +107,12 @@ type CombatStatus struct {
 	// VerifyFail the light-shrinks and zone bytes that did not hold.
 	ZoneSet, Shrunk, Released, Held, DemoHeld, Refused, VerifyFail int
 	LastHeld                                                       string
+	// Waiting is why the whole tick wrote nothing while partner kill bits
+	// are held for Link's stage (StoreBits > 0): the first closed gate of
+	// the snapshot (gate.Status.Why: no heartbeat, not stable, or not idle,
+	// e.g. "the pause menu is open"), "" when the gates are open. No target
+	// is planned while they are shut, so Held stays 0 then (docs/08 §8.2 K7).
+	Waiting string
 	// Placed is M6.1's (§7.2a): placement-matched kills of unkeyed
 	// enemies.
 	Placed PlacedStatus
@@ -121,7 +129,8 @@ func (r *Replica) combatStatus() CombatStatus {
 		Granted: r.features&proto.FeatureCombat != 0, Tables: r.cfg.Tables != nil && r.cfg.Tables.Enemies != nil,
 		Place: m.place, StoreBits: m.storeBits, ZoneSet: m.zoneSet, Shrunk: m.shrunk, Released: m.released,
 		Held: len(m.held), DemoHeld: len(m.demoHeld), Refused: m.refused, VerifyFail: r.writer.Stats().CombatFailed, LastHeld: m.lastHeld,
-		Placed: r.placedStatus(),
+		Waiting: m.waiting,
+		Placed:  r.placedStatus(),
 	}
 }
 
@@ -184,6 +193,7 @@ func (r *Replica) killMask(table int8, stage string, room int) enemies.KillSet {
 func (r *Replica) reconcileM6(o *obs, armed bool) {
 	m := &r.m6
 	m.kills, m.targets, m.demo = nil, nil, false
+	m.waiting = ""
 	m.rf.locks = nil
 	clear(m.rf.deathPIDs)
 	r.ar.cands = r.ar.cands[:0]
@@ -241,6 +251,12 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 		}
 	}
 	if !o.st.CanWriteIdle() {
+		if m.storeBits > 0 {
+			m.waiting = o.st.Why()
+			if m.waiting == "" {
+				m.waiting = "IDLE writes are not allowed this tick"
+			}
+		}
 		return
 	}
 	// The stale-actor refresh (refresh.go) needs the walk too, when a
