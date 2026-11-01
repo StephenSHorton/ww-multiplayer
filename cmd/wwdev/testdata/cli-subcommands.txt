@@ -26,6 +26,7 @@ eye-fix-chain
 eye-fix-find-shape
 eye-fix-gates
 eye-fix-probe
+face
 face-dl-loop
 face-hook-arm
 face-hook-disarm
