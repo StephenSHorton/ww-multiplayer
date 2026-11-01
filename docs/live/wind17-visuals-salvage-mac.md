@@ -134,3 +134,22 @@ then B hopped.
   (auction 1, letter 3, npc 6, shop 1), 5 unverified (drop 1, minigame 3, npc 1)`, both
   `left out Cave06: ...` and `left out I_SubAN: ...` lines, small keys PASS (5 of 5), heart
   containers 6/6. Not compared line by line with a schema-11 report.
+
+## Salvage catch-up SV1-SV7: SV1 form (b) pass by poke, SV7 in part, the rest carded
+
+Same co-op session, both games on `sea 0 44` (Outset's square, ocean grid 44). B's salvage table
+(`*0x803F6B44`, parsed per `wwapi/addr/salvage.go`) listed room-44 points saves 0-3 (kind 3, flag 0),
+the Big Octo save 15 (kind 2, already flag 1), and the no-save kind-5 points.
+
+- **SV1 form (b), standing in for A's crane by poke:** A's ocean grid 44 bit 2 (0x803C5221 |= 0x04)
+  stands in for A pulling up point save 2 at (-211024, 0, 309091). A hopped. B, in the light's square,
+  was warped across the border to (-95000, 0, 320000), a room change with no stage change. B's log:
+  `ocean grid 44 bit 2 waits for the next room or stage change`, then `set ocean grid 44 bit 2
+  (0x803C5221 |= 0x04)`. There was no `salvage: marked` line (a recorded outcome, as the row allows).
+  B was warped back into square 44: its rebuilt salvage table no longer lists save 2 (saves 0, 1, 3 and
+  15 remain), so the light is gone and B's crane has nothing there.
+- **SV7, in part:** no verify failure, no co-op shutdown across the session's 42 co-op lines. Only SV1
+  ran, so this is in part.
+- **Not run, carded on wind#1:** SV1 form (a), SV2 (a chart treasure), SV3 (a Big Octo point),
+  SV4-SV6 (B's own crane pulls, the window, the crane gate). They need B to board and sail the King of
+  Red Lions and pull with the crane by pad, which this rig can't script reliably yet.
