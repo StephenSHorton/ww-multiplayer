@@ -52,3 +52,13 @@ for t2-t7 (intro bit kept). Both bound world b83d8a075d861acb (`bound the file`,
 - B: same faked pull (no request poke), 2 tries: `boss_kill 185: applied (m18AE 0x3, m18B0 2, m1BB5 0)` once; `m18AE` 0xC,
   own t07 byte 0x30 -> 0x38, Warpf (0x006A) at (0, 300, 0). Pulls faked, not real Hookshot pulls (real pulls passed on the PC,
   handoff real-items/LIVE-2.md:21).
+
+## Helmaroc King (M2tower 30 0 3): IN PROGRESS (A applied; A's crest hit not landed; B not reached)
+- Both: Bdk proc 0xF0 in the tower phase (`mAction` 0x66, health 0/0 there).
+- A: `rig/hkforce.sh` (Mac port) `down` -> intro (`m25A0` 0xB..0x10) -> `mAction` 0, health 20; `mask` -> `m8F8` 4,
+  `m25A0` 2 -> 0; A's request `00F0424B`: APPLIED `0x01050414`, health 20 -> 0 (`bdk-probe`: ALREADY "a pending zero, the next
+  crest hit kills").
+- `rig/crest.py` (scripted crest hit: warp Link 110 from the head at stuck-beak, turn, B) ran ~5 min without landing the hit,
+  and A's Link died (3 hearts after continue). **Rig mistake:** on the game-over "Would you like to save?" the highlighted
+  button was Yes and one A press saved u1's card (rig wind12's own copy, not the shared fixtures; mp-local backed up both
+  cards at start, `coop-world restore 20261101T065658Z`). No ISI/DSI in u1's dolphin.log.
