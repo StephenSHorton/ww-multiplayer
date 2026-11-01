@@ -1,0 +1,4 @@
+u2/Logs/dolphin.log:2:07:44:143 Core/PowerPC/MMU.cpp:1228 E[MASTER]: Warning: Invalid read from 0x00000007, PC = 0x802c1bac.
+u2/Logs/dolphin.log:5:07:44:143 Core/PowerPC/MMU.cpp:1228 E[MASTER]: Warning: Invalid read from 0x00000001, PC = 0x802c1bf0.
+u2/Logs/dolphin.log:8:07:44:143 Core/PowerPC/MMU.cpp:1228 E[MASTER]: Warning: Invalid read from 0x0000000b, PC = 0x802c1bac.
+u2/Logs/dolphin.log:11:07:44:143 Core/PowerPC/MMU.cpp:1228 E[MASTER]: Warning: Invalid read from 0x00000001, PC = 0x802c1bf0.

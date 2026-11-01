@@ -1,0 +1,25 @@
+before: A 0x00000000  B 0x00000000 
+POKE A sw14 at 01:10:36
+after 6s: A 0x00004000  B 0x00004000  (B saved t5 sw word 0x00004000 )
+now in stage "Siren" room 0, table 5 TotG, file 0
+t+3s B live 0x00000000  saved 0x00004000  | A 0x00004000 
+t+6s B live 0x00000000  saved 0x00000000  | A 0x00004000 
+t+10s B live 0x00000000  saved 0x00000000  | A 0x00004000 
+t+15s B live 0x00000000  saved 0x00000000  | A 0x00004000 
+t+25s B live 0x00000000  saved 0x00000000  | A 0x00004000 
+t+40s B live 0x00000000  saved 0x00000000  | A 0x00004000 
+where     stage "Siren" room 12, table 5 TotG, file 0
+co-op: small keys, table 5 (TotG): door 0x0E counted: you left its stage, whose doors are made again reading it
+10738 keys/dItem word 0x00000000   saved t5 keys 0x00000000 
+10748 keys/dItem word 0x00000000   saved t5 keys 0x00000000 
+7:co-op: shared progression this session: story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic; derived from the stage tables: the small keys of DRC, FW, TotG, 
+11:Co-op world 88a07e3c7c9606c5 at seq 1: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max
+66:co-op: armed in world 88a07e3c7c9606c5: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (live: in the room you stand in, once idle); its story bits and 
+8:co-op: shared progression this session: story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic; derived from the stage tables: the small keys of DRC, FW, TotG, 
+61:co-op: armed in world 88a07e3c7c9606c5: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (live: in the room you stand in, once idle); its story bits and 
+111:co-op: set t05 TotG switch 0x0E (0x803C5042, and its live copy |= 0x40)
+113:co-op: small keys, table 5 (TotG): door 0x0E is counted after your next room change: its switch is written, but the door shows its lock until then, and its key stays
+120:co-op: small keys, table 5 (TotG): door 0x0E counted: you left its stage, whose doors are made again reading it
+B in r8 t+5s: live sw word 0x00000000 
+B in r8 t+15s: live sw word 0x00000000 
+B in r8 t+30s: live sw word 0x00000000 
