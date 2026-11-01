@@ -50,7 +50,7 @@ Rig `wind38` (own u1, Irori lease `ww/dolphin-slot-5`), one Dolphin at 30 fps, n
    `Invalid read from 0x000000xx, PC = 0x802c1bac` / `PC = 0x802c1bf0` (JUTNameTab), as in wind#37.
 
 **Verdict.** On the first-visit save the M2tower -> M2ganon exit hangs **after a real kill too**. The poked
-bit is not the cause. What hangs is M2ganon's first-visit demo, `attack_ganon` (next section).
+bit is not the cause. What hangs is M2ganon's first-visit demo, `attack_ganon`, because the hop skipped `rescue` (next section).
 
 **Observed, not explained.** `start-ff` boots with the Hero's Sword equipped (`mSelectEquip[0]` 0x38) and
 only it collected (`0x803C4CBC` byte 0x01). After the kill both read Master Sword 1 (0x39, collect 0x03).
@@ -59,6 +59,34 @@ What set them during the run was not traced. The late save has 0x3E (Master Swor
 Dumps of `0x803C4C00`..`+0x900` (boot, after the kill, late save), the logs and the screenshots are in
 the rig's `rec/` folder on the rig Mac, not committed. Between the after-kill and late dumps, 168 event
 bits differ (the late save is far later in the story), so the diff alone doesn't name a cause.
+
+## Cause found: the hop skips `rescue`, so Link's demo archive is LkD00 (pine, 2026-11-01)
+
+**Verdict.** The hang is the rig's, not co-op's and not the stand-in's. `M2tower 30 0 3` skips FF2's
+tower-top `rescue` demo, which sets event bit **0x2D01** (`d_save_event_flag.inc:346`, "Set by
+rescue.stb (stage: M2tower)"). Every play-scene load picks Link's demo-animation archive from that bit:
+`LkD01.arc` with it, `LkD00.arc` without (`d_s_play.cpp:1244-1253`, `phase_0`). `attack_ganon` asks for
+Link's demo texture animations by ID from that archive. With LkD00 mounted the read misses, Link binds
+whatever is in the buffer, and the bind never ends.
+
+**Proof.**
+- **Stack at the hang** (Dolphin's GDB stub, `Dolphin.General.GDBPort`, breakpoint on
+  `JUTNameTab::getName`): `calcKeyCode` <- `getIndex` <- `J3DAnmTextureSRTKey::searchUpdateMaterialID`
+  <- `daPy_lk_c::setTextureScrollResource` <- `setDemoTextureAnime` <- `dProcTool` <- `daPy_lk_c::execute`.
+  `setDemoTextureAnime` loads by ID with `JKRReadIdResource(..., dComIfGp_getLkDemoAnmArchive())` and
+  binds without a check (`d_a_player_main.cpp:950-962`, `:1012-1023`).
+- **The fix on the rig.** `start-ff`, **POKE** 0x2D01 on (word `0x803C5258` |= 0x00010000) before the
+  hop, then the same hop, boss-bit poke and door10: `attack_ganon` **plays** at 30 fps ("It's been a while,
+  boy.", `lkd01-demo1.png`), with no invalid reads in dolphin.log.
+- Without the poke, the same steps hang (above). With switch 61 on (demo skipped), M2ganon plays.
+- The late save has 0x2D01 set (it is among the 168 bits the first-visit save lacks).
+
+**For co-op.** A real playthrough always plays `rescue` before the tower top, so players don't hit
+this. Co-op keeps 0x2D01 out of sync on purpose (`mods/coop/class/syncmask_gen.go:57`), and the game
+picks M2tower's layer from the same bit (`d_com_inf_game.cpp:202, 252`), so a partner who hasn't seen
+`rescue` gets the rescue layer and plays it [I]. **Rig rule:** before hopping into FF2's tower top from
+a save that hasn't seen `rescue`, set 0x2D01 (as TESTING.md's `hkforce.sh flag` already does for
+reloads), or M2ganon's demo hangs.
 
 ## What hangs: the `attack_ganon` demo (s5, pine, 2026-11-01)
 
@@ -86,7 +114,7 @@ Same rig and slot, fast repro (hop, poke the bit, door10; the same hang as after
    so she is not the unchecked bind.
 6. The sword (0x38 vs 0x39) doesn't matter: the fast repro hangs with the Hero's Sword equipped.
 
-**Open: vanilla or the mod?** Every run here was on the patched `WW-mp.iso`, and a save state carries
+**(Superseded by the cause above.) Open was: vanilla or the mod?** Every run here was on the patched `WW-mp.iso`, and a save state carries
 the patched code in RAM, so swapping discs isn't a vanilla test. Next: boot `ww-vanilla.ciso` with the
 fixture memory card, load the 9-Hyrule1 file, get to M2ganon with switch 61 off (needs a controller or a
 person: `wwdev input` is a mod feature), and see whether `attack_ganon` plays. If vanilla plays it, the
