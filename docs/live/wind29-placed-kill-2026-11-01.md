@@ -68,10 +68,13 @@ So since main's #232/#267 the mixed-version case is moot for releases: a v0.6.1 
 
 ## P5, P6, P7 (newt, second slot, 2026-11-01)
 Rig wind29 (lease ww/dolphin-slot-1), wwdev built from main b9d8b2d, REL 0xA9DE0F1E, CryZe `9-Hyrule1` state, mp-local `--coop=new --coop-placed-kill` with `WW_ENEMY_SYNC=0`.
-- **P6 Hyroom r0 (same layer passed; cross-layer not run):** this file loads the room's enemy layer, with 7 Darknuts (proc 0xC0) and 10 Moblins (proc 0xBD), all unkeyed and the same on both sides.
+- **P6 Hyroom r0 (pass, same layer and cross-layer):** this file loads the room's enemy layer, with 7 Darknuts (proc 0xC0) and 10 Moblins (proc 0xBD), all unkeyed and the same on both sides.
   `/status` read 0 tracked right after the hop and 17 a few seconds later, once the room had settled. A's `enemy-kill` on Moblin 0x80A81020 gave
   `1 sent`, and B logged `placed: light-shrunk the partner's kill of Hyroom room 0 ordinal 16 (table 9): actor 0x80A81020`. Both games went to 9 Moblins.
-  Both games had the same layer; two different layers at once needs B on a later progression and was not run.
+  Cross-layer (third slot, lease ww/dolphin-slot-1 for 15 min): Hyroom r0 places the same 17 homes on layers 0 and 1 (and 17 more on 8).
+  `stage-hop Hyroom 0 0 0` on A and `stage-hop Hyroom 0 0 1` on B (mCurStage 0x803C9D47 read 0 and 1). After the room settled, both tracked 17.
+  A's `enemy-kill` on the Moblin 0x80A99260 at (607, -1950, -577), params 0xFFFF000F, gave `1 sent`, and B logged `... Hyroom room 0 ordinal 1 (table 9):
+  actor 0x80A99260`, its layer-1 twin at the same home, echo counted. Both went to 9 Moblins. Crash sweep clean.
 - **P7 sea r44 stacked Keese (pass):** alder's start-save try found no Keese, and they are not night-only: setting mTime
   (status_b+0xC, 0x803C4C2C, 180.0 = noon) to 10.0 and hopping still loaded layer 5 (6 ChuChus, 4 Miniblins). The disc places the
   room's Keese on layers 6, 7 and 11 (12, 8 and 6 entries; `coop-tables --section enemies --json`). `stage-hop sea 0 44 6` on both
