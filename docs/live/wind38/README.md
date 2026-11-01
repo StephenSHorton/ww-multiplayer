@@ -50,7 +50,7 @@ Rig `wind38` (own u1, Irori lease `ww/dolphin-slot-5`), one Dolphin at 30 fps, n
    `Invalid read from 0x000000xx, PC = 0x802c1bac` / `PC = 0x802c1bf0` (JUTNameTab), as in wind#37.
 
 **Verdict.** On the first-visit save the M2tower -> M2ganon exit hangs **after a real kill too**. The poked
-bit is not the cause. The hang follows the save's story point (the late save `28-Hyrule3` plays, above).
+bit is not the cause. What hangs is M2ganon's first-visit demo, `attack_ganon` (next section).
 
 **Observed, not explained.** `start-ff` boots with the Hero's Sword equipped (`mSelectEquip[0]` 0x38) and
 only it collected (`0x803C4CBC` byte 0x01). After the kill both read Master Sword 1 (0x39, collect 0x03).
@@ -59,6 +59,39 @@ What set them during the run was not traced. The late save has 0x3E (Master Swor
 Dumps of `0x803C4C00`..`+0x900` (boot, after the kill, late save), the logs and the screenshots are in
 the rig's `rec/` folder on the rig Mac, not committed. Between the after-kill and late dumps, 168 event
 bits differ (the late save is far later in the story), so the diff alone doesn't name a cause.
+
+## What hangs: the `attack_ganon` demo (s5, pine, 2026-11-01)
+
+Same rig and slot, fast repro (hop, poke the bit, door10; the same hang as after the real kill).
+
+1. **The trigger is the demo.** M2ganon's stage.dzs has one event, `attack_ganon`, with spawn switch 61
+   (stage switches: live word `0x803C5388`, bit 0x20000000). On `start-ff`, switch 61 on before door10
+   gives M2ganon at **30 fps**, Tetra standing by, and no invalid reads (`ff-sw61.png`). Off (as the
+   first visit has it), the demo starts and hangs.
+2. **The late save was never a control for the demo.** On `28-Hyrule3` switch 61 is already on from the
+   real playthrough, so M2ganon loads straight to free play (`late-m2ganon.png`): `attack_ganon` never
+   runs there. "The late save plays" says nothing about the demo.
+3. **Where it hangs (decomp).** PC 0x802c1bac is `JUTNameTab::getName` and 0x802c1bf0 is `calcKeyCode`
+   (`config/GZLE01/symbols.txt`). The read pattern (getName from 0x7, 0xB, 0xF, ... and calcKeyCode
+   on 0x1/0x0) fits a J3D material-animation bind, `searchUpdateMaterialID`
+   (`J3DAnimation.cpp:699, 865, 881, 888, 1064, 1071`), on an animation whose name table is null, the
+   usual result of binding a texture/colour animation that a `getObjectRes` didn't find. The reads stop
+   after about 10k lines; then the main thread (`mainThread` 0x803A2960) sits in WAITING and the frame
+   never advances. The bind's frames were gone by then (no return address into `searchUpdateMaterialID`
+   anywhere in MEM1), so the calling actor is not identified yet.
+4. **Archives.** The object table (`0x803E0BC8`) in M2ganon holds the same archives on both saves
+   (System, Demo24, Always, Link, Agb, Search, Himo3, Zl2, Dmgroom, Ikari, Cloth, Ep), so no archive is
+   missing on the first-visit save as such.
+5. **Tetra** (`Zl1` params 6 -> arc `Zl2`) null-checks the demo's btp/btk (`d_a_npc_zl1.cpp:2566-2586`),
+   so she is not the unchecked bind.
+6. The sword (0x38 vs 0x39) doesn't matter: the fast repro hangs with the Hero's Sword equipped.
+
+**Open: vanilla or the mod?** Every run here was on the patched `WW-mp.iso`, and a save state carries
+the patched code in RAM, so swapping discs isn't a vanilla test. Next: boot `ww-vanilla.ciso` with the
+fixture memory card, load the 9-Hyrule1 file, get to M2ganon with switch 61 off (needs a controller or a
+person: `wwdev input` is a mod feature), and see whether `attack_ganon` plays. If vanilla plays it, the
+mod's Link face/eye hooks (`eyefix`, `face`, which touch Link's material animations) are the first
+suspects. If vanilla hangs too, it's the hop: the save skips FF2's entry story, which the demo expects.
 
 ## Earlier attempt (lynx): the scripted crest never landed
 
