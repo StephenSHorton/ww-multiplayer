@@ -28,11 +28,13 @@ ap.add_argument("--wwdev", default=os.environ.get("WWDEV", "./bin/wwdev"))
 ap.add_argument("--range", type=float, default=1200.0)
 ap.add_argument("--no-walk", action="store_true")
 ap.add_argument("--no-throw", action="store_true")
-ap.add_argument("--yaw-tol", type=int, default=300)
-ap.add_argument("--pitch-tol", type=int, default=400)
+ap.add_argument("--yaw-tol", type=int, default=180)
+ap.add_argument("--pitch-tol", type=int, default=350)
 ap.add_argument("--timeout", type=float, default=12.0)
 ap.add_argument("--target", type=float, nargs=3, metavar=("X", "Y", "Z"), help="aim at a fixed point instead of a KUI (testing)")
 ap.add_argument("--no-sheathe", action="store_true")
+ap.add_argument("--pitch-above", type=int, default=800, help="aim this far above the KUI (search_target takes 400 below to 2000 above)")
+ap.add_argument("--life-floor", type=int, default=8, help="stop below this many quarter hearts")
 args = ap.parse_args()
 W = args.wwdev
 
@@ -120,15 +122,24 @@ def stick_for(a, mag):
 LIFE = 0x803C4C08  # u16 max life, u16 current life (quarter hearts)
 
 
+CAMERA_PTR = 0x803CA718  # g_dComIfG_gameInfo.play.mCameraInfo[0].mpCamera
+
+
+def camera():
+    cam = peek_words(CAMERA_PTR, 1)[0]
+    v = [f32(x) for x in peek_words(cam + 0xD8, 6)]  # view.mLookat.mEye, mCenter
+    return tuple(v[:3]), tuple(v[3:])
+
+
 def life():
     return peek_words(LIFE, 1)[0] & 0xFFFF
 
 
 def guard():
-    """Stop on any damage: hand Link back to the player rather than walk on blind."""
-    if life() < life0:
+    """Stop before Link dies: below --life-floor quarter hearts, hand him back."""
+    if life() < args.life_floor:
         inp(0, 0, 0, 30)
-        sys.exit(f"stopped: Link took damage (life {life()} < {life0} quarter hearts)")
+        sys.exit(f"stopped: life {life()} < floor {args.life_floor} quarter hearts")
 
 
 pl, kui = actors()
@@ -201,23 +212,44 @@ t0 = time.time()
 ok = False
 while time.time() - t0 < args.timeout:
     guard()
-    p, k = pos(pl), pos(kui)
-    eye =(p[0], p[1] + HEAD_Y, p[2])
+    # The rope picks its KUI by angles seen from the camera's eye
+    # (d_a_himo2.cpp search_target), so aim the camera's sight line.
+    eye, ctr = camera()
+    k = pos(kui)
     h = math.hypot(k[0] - eye[0], k[2] - eye[2])
     ty = yaw_to(eye, k)
-    tp = s16(round(-math.atan2(k[1] - eye[1], h) * 32768 / math.pi))
-    cy, cb = body()
-    ey, ep = adiff(ty, cy), tp - cb
-    print(f"aim: yaw err {ey:+6d} pitch err {ep:+6d} (body.x {cb}, want {tp}) d3 {math.hypot(h, k[1]-eye[1]):.0f}")
+    tp = s16(round(-math.atan2(k[1] - eye[1], h) * 32768 / math.pi)) - (args.pitch_above if kui is not None else 0)
+    cy = yaw_to(eye, ctr)
+    cp = s16(round(-math.atan2(ctr[1] - eye[1], math.hypot(ctr[0] - eye[0], ctr[2] - eye[2])) * 32768 / math.pi))
+    ey, ep = adiff(ty, cy), tp - cp
+    print(f"aim: yaw err {ey:+6d} pitch err {ep:+6d} (camera pitch {cp}, want {tp}) d3 {math.hypot(h, k[1]-eye[1]):.0f}")
     if abs(ey) <= args.yaw_tol and abs(ep) <= args.pitch_tol:
         ok = True
         break
-    # measured on B (Mac rig): stick y -80 for 300 ms took body.x 0 -> -4581
-    sx = clamp(sgn_yaw * ey / 12, 100) if abs(ey) > args.yaw_tol else 0
-    sy = clamp(sgn_pitch * ep / 12, 100) if abs(ep) > args.pitch_tol else 0
-    if sx and abs(sx) < 30: sx = 30 * (1 if sx > 0 else -1)
-    if sy and abs(sy) < 30: sy = 30 * (1 if sy > 0 else -1)
-    inp(0, sx, sy, 50)
+    if kui is not None and abs(ep) <= args.pitch_tol and abs(ey) < 900:
+        # The tail sways (d_a_dr2.cpp: sin of 0.04/0.05 rad a frame), faster
+        # than a pulse loop follows. Hold still and throw as it swings through.
+        prev = ey
+        t2 = time.time()
+        while time.time() - t2 < 6.0:
+            eye, ctr = camera()
+            k = pos(kui)
+            e = adiff(yaw_to(eye, k), yaw_to(eye, ctr))
+            if abs(e) <= args.yaw_tol or (e > 0) != (prev > 0):
+                print(f"aim: tail swung through (yaw err {prev:+d} -> {e:+d})")
+                ok = True
+                break
+            prev = e
+        break
+    # Sized pulses, not a slow P loop: Gohma hits Link within about 2 s.
+    # Rates measured on B (Mac rig): stick y 80 turns body.x ~15 units/ms,
+    # stick x 50 turns shape_angle.y ~11.5 units/ms.
+    if abs(ep) > args.pitch_tol:
+        ms = int(min(700, max(25, abs(ep) / 15.0)))
+        inp(0, 0, -80 if ep < 0 else 80, ms)
+    if abs(ey) > args.yaw_tol:
+        ms = int(min(700, max(25, abs(ey) / 11.5)))
+        inp(0, (50 if ey > 0 else -50) * sgn_yaw, 0, ms)
 
 if not ok:
     sys.exit("aim: timed out (Link hit or out of aim mode?)")
@@ -226,3 +258,13 @@ if args.no_throw:
 else:
     inp(0x800, 0, 0, 150)
     print("throw: Y")
+    if kui is not None:
+        # The KUI's health reads 3 while the hook holds it (d_a_dr2.cpp move).
+        seen = set()
+        t1 = time.time()
+        while time.time() - t1 < 2.0:
+            hp = (peek_words(kui + 0x284, 1)[0] >> 16) & 0xFF
+            seen.add(hp)
+            if hp == 3:
+                break
+        print(f"kui health seen {sorted(seen)}: {'HOOKED' if 3 in seen else 'no catch'}")
