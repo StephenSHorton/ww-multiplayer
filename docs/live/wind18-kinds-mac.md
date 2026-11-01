@@ -16,3 +16,10 @@ Main 0c5927c (REL 0x1CE30685, BlobHash 0x04765DD0). Mac rig (docs/mac-rig.md): D
 - `kaze 2 2`: the host lists 2 Armos Knights; B adopts both (`am 0`, `am 1`), canaries 0.
 - `Cave09 0 7` (`am2+u`): the host lists 4 unkeyed Armos; B fills all 4 slots. Host `enemy-kill` on one: 3 left on both games; B's slot 2 empty (nothing left to take it). No ERR_KEY, panic or reject over the run.
 - Not run: a client back-stab (two hits, dance), the hammer one-hit, the front clink, statue handback, `kaze 1 1`, `Siren 0 8`; AM's eye/light arrow, bomb swallow, Grappling Hook and `am:hooks=special` (they need the wind#11 (d) bombs/arrows fixture and aimed client swings).
+
+## TN (Darknut) T4, opt-in: `WW_ENEMY_MIRROR_KINDS=mo2+u,bk+u,cc+u,ki+u,tn+u`
+
+- `Cave11 0 9`: the host lists 4 unkeyed Darknuts; B fills exactly the 4 slots with them (`u0553102A`, `uCFBE59C8`, `u3E8C8EA7`, `u01A79E15`), canaries flat, no ERR_KEY, panic or reject. B's hop was refused twice with "not now: an event is running" (Cave09's leftover event) and landed on the retry.
+- Host kill not run: before it, A's Link (standing idle at the entrance) was killed by the four Darknuts and the game sat on "Would you like to save?". The pair was stopped by PID rather than answer it (no write to the fixture card). The T1-T3 reruns in the caves and `Cave10 0 16` (`mo2+u,tn+u`) are still owed; give A invincibility or a fight plan first.
+
+Crash sweep after the Armos and Darknut runs: no ISI, DSI or invalid access in either dolphin.log.
