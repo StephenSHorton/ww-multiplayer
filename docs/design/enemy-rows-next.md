@@ -45,6 +45,8 @@ What still needs a live Dolphin: S3 (and an optional S1 confirmation).
 
 ## Enemy mirror row: ST Stalfos (proc 0xBF), design
 
+**Built (wind#27):** kind 9, intact phase only, off by default (`st`, `st+u`); live checks in docs/TESTING.md "Enemy mirror: ST Stalfos row".
+
 Base: main c1278b3. Decomp: tww  (`d_a_st` is Matching, configure.py:1846).
 Citations without a path are `src/d/actor/d_a_st.cpp` (`.cpp:`) or `include/d/actor/d_a_st.h` (`.h:`).
 `St.h` means `assets/GZLJ01/res/Object/St.h` (generated from St.arc; the only copy in the tree, so the

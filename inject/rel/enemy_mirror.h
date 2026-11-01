@@ -176,7 +176,7 @@ typedef char em_check_kind_size[(sizeof(em_kind) == 0x44 && __builtin_offsetof(e
 typedef struct {
     u16 proc;           // +0x00 the slot's proc (WWENEMY_SL_PROC_OFF) at the last consume, 0 none
     u8  kind;           // +0x02 EMK_KIND_* of that proc, EMK_KIND_NONE without a row
-    u8  cc_saved_bits;  // +0x03 CC: the copy's own mCyl At/Tg/Co Set bits at adopt (bit0 At, bit1 Tg, bit2 Co), restored at handback
+    u8  cc_saved_bits;  // +0x03 CC: the copy's own mCyl At/Tg/Co Set bits at adopt (bit0 At, bit1 Tg, bit2 Co), restored at handback; ST (wind#27): its own m02B9 at adopt, 0 once shown, restored at handback
     u8  flags_ext;      // +0x04 EM_XF_*
     u8  kind_bits;      // +0x05 (was pad) the adopted copy's own per-kind bits, not block-derived: BB EM_XB_* (enemy_mirror.c), MT EM_XB_MT_* (above; CUSTODY cleared on a pid change); zeroed at adopt
 } em_ext_slot;          // 0x06
@@ -444,9 +444,10 @@ void em_bb_extra(void* a);
 // em_mt_matrix and em_mt_colliders: the copy's body is its own retail
 // body_control1/2, called through em_mt_fp_ok's fingerprint. Everything MT
 // is in these functions, under #if EMK_WITH_MT, and the dispatch lines that call them
-// (and EM_XF_MT_BALL, EM_XB_MT_* above); the cut (EMK_WITH_MT 0,
-// EMK_KIND_COUNT 8) drops this block's code, those lines, EM_ROW(MT) and
-// the MT section of wwenemy_kinds.h. hkd is em_hkd(x, k) (block byte
+// (and EM_XF_MT_BALL, EM_XB_MT_* above); the cut (EMK_WITH_MT 0;
+// EMK_KIND_COUNT stays 10, ST being id 9) drops this block's code, those
+// lines and the MT section of wwenemy_kinds.h, and EM_ROW(MT) becomes a
+// hole row. hkd is em_hkd(x, k) (block byte
 // WWENEMY_HKD_HI_OFF + 1).
 // MT-1, em_validate's MT case (0 = ERR_GATE): EMK_MT_APPEAR != 0, mode not
 // in {MOVE, FIGHT, PINNED}, EMK_MT_DEATH != 0, EMK_MT_KILLED != 0, ice

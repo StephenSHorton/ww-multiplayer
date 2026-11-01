@@ -16,9 +16,10 @@ import (
 // the allow batch's rows: enemy-mirror-allow.json "type_table"; the TN
 // batch's Darknut: enemy-mirror-tn.json R-1, go_changes; batch C's
 // Kargaroc and Magtail: enemy-mirror-batch-c.json "bb", "mt", go_changes;
-// the Magtail cut there and restored by enemy-mirror-batch-d.json G-D6):
-// one row per enemy class the mirror knows, Moblin, Bokoblin, ChuChu,
-// Keese, Armos Knight, Armos, Darknut, Kargaroc and Magtail.
+// the Magtail cut there and restored by enemy-mirror-batch-d.json G-D6;
+// wind#27's Stalfos, docs/design/enemy-rows-next.md): one row per enemy
+// class the mirror knows, Moblin, Bokoblin, ChuChu, Keese, Armos Knight,
+// Armos, Darknut, Kargaroc, Magtail and Stalfos.
 // The pipelines (host.go, client.go) walk, sample and match by it over the
 // kinds WW_ENEMY_MIRROR_KINDS enables (default DefaultMirrorKinds). The C copy of this table is
 // inject/include/wwenemy_kinds.h, pinned to this one and to wwapi/addr by
@@ -27,7 +28,7 @@ import (
 // KindID is a row of the table; its value is the kind's bit in a
 // kind_mask (design block_layout header +0x24: 0 MO2, 1 BK, 2 CC; the
 // allow batch's 3 KI, 4 AM, 5 AM2; the TN batch's 6 TN; batch C's 7 BB, 8
-// MT, wwenemy_kinds.h EMK_KIND_*). Ids 3..6 have the annex's HKDX hook
+// MT; wind#27's 9 ST, wwenemy_kinds.h EMK_KIND_*). Ids 3..6 have the annex's HKDX hook
 // bytes (+0x1FC..+0x1FF); layout 4 gives ids 7..14 the block's hook bytes
 // (mailbox.EnemyHkdHiOff) and ids 3..15 the knob table (batch C D2, D3).
 // A kind_mask is u16 on the wire and in the REL's cache: ids < 16.
@@ -42,7 +43,8 @@ const (
 	KindAM2 KindID = 5
 	KindTN  KindID = 6
 	KindBB  KindID = 7 // batch C, off by default (bb, bb+u)
-	KindMT  KindID = 8 // batch D (G-D6), off by default (mt+u only); the first cut (cut_order 1: the const stays, the row goes)
+	KindMT  KindID = 8 // batch D (G-D6), off by default (mt+u only); the first cut (cut_order 1: the const stays, the row becomes a zero row)
+	KindST  KindID = 9 // wind#27, off by default (st, st+u), intact phase only
 	// KindNone is no row.
 	KindNone KindID = 0xFF
 )
@@ -50,7 +52,7 @@ const (
 // Kind is one row.
 type Kind struct {
 	ID   KindID
-	Name string // the WW_ENEMY_MIRROR_KINDS token: "mo2", "bk", "cc", "ki", "am", "am2", "tn", "bb", "mt"
+	Name string // the WW_ENEMY_MIRROR_KINDS token: "mo2", "bk", "cc", "ki", "am", "am2", "tn", "bb", "mt", "st"
 	Proc uint16 // mProcName
 	// Arc is the archive name the class loads (and mObjectInfo stores);
 	// its BCK indices are BckFirst..BckLast; BckWait is the handback row
@@ -108,27 +110,35 @@ var Kinds = [...]Kind{
 	// Batch C "mt".row (MT-1), restored unchanged by batch D (G-D6; the
 	// REL's body is the retail body_control1/2, R-D6), the first cut: the
 	// gate byte is the mode; AngleY is shape_angle.y (the head yaw).
-	// Cutting it deletes this row and every MT case below, keeps the KindMT
-	// const, sets wwenemy_kinds.h EMK_WITH_MT 0 and EMK_KIND_COUNT 8, and
-	// re-pins KindHash (0x587E10C2 without the row).
+	// Cutting it replaces this row with the zero row `KindMT: {ID: KindMT}`
+	// (ST is id 9: wwenemy_kinds.h's EMK_KIND_COUNT stays 10, EM_KINDS[8]
+	// becomes a hole row; KindOf and KindByName skip a row with no proc or
+	// name), deletes every MT case below, keeps the KindMT const, sets
+	// EMK_WITH_MT 0 and re-pins KindHash.
 	KindMT: {ID: KindMT, Name: "mt", Proc: addr.ProcMT, Arc: addr.MtArc, BckFirst: addr.MtBckFirst, BckLast: addr.MtBckLast, BckWait: addr.MtBckWait,
 		MorfOff: addr.MtOffMorf, IceOff: addr.MtOffIce, GateOff: addr.MtOffMode, AngleOff: addr.ActorOffShapeAngleY},
+	// wind#27 (docs/design/enemy-rows-next.md ST §2 go_row): the gate byte
+	// is u8 mBehaviorType (the s16 mActionState is read by the REL's
+	// em_st_gate itself); AngleY is shape_angle.y (the REL adds the
+	// streamed m0304 to it, aux[0]).
+	KindST: {ID: KindST, Name: "st", Proc: addr.ProcST, Arc: addr.StArc, BckFirst: addr.StBckFirst, BckLast: addr.StBckLast, BckWait: addr.StBckWait,
+		MorfOff: addr.StOffMorf, IceOff: addr.StOffIce, GateOff: addr.StOffBehavior, AngleOff: addr.ActorOffShapeAngleY},
 }
 
 // KindOf returns the row of proc, KindNone when the table has none.
 func KindOf(proc uint16) KindID {
 	for i := range Kinds {
-		if Kinds[i].Proc == proc {
+		if Kinds[i].Proc == proc && proc != 0 { // a cut row's zero proc matches nothing
 			return Kinds[i].ID
 		}
 	}
 	return KindNone
 }
 
-// KindByName returns the row named name ("mo2", "bk", "cc", "ki", "am", "am2", "tn", "bb", "mt").
+// KindByName returns the row named name ("mo2", "bk", "cc", "ki", "am", "am2", "tn", "bb", "mt", "st").
 func KindByName(name string) (*Kind, bool) {
 	for i := range Kinds {
-		if Kinds[i].Name == name {
+		if Kinds[i].Name == name && name != "" { // a cut row has no name
 			return &Kinds[i], true
 		}
 	}
@@ -279,6 +289,9 @@ func ParseKinds(v string) (KindSet, error) {
 func kindNames() []string {
 	var out []string
 	for _, k := range Kinds {
+		if k.Name == "" {
+			continue
+		}
 		out = append(out, k.Name)
 	}
 	return out
@@ -349,6 +362,8 @@ type LiveGate struct {
 //     or BbTypeRiderBK (6) (batch C D9: a rider and the enemy it carries
 //     stay local on each game; d_a_bb.cpp:2739-2754), keyed or unkeyed.
 //   - MT: none (every DRC Magtail is unkeyed; the gate is the live mode).
+//   - ST: behaviour params & 0xF not 14, the split's upper half
+//     (StParamsOK; wind#27 design §3).
 func (k *Kind) ParamsOK(params uint32) bool {
 	switch k.ID {
 	case KindMO2:
@@ -371,6 +386,8 @@ func (k *Kind) ParamsOK(params uint32) bool {
 		return t != BbTypeRiderMO2 && t != BbTypeRiderBK
 	case KindMT:
 		return true
+	case KindST:
+		return StParamsOK(params)
 	}
 	return false
 }
@@ -473,6 +490,10 @@ func ccColorOK(c uint8) bool    { return c == 0 || c == 1 || c == 2 || c == 4 }
 //   - MT: MtLiveRefusal is "" (mt.go: mode MOVE, FIGHT or pinned, BALL
 //     being local custody; no appear wait, death or killed flag, light
 //     shrink or carry: em_mt_gate's terms).
+//   - ST: StLiveRefusal is "" (stalfos.go: no BOSS status, not behaviour
+//     14; the REL's em_st_gate also refuses a broken or deleting Stalfos
+//     and one whose mace is not carried yet, which the sampler streams as
+//     SlotHidden / SlotDying).
 //
 // The allow kinds' rules are the REL's em_validate (allow design R-8),
 // which refuses the same at adopt: an adopt gate only, so the host's walk
@@ -497,6 +518,8 @@ func (k *Kind) LiveOK(g LiveGate) bool {
 		return BbLiveRefusal(g) == ""
 	case KindMT:
 		return MtLiveRefusal(g) == ""
+	case KindST:
+		return StLiveRefusal(g) == ""
 	}
 	return false
 }
@@ -569,7 +592,7 @@ var (
 
 // bckNames is each row's names, by KindID.
 var bckNames = [len(Kinds)][]string{KindMO2: mo2BckNames, KindBK: bkBckNames, KindCC: ccBckNames, KindKI: kiBckNames, KindAM: amBckNames, KindAM2: am2BckNames,
-	KindTN: tnBckNames, KindBB: bbBckNames, KindMT: mtBckNames}
+	KindTN: tnBckNames, KindBB: bbBckNames, KindMT: mtBckNames, KindST: stBckNames}
 
 // BckName is the name of BCK idx in kind id's archive, "-" for none.
 func BckName(id KindID, idx uint8) string {
@@ -635,9 +658,10 @@ func MirrorKinds() (KindSet, error) {
 // death leaves nothing on the client). The allow kinds are listed too, and
 // the REL forces their quiet death whatever this says (allow design D2,
 // R-15: em_die would drop a duplicate item on the client); so is the
-// Darknut (TN design D1, forced quiet the same way), and batch C's
-// Kargaroc and Magtail (ids >= KI: forced quiet too).
-const DefaultQuietKinds = "mo2,bk,cc,ki,am,am2,tn,bb,mt"
+// Darknut (TN design D1, forced quiet the same way), batch C's Kargaroc
+// and Magtail and wind#27's Stalfos (ids >= KI: forced quiet too). Being
+// listed here mirrors nothing: WW_ENEMY_MIRROR_KINDS does.
+const DefaultQuietKinds = "mo2,bk,cc,ki,am,am2,tn,bb,mt,st"
 
 // ParseQuietKinds parses a WW_ENEMY_QUIET_DEATH value: kind names joined
 // by ","; "" is DefaultQuietKinds and "none" the empty set. A "+u" suffix
@@ -956,7 +980,9 @@ func OverridesFromEnv() (Overrides, error) { return ParseOverrides(os.Getenv("WW
 // allow design D11). 0 for a code the kind has no collider for. Batch C:
 // BB 0x6E8 head Tg sphere / 0x814 body Tg sphere; MT 0x17A8 eye / body
 // sphere 0 (0xE48; the REL's collider 2 is any of the 8, the host centres
-// it on sph[4]); HitMtKill (4) is a death report, no collider.
+// it on sph[4]); HitMtKill (4) is a death report, no collider. wind#27: ST
+// sphere 0 m054C[0] (0x54C) the head / sphere 1 (0x678; the REL's
+// collider 2 is any of spheres 1..6, readHit's stHitCollider finds which).
 func ColliderOff(id KindID, code uint8) uint32 {
 	t := [...][3]uint32{
 		KindMO2: {addr.Mo2OffHeadSph, addr.Mo2OffTgCyl, 0},
@@ -968,6 +994,7 @@ func ColliderOff(id KindID, code uint8) uint32 {
 		KindTN:  {addr.TnOffHeadSph, addr.TnOffTgCyl, 0},
 		KindBB:  {addr.BbOffHeadTgSph, addr.BbOffBodyTgSph, 0},
 		KindMT:  {addr.MtOffEyeSph, addr.MtOffBodySph, 0},
+		KindST:  {addr.StOffSph, addr.StOffSph + addr.StSphStride, 0},
 	}
 	if int(id) >= len(t) || code < HitHead || code > HitSpecial {
 		return 0
@@ -990,7 +1017,8 @@ const (
 // (d_a_mo2.h:42), TN mDisableSpawnOnDeathSwitch (d_a_tn.h:37; TN design
 // death_and_drops: only 0x80..0xFE reach it, 1..0x7F is BOSS and refused),
 // batch C's Magtail mDeathSwitch +0x2B9 (its enemy_ice death runs onSwitch
-// on it, C1-magtail.md). 0 for the ChuChu, which has none (design
+// on it, C1-magtail.md), wind#27's Stalfos mDeathSwitch +0x2B8 (d_a_st.h:53;
+// 1..0x7F is BOSS and refused, so only 0x80..0xFE reach it). 0 for the ChuChu, which has none (design
 // death_and_drops.quiet_steps), and for the Kargaroc (bb_class has none,
 // d_a_bb.h:13-108).
 func DeathSwitchOff(id KindID) uint32 {
@@ -1003,6 +1031,8 @@ func DeathSwitchOff(id KindID) uint32 {
 		return addr.TnOffDeathSwitch
 	case KindMT:
 		return addr.MtOffDeathSwitch
+	case KindST:
+		return addr.StOffDeathSwitch
 	}
 	return 0
 }

@@ -499,7 +499,12 @@ func (h *Host) Tick(now time.Time) (*State, error) {
 // it quietly (ids >= KI always die quietly in the REL). A listed
 // Kargaroc leaves the walk only so (liveSticky keeps it through a
 // knockback; its type and room never change).
-func vanishTomb(id KindID) bool { return id == KindBB }
+//
+// wind#27's Stalfos too: m02FA and a fall past home - 4000 delete it with
+// no streamed death (d_a_st.cpp:2513-2515), and a death whose DYING
+// samples (mCountdownToDeath's 5 executes) were missed vanishes the same
+// way; handed back, the client's copy would fight on alone.
+func vanishTomb(id KindID) bool { return id == KindBB || id == KindST }
 
 // wireSlot lays a kind sample out as e's wire slot: the kind, the host
 // actor's pkey, its handle and aux values (BK m48C.z and the jaw, CC
@@ -546,6 +551,8 @@ func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 //     dormant rule; a D_DOZOU statue is refused at adopt instead).
 //   - BB, MT: never (batch C: a perched Kargaroc and a Magtail on its
 //     patrol are the player's to approach).
+//   - ST: an ambush wait (0xF/0x10) before its trigger (m02C4 0), the
+//     sampler's rule (wind#27 design §3 WFlagDormant).
 //
 // An allow kind is never dormant while carried (an Armos statue stunned
 // in MAHI mode 12 gains ACTION_CARRY, not LOCKON, d_a_am2.cpp:669, and can
@@ -565,6 +572,8 @@ func dormant(id KindID, ks *KindSample, flags uint8) bool {
 		return false
 	case KindMT:
 		return false
+	case KindST:
+		return flags&SlotDying == 0 && ks.St.Dormant
 	}
 	return false
 }

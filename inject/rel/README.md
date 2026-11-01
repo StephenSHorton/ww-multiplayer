@@ -345,8 +345,9 @@ batch D's MT).
 
 **Batch D (`design/enemy-mirror-batch-d.json` R-D6, D8-D10; still layout
 4).** Magtail is kind 8 again (`EMK_KIND_COUNT` 9), all of it in `em_mt.c`
-under `EMK_WITH_MT` (the first cut: `EMK_WITH_MT 0` with `EMK_KIND_COUNT 8`
-compiles it out) plus one guarded dispatch line per call site in
+under `EMK_WITH_MT` (the first cut: `EMK_WITH_MT 0` compiles it out and,
+since the Stalfos row took id 9, leaves a hole row at 8 with
+`EMK_KIND_COUNT` 10) plus one guarded dispatch line per call site in
 `enemy_mirror.c`; Go sets kind bit 8 only for `mt+u` and a matching REL
 build id. Batch C's gate, hit forwarding (eye = collider 1, any body sphere
 = collider 2, a thrown Magtail dropped), custody BALL (collider code 4) and
@@ -368,6 +369,24 @@ and enters the nine itself. The two mode edges copy the ring into the
 chain (MOVE -> FIGHT) or reseed the ring from it (back to MOVE), as the
 retail latch paths do. A dying copy calls nothing and shrinks through its
 segment models' base scale.
+
+**Stalfos (wind#27, `docs/design/enemy-rows-next.md` "Enemy mirror row: ST
+Stalfos"; still layout 4).** Kind 9 (`EMK_KIND_COUNT` 10 whatever
+`EMK_WITH_MT` says), intact phase only, off by default (`st`, `st+u`).
+`em_st_gate` refuses BOSS, behaviour 14, an `mActionState` other than 0, 5,
+0xF or 0x10, a split, nunchaku, detached head or missing part, a pending
+self-delete and a mace not yet carried (`m1DD0` 10). The matrix is
+`EMK_MTX_PLAIN`'s ST case, T(cur) * Ry(shape.y + `m0304`, the annex's
+aux[0]) with no Rx/Rz, plus `setBaseScale`; after calc `em_st_attach` puts
+the 23 drawn part models on their joints, the eye and attention on the
+head joint, and the mace in the hand (BK's Ry(16000) * T(0, 0, 65)), or at
+(20000, 20000, 20000) while the host is hidden. `EMK_COLL_ST` Sets the 7
+spheres at their joints (R 45 head, 25 body); sphere 0 is collider 1, any
+of 1..6 collider 2. The copy's `m02B9` is its hide byte (0 shown, 1
+hidden), its own adopt-time byte restored at handback while it was never
+shown (it resumes its ambush wait), else jyunkai with `m02B9` 0. The
+quiet death puts the mace down at the copy's position and lets it go. No
+hair (`mTimers[2]` = 1), no hit shake, no head-only phase.
 
 Game functions called, all through absolute function-pointer casts
 (`config/GZLE01/symbols.txt`): `fopAcM_SearchByID` 0x800241C0,

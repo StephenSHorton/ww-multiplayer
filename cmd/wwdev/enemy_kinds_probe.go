@@ -177,8 +177,26 @@ func liveGateText(e *enemysync.Enemy) string {
 		g := &e.Live
 		return fmt.Sprintf("mt_mode=%s mt_appear=%d mt_death=%d mt_killed=%d mt_ice=%d mt_live=%s", mode, g.MtAppear, g.MtDeath, g.MtKilled, g.MtIce,
 			okText(enemysync.MtLiveRefusal(*g)))
+	case enemysync.KindST:
+		if !e.LiveSpanOK {
+			return fmt.Sprintf("st_behavior=%s st_boss=- st_live=-", mode)
+		}
+		boss := 0
+		if e.Live.Boss {
+			boss = 1
+		}
+		return fmt.Sprintf("st_behavior=%s st_boss=%d st_live=%s", mode, boss, okText(enemysync.StLiveRefusal(e.Live)))
 	}
 	return ""
+}
+
+// stExtra is a Stalfos sample's own fields (wind#27, design §3): the
+// intact-phase terms behind HIDDEN and DYING, the mace and the spin yaw.
+func stExtra(s *enemysync.KindSample) string {
+	st := &s.Stalfos
+	return fmt.Sprintf("behavior %d dsw 0x%02X m02b9 0x%02X action 0x%X m02c4 %d invuln %d m0304 %d hair %d parts 0x%02X head %d nun %d head_off %d mace %d boko %d upper 0x%X shake %d body_hp %d countdown %d m02fa %d shape %d/%d/%d",
+		st.Behavior, st.DeathSwitch, st.DrawGate, st.Action, st.M02C4, st.Invuln, st.M0304, st.HairTimer, st.PartsLeft, st.HeadState, st.Nunchaku,
+		st.HeadOff, st.Mace, st.BokoPID, st.UpperPID, st.Shake, st.BodyHP, st.DeathWait, st.M02FA, s.St.ShapeAngle[0], s.St.ShapeAngle[1], s.St.ShapeAngle[2])
 }
 
 // okText is a refusal, "ok" for none.
@@ -490,6 +508,8 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 					if extra, err = mtExtra(m, e, &s); err != nil {
 						return err
 					}
+				} else if id == enemysync.KindST {
+					extra = stExtra(&s)
 				} else if id == enemysync.KindBK {
 					b, err := readBoko(m, byPID, s.BokoPID)
 					if err != nil {
@@ -554,6 +574,8 @@ func kindFlag2Names(id enemysync.KindID, f uint8) string {
 		names = []nb{{enemysync.BbF2Attn, "ATTN"}}
 	case enemysync.KindMT:
 		names = []nb{{1, "PHASE1"}, {2, "PHASE2"}, {enemysync.MtF2Shield, "SHIELD"}, {enemysync.MtF2Dive, "DIVE"}, {enemysync.MtF2Attn, "ATTN"}}
+	case enemysync.KindST:
+		names = []nb{{enemysync.StF2HasWeapon, "WEAPON"}, {enemysync.StF2Attn, "ATTN"}}
 	}
 	names = append(names, nb{enemysync.KindF2Light, "LIGHT"})
 	return bitNames(f, names)
