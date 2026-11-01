@@ -122,7 +122,8 @@ func TestParseRefresh(t *testing.T) {
 		dry   bool
 		err   bool
 	}{
-		{"", nil, false, false},
+		{"", []uint16{mailbox.RefreshProcTbox, mailbox.RefreshProcLeaves, mailbox.RefreshProcSaku, mailbox.RefreshProcKokiie, mailbox.RefreshProcStone2, mailbox.RefreshProcItem}, false, false}, // RefreshDefault
+		{" NONE ", nil, false, false},
 		{"none", nil, false, false},
 		{RefreshTokens, all, false, false},
 		{"stone2,leaves,item,tbox,saku", []uint16{mailbox.RefreshProcStone2, mailbox.RefreshProcLeaves, mailbox.RefreshProcItem, mailbox.RefreshProcTbox, mailbox.RefreshProcSaku}, false, false},
@@ -466,16 +467,27 @@ func TestRefreshRelayNoREL(t *testing.T) {
 // proc's token, asks nothing however the bit landed; its dry token logs
 // one line per candidate and writes nothing.
 func TestRefreshRelayOff(t *testing.T) {
-	for _, tokens := range []string{"", "none", "leaves,item,tbox,saku"} {
+	for _, tokens := range []string{"none", " NONE ", "leaves,item,tbox,saku"} {
 		rr := newRelayRig(t, tokens, -1, true, refreshStone2())
 		rr.landSwitch(refreshSw)
 		rr.ticks(4)
 		if s := rr.request().Seq; s != 0 {
 			t.Fatalf("%q: a request: seq %d", tokens, s)
 		}
-		if st := rr.r.Status(); st.Writes.Refreshes != 0 || (tokens == "" && st.Refresh.Actors.On != "") {
+		if st := rr.r.Status(); st.Writes.Refreshes != 0 || (strings.EqualFold(strings.TrimSpace(tokens), "none") && st.Refresh.Actors.On != "") {
 			t.Fatalf("%q: status %+v", tokens, st.Refresh.Actors)
 		}
+	}
+	// "" is RefreshDefault, which names stone2: the boulder is asked about,
+	// and /status names the default's tokens.
+	rr0 := newRelayRig(t, "", -1, true, refreshStone2())
+	rr0.landSwitch(refreshSw)
+	rr0.ticks(4)
+	if s := rr0.request().Seq; s == 0 {
+		t.Fatalf("\"\" (RefreshDefault) asked nothing:\n%s", rr0.log)
+	}
+	if on := rr0.r.Status().Refresh.Actors.On; on != RefreshDefault {
+		t.Fatalf("\"\": status On %q, want %q", on, RefreshDefault)
 	}
 	rr := newRelayRig(t, "stone2,dry", -1, true, refreshStone2())
 	rr.landSwitch(refreshSw)

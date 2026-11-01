@@ -154,7 +154,7 @@ go build -o wwdev.exe ./cmd/wwdev
 #   of unkeyed enemies, M6.1, docs/08 §7.2a: a partner's kill of an unkeyed placed enemy light-shrinks one live instance in
 #   the other game while both are in the room; needs combat; docs/TESTING.md P1-P8; a joiner may not name it), and
 #   --coop-refresh=stone2,leaves,item,tbox,saku,wall,floor,ice,mjdoor,mkie,mkiek,mknjd,vfan,swhit0,warpt,mflft,kokiie,vmc[,dry]|none
-#   turns on actor_refresh (default off: nothing asked), which asks the REL to bring up to date an actor this game placed before the
+#   picks actor_refresh's tokens (default tbox,leaves,saku,kokiie,stone2,item, replica.RefreshDefault; none = off), which asks the REL to bring up to date an actor this game placed before the
 #   partner's bit landed (mods/coop/replica refresh_relay.go): delete a boulder, bush, pickup, barricade, wall, floor, ice block or
 #   statue, or delete and re-create in its set state a chest, crystal switch, warp jar, flame lift, flower house or soil mound
 #   (review idea 11; door10/door12 are refused until the ST1 key-door check). dry logs one line per candidate and writes nothing.

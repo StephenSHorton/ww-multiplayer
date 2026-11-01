@@ -118,7 +118,7 @@ type Coop struct {
 	ISO             string `json:"iso,omitempty"`
 	// BossKill and Refresh are the save-file panel's relay choices, each
 	// side's own (host or joiner): --coop-boss-kill ("" for its default,
-	// gohma,kalle,gohdan,molgera,jalhalla,helmaroc) and --coop-refresh ("" for off).
+	// gohma,kalle,gohdan,molgera,jalhalla,helmaroc) and --coop-refresh ("" for its default, replica.RefreshDefault; "none" for off).
 	BossKill string `json:"bossKill,omitempty"`
 	Refresh  string `json:"refresh,omitempty"`
 	// SharesOff is what the host last turned off of what co-op shares

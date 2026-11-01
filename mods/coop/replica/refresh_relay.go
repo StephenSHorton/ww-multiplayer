@@ -172,14 +172,24 @@ type refreshSet struct {
 // on reports whether the set asks about some proc.
 func (s refreshSet) on() bool { return len(s.procs) > 0 }
 
+// RefreshDefault is the --coop-refresh token set when none is given: the
+// tokens with a two-Dolphin pass over Go on REL 0x1CE30685 (docs/TESTING.md
+// RC-2, "Two-Dolphin refresh", RC-10; docs/live/wind19-recreate-2026-11-01-c.md),
+// chosen by the owner on wind#19 (2026-11-01).
+const RefreshDefault = "tbox,leaves,saku,kokiie,stone2,item"
+
 // ParseRefresh parses a --coop-refresh token set: refreshProcs' keys
-// joined by ",", with "dry" to log the candidates only; "" or "none" is
-// none (the default). "dry" alone is an error: it names no proc, so the
+// joined by ",", with "dry" to log the candidates only; "none" is none,
+// "" is RefreshDefault. "dry" alone is an error: it names no proc, so the
 // relay would stay off and log nothing, which reads as no candidates.
 func ParseRefresh(v string) (refreshSet, error) {
 	s := refreshSet{procs: map[uint16]bool{}}
-	if t := strings.TrimSpace(v); t == "" || strings.EqualFold(t, "none") {
+	t := strings.TrimSpace(v)
+	if strings.EqualFold(t, "none") {
 		return s, nil
+	}
+	if t == "" {
+		v = RefreshDefault
 	}
 	for tok := range strings.SplitSeq(v, ",") {
 		tok = strings.ToLower(strings.TrimSpace(tok))
@@ -870,6 +880,9 @@ func (r *Replica) actorRefreshStatus() ActorRefreshStatus {
 	st := r.ar.stats
 	if r.rfOn.on() {
 		st.On, st.Dry = strings.TrimSpace(r.cfg.Refresh), r.rfOn.dry
+		if st.On == "" {
+			st.On = RefreshDefault
+		}
 	}
 	st.Candidates, st.Held, st.LastHeld = len(r.ar.cands), len(r.ar.held), r.ar.last
 	return st
