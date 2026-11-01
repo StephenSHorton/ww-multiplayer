@@ -52,7 +52,7 @@ var knownStages = map[string]knownStage{
 	"majyue": {"Forsaken Fortress", sqFF}, "majroom": {"Forsaken Fortress", sqFF}, "ma2room": {"Forsaken Fortress", sqFF},
 	"ma3room": {"Forsaken Fortress", sqFF}, "mjtower": {"Forsaken Fortress", sqFF}, "m2tower": {"Forsaken Fortress", sqFF},
 	"m2ganon": {"Forsaken Fortress", sqFF},
-	"hyrule": {"Hyrule Castle", sqTower}, "hyroom": {"Hyrule Castle", sqTower}, "kenroom": {"Master Sword chamber", sqTower},
+	"hyrule":  {"Hyrule Castle", sqTower}, "hyroom": {"Hyrule Castle", sqTower}, "kenroom": {"Master Sword chamber", sqTower},
 	"gtower": {"Ganon's Tower", sqTower}, "ganona": {"Ganon's Tower", sqTower}, "ganonb": {"Ganon's Tower", sqTower},
 	"ganonc": {"Ganon's Tower", sqTower}, "ganond": {"Ganon's Tower", sqTower}, "ganone": {"Ganon's Tower", sqTower},
 	"ganonj": {"Ganon's Tower", sqTower}, "ganonk": {"Ganon's Tower", sqTower}, "ganonl": {"Ganon's Tower", sqTower},
