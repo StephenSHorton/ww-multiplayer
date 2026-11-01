@@ -55,8 +55,12 @@ func runAutoRecapture(outPath string) {
 	rep := log.Stdout{}
 	refuseDevLogEarly(rep)
 
+	if runtime.GOOS == "darwin" {
+		runAutoRecaptureMac(outPath)
+		return
+	}
 	if runtime.GOOS != "windows" {
-		log.Logf(rep, log.Err, "auto-recapture requires Windows (Shift+F1 send uses PostMessageW); got %s", runtime.GOOS)
+		log.Logf(rep, log.Err, "auto-recapture requires Windows or macOS (Shift+F1 send); got %s", runtime.GOOS)
 		os.Exit(1)
 	}
 
@@ -213,7 +217,12 @@ func killAllDolphins() error {
 // runAutoRecapture short-circuits before reaching it anyway).
 func killProcess(pid uint32) error {
 	if runtime.GOOS != "windows" {
-		return fmt.Errorf("killProcess: not implemented on %s", runtime.GOOS)
+		// One process by its PID, never by command line (macOS rig).
+		p, err := os.FindProcess(int(pid))
+		if err != nil {
+			return err
+		}
+		return p.Kill()
 	}
 	cmd := exec.Command("taskkill", "/F", "/PID", fmt.Sprintf("%d", pid))
 	return cmd.Run()
