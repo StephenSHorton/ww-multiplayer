@@ -142,6 +142,7 @@ func (w *FrameWriter) ApplyChests(ctx context.Context, plan ChestPlan) (res Ches
 		return res, err
 	case errors.Is(err, ErrAborted):
 		w.stats.Aborted++
+		w.wg.Close(err.Error())
 		return res, err
 	case err != nil:
 		return res, err

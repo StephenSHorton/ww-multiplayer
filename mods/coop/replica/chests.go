@@ -2,6 +2,7 @@ package replica
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"time"
@@ -213,8 +214,11 @@ func distXZ(link, p [3]float32) float64 {
 type ChestPlan struct {
 	Hold    []ChestActor
 	Restore []ChestActor
-	// Consumed are the keys whose restore is refused (the hub said so).
+	// Consumed are the keys whose restore is refused: the hub said so,
+	// or the world or this game has the chest's bit.
 	Consumed map[ChestKey]bool
+	// Why says why each restore is made, by pid, for the log.
+	Why map[uint32]string
 }
 
 func (p *ChestPlan) empty() bool { return p == nil || len(p.Hold)+len(p.Restore) == 0 }
@@ -278,49 +282,75 @@ type chestInput struct {
 	room    int8
 	chests  []ChestActor
 	bits    uint32 // the live memBit's mTbox
+	world   uint32 // the loaded table's mTbox in the world image (r.view)
 }
 
+// Why a held chest is restored, for the log.
+const (
+	whyGranted  = "the host granted it"
+	whyNoScope  = "no partner in scope"
+	whyNotArmed = "co-op is not armed here (the host gone, co-op off, or another file)"
+	whyCoopOff  = "co-op was turned off"
+)
+
 // decide plans one tick's holds, restores and CLAIM messages. s is
-// updated (asks, releases, forgotten holds).
+// updated (asks, releases, the held set).
+//
+// What is held is read from memory, not from a record: vanilla puts a
+// chest in actionWait only with its bit set (after CreateInit's checkOpen,
+// d_a_tbox.cpp:454-457, or at the end of the open demo, :913-916, whose
+// OpenInit_com set the bit, :851-859), so a chest in actionWait whose live
+// bit reads clear is a hold, this process's or an earlier one's. A hold
+// write or a restore that did not land is so seen again next tick.
 func (s *chestState) decide(in chestInput, send func(*wire.Claim)) *ChestPlan {
 	s.init()
-	plan := &ChestPlan{Consumed: map[ChestKey]bool{}}
+	plan := &ChestPlan{Consumed: map[ChestKey]bool{}, Why: map[uint32]string{}}
 	for k := range s.consumed {
 		plan.Consumed[k] = true
+	}
+	restore := func(c ChestActor, why string) {
+		plan.Restore = append(plan.Restore, c)
+		plan.Why[c.PID] = why
 	}
 	seen := map[uint32]bool{}
 	for _, c := range in.chests {
 		seen[c.PID] = true
-		rec, ours := s.held[c.PID]
-		ours = ours && rec.same(c)
-		if !ours {
+		live := in.bits&(1<<c.Key.No) != 0
+		opened := live || in.world&(1<<c.Key.No) != 0
+		holding := c.Word == c.Wait() && !live
+		if holding {
+			s.held[c.PID] = c
+		} else {
 			delete(s.held, c.PID)
 		}
-		opened := in.bits&(1<<c.Key.No) != 0
 		d := distXZ(in.link, c.Pos)
 		switch {
 		case opened || s.consumed[c.Key]:
-			// Never restore. A chest still in actionOpenWait with its
-			// bit set is stale (its create would have stood it open,
-			// CreateInit's checkOpen, d_a_tbox.cpp:454-457): hold it,
+			// Never restore. A chest still in actionOpenWait whose bit
+			// the world or this game has is stale (its create would
+			// have stood it open, CreateInit's checkOpen): hold it,
 			// partner in scope or not, so its prompt can't pay the item
-			// twice. One the hub says is consumed but whose bit has not
-			// landed here yet is held only with the partner in scope.
+			// twice. The hub's CONSUMED counts the same.
+			plan.Consumed[c.Key] = true
 			delete(s.granted, c.Key)
-			if !ours && in.on && (opened || in.scope) && s.canHold(c, in, d) {
+			if !holding && in.on && s.canHold(c, in, d) {
 				plan.Hold = append(plan.Hold, c)
 			}
 		case !in.on || !in.scope:
-			if ours && c.Word == c.Wait() {
-				plan.Restore = append(plan.Restore, c)
+			if holding {
+				if in.on {
+					restore(c, whyNoScope)
+				} else {
+					restore(c, whyNotArmed)
+				}
 			}
 			if s.granted[c.Key] && in.on {
 				send(&wire.Claim{Op: wire.ClaimRelease, Table: c.Key.Table, No: c.Key.No, Room: in.room})
 			}
 			delete(s.granted, c.Key)
 		case s.granted[c.Key]:
-			if ours && c.Word == c.Wait() {
-				plan.Restore = append(plan.Restore, c)
+			if holding {
+				restore(c, whyGranted)
 			}
 			if in.linkOK && d > ChestReleaseRange {
 				if t, ok := s.farSince[c.Key]; !ok {
@@ -335,7 +365,7 @@ func (s *chestState) decide(in chestInput, send func(*wire.Claim)) *ChestPlan {
 			delete(s.farSince, c.Key)
 			s.ask(c.Key, in, d, send)
 		default:
-			if ours {
+			if holding {
 				s.ask(c.Key, in, d, send)
 				break
 			}
@@ -368,6 +398,24 @@ func (s *chestState) ask(k ChestKey, in chestInput, d float64, send func(*wire.C
 	s.askedAt[k] = in.now
 	s.stats.Asked++
 	send(&wire.Claim{Op: wire.ClaimAsk, Table: k.Table, No: k.No, Room: in.room})
+}
+
+// onClaim logs and takes the hub's verdict. r.mu is held.
+func (r *Replica) onChestClaim(m *wire.Claim) {
+	k := ChestKey{Table: m.Table, No: m.No}
+	switch m.Op {
+	case wire.ClaimGrant:
+		if !r.ch.granted[k] {
+			r.logf("co-op: chest claims: the host granted %s", k)
+		}
+	case wire.ClaimDeny:
+		r.logf("co-op: chest claims: the host denied %s: the partner holds it", k)
+	case wire.ClaimConsumed:
+		if !r.ch.consumed[k] {
+			r.logf("co-op: chest claims: the host says %s is consumed: it stays closed here until its room reloads", k)
+		}
+	}
+	r.ch.onClaim(m)
 }
 
 // onClaim takes the hub's verdict. r.mu is held.
@@ -431,6 +479,10 @@ func (r *Replica) reconcileChests(o *obs, armed bool, out *outbox) {
 		return
 	}
 	in := chestInput{on: on, now: r.now(), room: int8(s.StayNo), chests: chests, bits: bits}
+	if r.haveView && r.viewWorld == r.sessionWorld && s.Table >= 0 && int(s.Table) < addr.TableCount {
+		off := addr.OffMemBit(int(s.Table)) + addr.MemBitOffTbox
+		in.world = binary.BigEndian.Uint32(r.view[off : off+4])
+	}
 	in.scope = on && partnerInScope(r.presence, r.partner)
 	if p, err := linkpos.NewLink(r.m).Position(); err == nil {
 		in.link, in.linkOK = [3]float32{p.PosX, p.PosY, p.PosZ}, true
@@ -470,12 +522,16 @@ func (r *Replica) applyChests(ctx context.Context, p *ChestPlan, rep *Report) {
 	for _, c := range res.Held {
 		cs.held[c.PID] = c
 		cs.stats.Holds++
-		r.logf("co-op: chest claims: held %s (a partner is in scope: no prompt until the host grants it)", c)
+		r.logf("co-op: chest claims: held %s: no prompt until the host grants it (or for good, once opened)", c)
 	}
 	for _, c := range res.Restored {
 		delete(cs.held, c.PID)
 		cs.stats.Restores++
-		r.logf("co-op: chest claims: restored %s", c)
+		why := p.Why[c.PID]
+		if why == "" {
+			why = "its hold ended"
+		}
+		r.logf("co-op: chest claims: restored %s: %s", c, why)
 	}
 	for _, w := range res.Skipped {
 		cs.stats.LastWhy = w
@@ -486,10 +542,19 @@ func (r *Replica) applyChests(ctx context.Context, p *ChestPlan, rep *Report) {
 // turned off, the session ending), waiting at most d. It takes r.mu.
 func (r *Replica) releaseChests(d time.Duration) {
 	r.mu.Lock()
-	var p ChestPlan
+	p := ChestPlan{Why: map[uint32]string{}}
+	var world uint32
+	if t := r.last; t != nil && t.s != nil && r.haveView && t.s.Table >= 0 && int(t.s.Table) < addr.TableCount {
+		off := addr.OffMemBit(int(t.s.Table)) + addr.MemBitOffTbox
+		world = binary.BigEndian.Uint32(r.view[off : off+4])
+	}
 	for _, c := range r.ch.held {
+		if world&(1<<c.Key.No) != 0 {
+			continue // the world has it: never restored
+		}
 		c.Word = c.Wait()
 		p.Restore = append(p.Restore, c)
+		p.Why[c.PID] = whyCoopOff
 	}
 	p.Consumed = map[ChestKey]bool{}
 	for k := range r.ch.consumed {

@@ -1120,7 +1120,8 @@ func (r *Replica) handle(m wire.Msg, out *outbox) {
 	case *wire.Ctrl:
 		r.onCtrl(m, out)
 	case *wire.Claim:
-		r.ch.onClaim(m)
+		r.ch.init()
+		r.onChestClaim(m)
 	}
 }
 

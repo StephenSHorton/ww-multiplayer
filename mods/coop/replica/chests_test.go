@@ -121,8 +121,7 @@ func TestChestDenyConsumed(t *testing.T) {
 }
 
 // TestChestFailOpen: out of scope or off, our holds are restored; a
-// vanilla open chest (actionWait, not ours) never is; a chest whose bit
-// reads set is never restored.
+// vanilla open chest (actionWait with its bit set) never is.
 func TestChestFailOpen(t *testing.T) {
 	t0 := time.Unix(1_800_000_000, 0)
 	ours, open, opened := testChest(12, 1, 1000), held(testChest(13, 2, 1000)), testChest(14, 3, 1000)
@@ -135,12 +134,50 @@ func TestChestFailOpen(t *testing.T) {
 		s.held[ours.PID] = held(ours)
 		s.held[opened.PID] = held(opened)
 		in.chests = []ChestActor{held(ours), open, held(opened)}
-		in.bits = 1 << 3
+		in.bits = 1<<2 | 1<<3 // a vanilla open chest has its bit set (d_a_tbox.cpp:454-457, :913-916)
 		var out sent
 		p := s.decide(in, out.send)
 		if len(p.Restore) != 1 || p.Restore[0].PID != ours.PID || len(p.Hold) != 0 {
 			t.Errorf("on %v scope %v: restores %v holds %v, want only pid %d restored", in.on, in.scope, pids(p.Restore), pids(p.Hold), ours.PID)
 		}
+	}
+}
+
+// TestChestFromMemory: a hold is read from the word, not a record: a
+// record whose write did not land is held again; a hold with no record
+// (an earlier process's) is restored out of scope; a chest the world has
+// opened, held here, is never restored; a consumed chest out of scope is
+// held.
+func TestChestFromMemory(t *testing.T) {
+	t0 := time.Unix(1_800_000_000, 0)
+	var s chestState
+	s.init()
+	lost := testChest(40, 1, 1000)
+	s.held[lost.PID] = held(lost) // the record says held; memory says not
+	var out sent
+	if p := s.decide(chestIn(t0, lost), out.send); len(p.Hold) != 1 {
+		t.Errorf("a lost hold: holds %v, want [%d]", pids(p.Hold), lost.PID)
+	}
+	orphan := held(testChest(41, 2, 1000))
+	in := chestIn(t0, orphan)
+	in.scope = false
+	if p := s.decide(in, out.send); len(p.Restore) != 1 || p.Why[orphan.PID] != whyNoScope {
+		t.Errorf("an orphan hold out of scope: restores %v why %q", pids(p.Restore), p.Why[orphan.PID])
+	}
+	inWorld := held(testChest(42, 3, 1000))
+	in = chestIn(t0, inWorld)
+	in.scope, in.world = false, 1<<3
+	if p := s.decide(in, out.send); len(p.Restore) != 0 || !p.Consumed[inWorld.Key] {
+		t.Errorf("a hold the world has opened: restores %v consumed %v", pids(p.Restore), p.Consumed)
+	}
+	var s2 chestState
+	s2.init()
+	s2.consumed[ChestKey{Table: 3, No: 4}] = true
+	c := testChest(43, 4, 1000)
+	in = chestIn(t0, c)
+	in.scope = false
+	if p := s2.decide(in, out.send); len(p.Hold) != 1 {
+		t.Errorf("consumed, out of scope: holds %v, want [%d]", pids(p.Hold), c.PID)
 	}
 }
 
