@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 )
 
 // Disc-image formats Dolphin can play but the patcher can't edit. Users
@@ -34,9 +35,28 @@ func (e *UnsupportedFormatError) Error() string {
 		return "iso: this is an NKit image, which is not a full disc image. " +
 			"Convert it back to a full ISO with the NKit tool that made it (or re-dump your disc), then patch that"
 	}
-	return fmt.Sprintf("iso: this is a compressed %s image, not a plain ISO. "+
-		"In Dolphin, right-click the game > Convert File... > Format: ISO "+
-		"(Remove Junk Data on or off is fine), then patch the .iso it writes", e.Format)
+	return fmt.Sprintf("iso: this is a compressed %s image, not a plain ISO. %s", e.Format, ConvertSteps(hostOS))
+}
+
+// hostOS is runtime.GOOS; tests set it to word another system's advice.
+var hostOS = runtime.GOOS
+
+// ConvertSteps is how to turn an RVZ, WIA or GCZ image into an ISO by
+// hand in Dolphin on goos (a GOOS value), one sentence with no final full
+// stop. Dolphin for macOS ships without DolphinTool (2603 and 2609a's
+// universal .dmg hold only Dolphin.app with Dolphin in Contents/MacOS;
+// Source/Core/DolphinTool/CMakeLists.txt makes no bundle), so there the
+// player must convert in Dolphin; the steps say so and use the Mac's
+// Control-click.
+func ConvertSteps(goos string) string {
+	if goos == "darwin" {
+		return "Dolphin for macOS comes without DolphinTool, so convert it in Dolphin: " +
+			"Control-click (or right-click) the game in Dolphin's game list > Convert File... > Format: ISO > Convert... " +
+			"(Remove Junk Data on or off is fine; if the game isn't in the list, add its folder in Dolphin's settings under Paths), " +
+			"then patch the .iso it writes"
+	}
+	return "In Dolphin, right-click the game > Convert File... > Format: ISO " +
+		"(Remove Junk Data on or off is fine), then patch the .iso it writes"
 }
 
 // detectUnsupportedFormat returns an *UnsupportedFormatError if b starts
