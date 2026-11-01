@@ -377,7 +377,12 @@ func (s *chestState) decide(in chestInput, send func(*wire.Claim)) *ChestPlan {
 				break
 			}
 			delete(s.farSince, c.Key)
-			s.ask(c.Key, in, d, send)
+			// A granted chest is renewed whatever the distance until it
+			// is released: a lease left to expire is granted to the
+			// partner, and then both games would offer the prompt (live
+			// 2026-11-01: the grantee stood 464 units off, past
+			// ChestClaimRange, and stopped renewing).
+			s.renew(c.Key, in, send)
 		default:
 			if holding {
 				s.ask(c.Key, in, d, send)
@@ -399,6 +404,15 @@ func (s *chestState) decide(in chestInput, send func(*wire.Claim)) *ChestPlan {
 // canHold is the hold gates the tick's reads answer.
 func (s *chestState) canHold(c ChestActor, in chestInput, d float64) bool {
 	return in.idle && c.Word == c.OpenWait() && !c.Busy() && in.linkOK && d > ChestHoldFar && !in.ordered
+}
+
+// renew sends CLAIM for a granted k at most every ChestAskEvery.
+func (s *chestState) renew(k ChestKey, in chestInput, send func(*wire.Claim)) {
+	if t, ok := s.askedAt[k]; ok && in.now.Sub(t) < ChestAskEvery {
+		return
+	}
+	s.askedAt[k] = in.now
+	send(&wire.Claim{Op: wire.ClaimAsk, Table: k.Table, No: k.No, Room: in.room})
 }
 
 // ask sends CLAIM for k when Link is in range, at most every ChestAskEvery.

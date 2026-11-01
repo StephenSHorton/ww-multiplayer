@@ -104,6 +104,7 @@ func TestClaimExpiry(t *testing.T) {
 	oneVerdict(t, "bob before expiry", r.exchange(bob, claim(wire.ClaimAsk, 3, 2)), wire.ClaimDeny)
 	set(2 * time.Second)
 	oneVerdict(t, "bob after expiry", r.exchange(bob, claim(wire.ClaimAsk, 3, 2)), wire.ClaimGrant)
+	oneVerdict(t, "alice told on expiry", alice.take(t), wire.ClaimDeny)
 	oneVerdict(t, "alice now", r.exchange(alice, claim(wire.ClaimAsk, 3, 2)), wire.ClaimDeny)
 }
 

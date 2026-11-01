@@ -78,6 +78,15 @@ func TestChestCycle(t *testing.T) {
 		t.Fatalf("granted: restores %v, want [%d]", pids(p.Restore), c.PID)
 	}
 	delete(s.held, c.PID) // restored
+	// Granted, Link between ChestClaimRange and ChestReleaseRange: the
+	// lease is still renewed.
+	mid := c
+	mid.Pos[0] = (ChestClaimRange + ChestReleaseRange) / 2
+	out = nil
+	s.decide(chestIn(t0.Add(3*time.Second), mid), out.send)
+	if len(out) != 1 || out[0].Op != wire.ClaimAsk {
+		t.Fatalf("granted, out of claim range: sent %v, want a renewal", out.ops())
+	}
 	// Walk away: released after ChestReleaseAfter past ChestReleaseRange.
 	gone := c
 	gone.Pos[0] = ChestReleaseRange + 100
