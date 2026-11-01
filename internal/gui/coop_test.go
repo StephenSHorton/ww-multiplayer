@@ -156,8 +156,8 @@ func TestCoopRelays(t *testing.T) {
 		want string
 	}{
 		{CoopRelays{BossKill: "gohma,ganon"}, `--coop-boss-kill: "ganon" is no boss (say gohma,kalle,gohdan,molgera,jalhalla,helmaroc, or none)`},
-		{CoopRelays{Refresh: "tbox,pots"}, `--coop-refresh: "pots" is no refresh token (say `+replica.RefreshTokens+`, dry, or none)`},
-		{CoopRelays{Refresh: "dry"}, `--coop-refresh: dry names no proc: add the ones to log (`+replica.RefreshTokens+`), e.g. `+replica.RefreshTokens+`,dry`},
+		{CoopRelays{Refresh: "tbox,pots"}, `--coop-refresh: "pots" is no refresh token (say ` + replica.RefreshTokens + `, dry, or none)`},
+		{CoopRelays{Refresh: "dry"}, `--coop-refresh: dry names no proc: add the ones to log (` + replica.RefreshTokens + `), e.g. ` + replica.RefreshTokens + `,dry`},
 	} {
 		b, _, path := newCoopBridge(t)
 		if err := b.SetCoopRelays(bad.r); err == nil || err.Error() != bad.want {
