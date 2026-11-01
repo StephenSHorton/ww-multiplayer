@@ -230,6 +230,35 @@ function chip(text, cls = "", title = "") {
 // The area chip's words (MemberView.area: from the pose positions).
 const AREAS = { near: "Same area", far: "Far away" };
 
+// A quarter-heart count as hearts: 18 -> "4½".
+function hearts(q) {
+	const w = Math.floor(q / 4), r = q % 4;
+	return (w || !r ? String(w) : "") + ["", "¼", "½", "¾"][r];
+}
+
+// A member's hearts, magic and rupees in game (MemberView.vitals,
+// wind#55): bars drawn in CSS, no game textures. Low is a heart or less.
+function vitalsRow(v) {
+	if (!v || !(v.maxLife > 0)) return null;
+	const bar = (cls, val, max, label) => el("span", {
+		class: "vbar " + cls, role: "meter", "aria-label": label,
+		"aria-valuemin": 0, "aria-valuemax": max, "aria-valuenow": val,
+		style: "--p:" + Math.round((100 * Math.min(val, max)) / max) + "%",
+	});
+	const low = v.life <= 4;
+	return el("span", { class: "vitals" + (low ? " low" : "") },
+		el("span", { class: "vstat life", title: hearts(v.life) + " of " + hearts(v.maxLife) + " hearts" + (low ? ": low" : "") },
+			el("i", { class: "heart", "aria-hidden": "true" }, "♥"), bar("life", v.life, v.maxLife, "Hearts"),
+			el("b", {}, hearts(v.life) + " / " + hearts(v.maxLife))),
+		v.maxMagic > 0
+			? el("span", { class: "vstat magic", title: v.magic + " of " + v.maxMagic + " magic" },
+				bar("magic", v.magic, v.maxMagic, "Magic"), el("b", {}, v.magic + " / " + v.maxMagic))
+			: null,
+		el("span", { class: "vstat rupees", title: v.rupees + (v.rupees === 1 ? " rupee" : " rupees") },
+			el("i", { class: "gem", "aria-hidden": "true" }), el("b", {}, String(v.rupees))),
+	);
+}
+
 function memberRow(m, lobby) {
 	const playing = lobby.phase !== "lobby";
 	const swatch = el(m.self ? "button" : "span", {
@@ -262,7 +291,8 @@ function memberRow(m, lobby) {
 		? el("button", { type: "button", class: "rowact", title: "Go to " + m.name + ": the same room at once, else their stage's entrance", onclick: () => warpTo(m) }, "Warp to")
 		: null;
 	const acts = warp || kick ? el("span", { class: "rowacts" }, warp, kick) : null;
-	return el("li", { class: (m.self ? "self" : "") + (m.away ? " away" : "") }, swatch, who, crown, chips, acts);
+	const vit = playing ? vitalsRow(m.vitals) : null;
+	return el("li", { class: (m.self ? "self" : "") + (m.away ? " away" : "") }, swatch, who, crown, chips, acts, vit);
 }
 
 function render() {

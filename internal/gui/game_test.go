@@ -305,3 +305,26 @@ func TestBridgeStart(t *testing.T) {
 		t.Fatalf("Start after Start = %v", err)
 	}
 }
+
+// TestMemberVitals: this player's row takes its own game's vitals, another
+// row the remote's of the same name; unknown is nil (wind#55).
+func TestMemberVitals(t *testing.T) {
+	var st session.State
+	if memberVitals(st, "Me", true) != nil || memberVitals(st, "Blake", false) != nil {
+		t.Fatal("vitals before any are known")
+	}
+	st.LocalVitals, st.LocalVitalsOK = session.Vitals{Life: 8, MaxLife: 12, Rupees: 5}, true
+	st.Players = []session.Player{
+		{Name: "Sam"},
+		{Name: "Blake", HasVitals: true, Vitals: session.Vitals{Life: 1, MaxLife: 20, Magic: 3, MaxMagic: 32, Rupees: 47}},
+	}
+	if v := memberVitals(st, "Me", true); v == nil || *v != (VitalsView{Life: 8, MaxLife: 12, Rupees: 5}) {
+		t.Errorf("self: %+v", v)
+	}
+	if v := memberVitals(st, "Blake", false); v == nil || *v != (VitalsView{Life: 1, MaxLife: 20, Magic: 3, MaxMagic: 32, Rupees: 47}) {
+		t.Errorf("Blake: %+v", v)
+	}
+	if v := memberVitals(st, "Sam", false); v != nil {
+		t.Errorf("Sam sends none, got %+v", v)
+	}
+}

@@ -1205,7 +1205,8 @@ and absolute while parked. It is a 40-byte run appended to the pose trailer
 after the equip bytes (offset 19), with the stage name, so a receiver knows
 where a parked boat lies. The trailer is then 59 bytes, under
 `network.MaxFaceBytes` (64), so there is no protocol bump. The run is sent
-(all zero with no ship) whenever the equip bytes are.
+(all zero with no ship, or with boats off) whenever the equip bytes are,
+and the vitals' five bytes follow it, to 64 (`docs/09`, wind#55).
 
 **Receiver (Go, puppet-sync).** `boatsync.Tracker` builds the boats block
 each tick.

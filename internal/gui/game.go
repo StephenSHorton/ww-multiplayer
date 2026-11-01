@@ -232,6 +232,27 @@ func area(st session.State, name string) (string, int) {
 	return "", 0
 }
 
+// memberVitals is a lobby row's hearts, magic and rupees (wind#55): this
+// player's from its own game, another's from its pose trailer, matched by
+// name as area does; nil while unknown.
+func memberVitals(st session.State, name string, self bool) *VitalsView {
+	vv := func(v session.Vitals) *VitalsView {
+		return &VitalsView{Life: v.Life, MaxLife: v.MaxLife, Magic: v.Magic, MaxMagic: v.MaxMagic, Rupees: v.Rupees}
+	}
+	if self {
+		if !st.LocalVitalsOK {
+			return nil
+		}
+		return vv(st.LocalVitals)
+	}
+	for _, p := range st.Players {
+		if p.Name == name && p.HasVitals {
+			return vv(p.Vitals)
+		}
+	}
+	return nil
+}
+
 // launchOptions are this player's Dolphin settings as Start uses them:
 // the saved ones with the environment's overrides, the user folder that
 // Dolphin uses when none is saved.

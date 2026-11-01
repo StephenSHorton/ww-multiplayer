@@ -79,6 +79,19 @@ type MemberView struct {
 	// works (co-op runs and it is the one other player).
 	Coop    string `json:"coop,omitempty"`
 	CanWarp bool   `json:"canWarp"`
+	// Vitals are the member's hearts, magic and rupees in game (wind#55):
+	// this player's own from its game, another's from its pose trailer;
+	// nil while unknown (not in game yet, or a sender from before them).
+	Vitals *VitalsView `json:"vitals"`
+}
+
+// VitalsView is a member's hearts, magic and rupees (session.Vitals).
+type VitalsView struct {
+	Life     int `json:"life"`    // quarter hearts
+	MaxLife  int `json:"maxLife"` // quarter hearts
+	Magic    int `json:"magic"`
+	MaxMagic int `json:"maxMagic"`
+	Rupees   int `json:"rupees"`
 }
 
 // LobbyView is State.Lobby.
@@ -280,6 +293,7 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 				mv.Area, mv.Dist = area(st, m.Name)
 			}
 			if running && l.Phase != session.LobbyPhaseLobby {
+				mv.Vitals = memberVitals(st, m.Name, self)
 				mv.Coop, mv.CanWarp = memberCoop(st, m.Name, self, len(l.Members)-1)
 				mv.Coop = mk.text(mv.Coop)
 			}
