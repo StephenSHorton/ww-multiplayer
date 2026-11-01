@@ -60,6 +60,7 @@ region-probe
 remote-flags
 remote-slot
 remote-watch
+rf-ask
 rf-probe
 scan-pos
 screenshot

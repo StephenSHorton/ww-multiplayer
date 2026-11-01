@@ -870,3 +870,24 @@ func (r *Replica) actorRefreshStatus() ActorRefreshStatus {
 	st.Candidates, st.Held, st.LastHeld = len(r.ar.cands), len(r.ar.held), r.ar.last
 	return st
 }
+
+// RefreshAsk is what a request for one actor names, as the relay would
+// derive it (refreshDecode): wwdev rf-ask writes it by hand for the
+// single-Dolphin re-create checks (docs/TESTING.md RC-3..RC-9).
+type RefreshAsk struct {
+	BitKind  uint8  // mailbox.RefreshBit*
+	BitNo    uint16 // the bit's number
+	Recreate bool   // the REL deletes and creates it again (else deletes only)
+	Room     int    // the room its create reads (a home-room -1 chest's angle.x room), -1 for none
+}
+
+// RefreshAskOf derives a's request fields; ok is false when a is no
+// candidate (a proc off the allow-list, a pending door row, a kind the REL
+// refuses, no switch).
+func RefreshAskOf(m mem.Reader, a *actors.Actor) (RefreshAsk, bool, error) {
+	c, ok, err := refreshDecode(m, a, 0)
+	if err != nil || !ok {
+		return RefreshAsk{}, false, err
+	}
+	return RefreshAsk{BitKind: c.bitKind, BitNo: c.bitNo, Recreate: c.recreate, Room: c.room}, true, nil
+}

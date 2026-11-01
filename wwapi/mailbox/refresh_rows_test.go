@@ -44,7 +44,7 @@ func cRefreshRows(t *testing.T) []RefreshRow {
 		"WWRF_PROC_SWHIT0": uint32(RefreshProcSwhit0), "WWRF_PROC_WARPT": uint32(RefreshProcWarpt),
 		"WWRF_PROC_MFLFT": uint32(RefreshProcMflft), "WWRF_PROC_KOKIIE": uint32(RefreshProcKokiie),
 		"WWRF_PROC_VMC": uint32(RefreshProcVmc), "WWRF_PROC_DOOR10": uint32(RefreshProcDoor10),
-		"WWRF_PROC_DOOR12": uint32(RefreshProcDoor12),
+		"WWRF_PROC_DOOR12":   uint32(RefreshProcDoor12),
 		"WWRF_MKIE_SW_SHIFT": RefreshMkieSwShift, "WWRF_VMC_SW_SHIFT": RefreshVmcSwShift,
 		"WWRF_MFLFT_SW_SHIFT": RefreshMflftSwShift, "WWRF_KOKIIE_SW_SHIFT": RefreshKokiieSwShift,
 		"RF_ROW_RECREATE": uint32(RefreshRowRecreate), "RF_ROW_ANGLE_X": uint32(RefreshRowAngleX),

@@ -151,6 +151,8 @@ func commandTable() []command {
 		// Batch D's P0 probes: Gohdan, the refresh procs, the Magtail body (enemy_batchd_probe.go).
 		{name: "bst-probe", group: groupDev, run: runBatchDProbe},
 		{name: "rf-probe", group: groupDev, run: runBatchDProbe},
+		// One actor_refresh request by hand, the RC re-create checks (rf_ask.go).
+		{name: "rf-ask", group: groupDev, run: runRfAsk},
 		{name: "mt2-probe", group: groupDev, run: runBatchDProbe},
 		// Batch E's boss_kill probes: Molgera, Jalhalla (enemy_batche_probe.go).
 		{name: "bwd-probe", group: groupDev, run: runBatchEProbe},
