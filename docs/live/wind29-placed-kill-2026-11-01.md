@@ -28,3 +28,40 @@ to see the placement missing, and the pending entry timed out first.
 
 No ISI/DSI or invalid access in either dolphin.log, and no panic or fatal in the mp-local output.
 Not run here: P1 signatures, P6 layer twin, P7 stacked Keese, P8 v0.6.1 joiner.
+
+# wind#29 continued (newt, 2026-11-01): P1 Miniblin, P8
+
+## P1 signatures: Miniblin passes; Boko Baba not driven; Armos not run
+Rig wind29 (lease ww/dolphin-slot-3), main b9d8b2d, REL 0xA9DE0F1E, Dolphin 2603-342. Both Dolphins were booted from a fresh CryZe
+`9-Hyrule1` state recaptured on this REL (alder's earlier `h9.sav` predates #267). Host `mac-rig.sh mp-local wind29 --coop=new --coop-placed-kill`,
+both `stage-hop ma2room 2 1`. The Miniblins (proc 0xF9, params 0xE4FF0F90) are hp 2/2 and `/status` reads `7 tracked` on each side.
+- A killed two Miniblins with the sword, driven by `wwdev input` B presses after `face`. The first one took two hits (hp 2 -> 1 -> gone).
+  A's `/status`: `5 tracked, 2 sent`. B logged `placed: light-shrunk the partner's kill of ma2room room 1 ordinal 6 ... actor 0x80A9C838`
+  and `... ordinal 1 ... actor 0x80AA0D70`, the same two addresses A killed. B's own `/status` shows `not sent: echo 2, 2 taken`, so it did
+  not echo them back. So the generic signature (health <= 0) covers a real Miniblin death, and the Miniblin needs no class row.
+- **Respawn asymmetry (new):** A's game re-created both Miniblins at their homes within about a second of the sword deaths, as new actors
+  (pids 414, 419, hp 2/2), so A shows 7 again. B's light-shrunk Miniblins did not come back: B stayed at 5 for 30 s and more. P3 saw both games respawn
+  all 7 only on re-entering the room. A real kill makes the room re-spawn its Miniblin at once, but a light-shrink does not. So inside the room
+  A sees 7 and B sees 5 until B re-enters. Nothing extra shrinks and nothing echoes; the counts differ until the next room load.
+- Link A then died to the Miniblins (the run went on with Link taking hits), and the pair was restarted from the state.
+- Boko Baba (kindan r3, one unkeyed at 618/4293/3785, params 0xFFFF01FF, tracked on both): every approach by warp + `face` + B got Link
+  bitten (the actor shows mCmd 2, an event holds it) before a slash connected; d_a_bo.cpp is a stub in the decomp. Not driven; this needs
+  a person or a lock-on/guard poke recipe.
+- Armos (Siren r0/r8): not run. Note that `am2+u` is a default mirror kind (kinds.go DefaultMirrorKinds), so these rows need `WW_ENEMY_SYNC=0`.
+
+## P8 mixed versions (pass, on the last builds that still pair with v0.6.1)
+- A v0.6.1 joiner cannot reach today's main: #267 bumped ProtocolVersion 6 -> 7, so the hello is refused.
+- With a host at 4cc405f (M6.1, protocol 6), the joiner connects, but the host refuses its co-op:
+  `co-op: JoinB (co-op 2) refused: ... co-op schema mismatch: CO_HELLO schema 1, this build speaks 2; co-op is off for this session,
+  pose sync still works`. The co-op schema went 1 -> 2 in #232 (PRESENCE names its sender).
+- The real P8 pairing is a host after #217 and before #232: bbfd10e (`e006882^`). It has the same blob/REL stamp as v0.6.1 (REL 0x1CE30685), so both
+  sides use `WW-mp-1CE30685.iso` and `start-mac-1CE30685.sav`. Host `ww-multiplayer host --coop=<world> --coop-merge --coop-placed-kill --yes`
+  on Dolphin A, joiner `ww-multiplayer(v0.6.1) join 127.0.0.1:<port> --coop --yes` on Dolphin B, each with its own USER_DIR_1.
+  - The host's features: `...|life|magic|placed-kill|merge`. The joiner's: `image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|merge`.
+    It gets every other co-op feature, and placed-kill is not granted to it.
+  - Both `stage-hop kindan 0 1`. Host `/status`: `5 tracked`. On A, `enemy-kill` on the unkeyed ChuChu 0x80A9E73C (params 0xFF190004)
+    gave `4 tracked, 1 sent`. On B (v0.6.1) both unkeyed ChuChus stayed (2 before, 2 after), and B's `/status` shows `0 light-shrunk`.
+    Nothing on the old joiner was shrunk.
+- No ISI/DSI or invalid access in either dolphin.log, and no panic in either process.
+
+So since main's #232/#267 the mixed-version case is moot for releases: a v0.6.1 player can't play co-op with any later build at all.
