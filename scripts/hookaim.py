@@ -33,6 +33,9 @@ ap.add_argument("--pitch-tol", type=int, default=350)
 ap.add_argument("--timeout", type=float, default=12.0)
 ap.add_argument("--target", type=float, nargs=3, metavar=("X", "Y", "Z"), help="aim at a fixed point instead of a KUI (testing)")
 ap.add_argument("--no-sheathe", action="store_true")
+ap.add_argument("--target-addr", type=lambda v: int(v, 16), help="aim at a live cXyz (e.g. an actor's eyePos, actor+0x260) instead of a KUI")
+ap.add_argument("--hold", action="store_true", help="hold the button while aiming and release it to throw (Boomerang)")
+ap.add_argument("--button", type=lambda v: int(v, 16), default=0x800, help="item button that raises and throws (hex): 800 = Y (hook), 10 = Z")
 ap.add_argument("--pitch-above", type=int, default=800, help="aim this far above the KUI (search_target takes 400 below to 2000 above)")
 ap.add_argument("--life-floor", type=int, default=8, help="stop below this many quarter hearts")
 args = ap.parse_args()
@@ -81,7 +84,7 @@ def actors():
             pl = a
         elif proc == "0x00FC":
             kui = a
-    if pl is None or (kui is None and not args.target):
+    if pl is None or (kui is None and not args.target and not args.target_addr):
         sys.exit(f"need the player and a KUI (0x00FC) in this room: player {pl} kui {kui}")
     return pl, kui
 
@@ -110,8 +113,19 @@ def clamp(v, m=127):
     return int(max(-m, min(m, round(v))))
 
 
+HOLD = 0  # buttons kept down across every input (--hold: the Boomerang aims while Z is held)
+
+
 def inp(btn, x, y, ms):
-    run("input", f"{btn:x}", str(x), str(y), str(ms))
+    if HOLD:
+        # `wwdev input <ms>` lets every button go when ms runs out, and letting
+        # go of the Boomerang's button throws it: set-and-leave, time it here,
+        # then go back to the held button alone.
+        run("input", f"{btn | HOLD:x}", str(x), str(y), "0")
+        time.sleep(ms / 1000.0)
+        run("input", f"{HOLD:x}", "0", "0", "0")
+    else:
+        run("input", f"{btn:x}", str(x), str(y), str(ms))
 
 
 def stick_for(a, mag):
@@ -143,6 +157,9 @@ def guard():
 
 
 pl, kui = actors()
+if args.target_addr:
+    kui = args.target_addr - OFF_POS  # pos() reads +OFF_POS
+    args.pitch_above = 0
 life0 = life()
 print(f"player {pl:#x}  target {(hex(kui) if kui else args.target)}  life {life0}")
 
@@ -194,7 +211,11 @@ if not ok_aim:
         print(f"not aiming (walked {moved:.0f}); raising the hook")
     if not args.no_sheathe:
         inp(0, 0, 0, 400)
-    inp(0x800, 0, 0, 150)
+    if args.hold:
+        HOLD = args.button  # down from here until the release throws
+        inp(0, 0, 0, 150)
+    else:
+        inp(args.button, 0, 0, 150)
     time.sleep(1.0)
     guard()
     ok_aim, b, moved = aiming()
@@ -256,8 +277,12 @@ if not ok:
 if args.no_throw:
     print("aim: on target (not thrown)")
 else:
-    inp(0x800, 0, 0, 150)
-    print("throw: Y")
+    if args.hold:
+        HOLD = 0
+        run("input", "0", "0", "0", "100")  # release throws
+    else:
+        inp(args.button, 0, 0, 150)
+    print("throw")
     if kui is not None:
         # The KUI's health reads 3 while the hook holds it (d_a_dr2.cpp move).
         seen = set()
