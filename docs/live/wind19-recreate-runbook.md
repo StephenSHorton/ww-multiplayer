@@ -40,7 +40,7 @@ first" check: an `idle` actor answered `GATE 9`, or a `done` one answered
 anything but `IN_STATE`, means a wrong offset, width or set in the C table.
 Record the before line of every row, pass or not.
 
-rf-ask does not set the bit. Set it first, read it back, and record both
+rf-ask refuses only while a request is pending (seq != ack): it cannot tell that a relay is running, so never use it on a Dolphin whose mp-local has a --coop-refresh token on (a dry relay leaves seq == ack). rf-ask does not set the bit. Set it first, read it back, and record both
 words (as LIVE-4 did): find the switch byte with `ww-multiplayer coop-tables`
 (the switch users list gives each actor's stage, room, params and switch)
 and `wwdev actors` / `peek`, then `poke-u32`. Restore the cards afterwards.
