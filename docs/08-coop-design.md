@@ -744,10 +744,37 @@ The proc numbers match the GZLE01 `fpcNm` enum (`f_pc_name.h`), as M1 checked. *
 - **Known artefact:** a room's actors created before the store's bits are written (B entering the stage after A's kill) spawn and then shrink. M7's `isActor` shim removes it.
 - Coverage on the owner's disc (`coop-tables`, tables schema 4, item 153): 1403 K1 entries not BOSS; 333 (23.7%) keyed: 324 sync, 9 Kargaroc only by ice or light arrow, 0 Morth never live; 1070 (76.3%) unkeyed stay per player until M6.1. Of the 237 rooms with K1 enemies, 68 are all keyed (48 of them clear on B), 14 mixed and 155 have none keyed. The developer test stages on save table 15 are left out (Appendix C item 137); the three keyed Morths were all in them.
 
-### 7.3 Later
+### 7.2a M6.1 (Go-only): placement-matched kills of unkeyed enemies
 
-**M6.1 (Go)**
-- Placement-matched kills of unkeyed enemies (setID 0xFFFF), while both players are in the same stage, table and room: a new SCOPED kind behind its own feature bit (so a mixed-version pair keeps everything else), a death detector over the actor walk with per-class signatures, each enabled once the owner's live check confirms it, and the same light-shrink applier (item 143).
+M6.1 shares the deaths of unkeyed placed enemies (setID 0xFFFF), which no game records (`d_save.cpp:1671-1674`), while both players are in the same stage, table and room. It follows the M6 plan's §M6.1 (ww-multiplayer-handoff `design/m6-plan.md`). The differences from that plan are marked *Changed*.
+
+**Why, on the owner's disc.** Of the 14 mixed rooms (§7.2 "Known blocker"), the enemy mirror's default kinds (`mo2,bk+u,cc+u,ki+u`, `mods/enemysync`) already handle the unkeyed enemies of M_Dai r5 (ChuChus) and M_NewD2 r1, r7 and r11 (Bokoblins, none of them searchlight Bokoblins). kindan r6 and r11 hold only unkeyed Morths, which are ENV-group actors that never block a room-clear. That leaves Siren r0, r8 and r11 (Armos, `am2`, keyed only and opt-in in the mirror), kindan r1, r3, r9 and r14 (Boko Babas, which are no mirror kind) and ma2room r1 (seven Miniblins, none with a byte-2 switch). Every unkeyed enemy also stays a blocker in a session that runs without the mirror.
+
+**Semantics.** Relay only: there is no store, because every room load creates an unkeyed enemy again (`d_stage.cpp:1688-1708`). A partner's kill takes one live instance in the receiver's game. An enemy created after the kill arrived is never taken (the cutoff below).
+
+**Feature.** `proto.FeaturePlacedKill` (1<<10, `placed-kill`) is a session feature, a TableFeature and Shareable. *Changed:* it is **not** in `DefaultFeatures`. A host turns it on with `--coop-placed-kill` (or the app's rules) until the live checks P1-P3 pass. An old hub masks it out of every grant, and the hub relays PKILL only to the peers it grants it to. `wire.Schema` stays 1, and a mixed-version pair keeps every other co-op feature.
+
+**Wire.** SCOPED kind **PKILL = 5** has KILL's word range (u32[16]). Bit 32w+b is placement ordinal 32w+b of the room. `world.Scopes` treats it as room-scoped and relay-only, like ROOMEDGE: it reaches only players in the same room, nothing is kept, and a player entering the room gets nothing.
+
+**Identity** (`enemies.Table.Placed`, built on first use from the M1 table, as the kill index is)
+- The ordinal is an entry's index among the (stage, room)'s entries in `Table.Enemies` order, across layers (at most 51 per room on the owner's disc, well under 512). Both sides number them the same way when their tables' identity matches, which `TableFeatures` already requires.
+- An actor matches an entry by its fingerprint: proc, params, the raw f32 bits of `home.pos` and `home.angle`, with three class rules. A Keese's home y is a wildcard (it moves to the ceiling, `d_a_ki.cpp:678-682`). A Kargaroc's home y is f32(y + 70) (`d_a_bb.cpp:2709-2711`). A Floormaster's angle x and z are 0 (`d_a_fm.cpp:3296-3299`).
+- Entries in one room with equal fingerprints, on any layer, form an interchangeable class: k deaths in the class set its k lowest ordinals, and the receiver takes any live member of the class.
+- Placed (syncable) entries are unkeyed K1 entries of a room 0..63 that are not BOSS and not Morth (KS). Also excluded: a searchlight Bokoblin (`params & 0xF == 6`, `d_a_bk.cpp:1455-1463`), and a Miniblin whose byte-2 switch is set (`params>>16 & 0xFF != 0xFF`), since the light-shrink skips the bookkeeping that sets that switch and B's Miniblin would keep respawning. At run time, an actor that is BOSS, has a parent (`parentActorID != 0xFFFFFFFF`), is claimed by the enemy mirror (`combat.ClaimFunc`), or matches no entry is never sent and never taken.
+
+**Sender** (`replica/placed.go`)
+- Every tick that the feature is granted and a partner is in Link's room, the sender walks the actors and tracks the matched, eligible actors whose home room is Link's room (`mStayNo`), from the first time it sees one executing (`mInitState` 2, with the enemyice self-pointer set).
+- The signature is latched per pid. The generic one, health ≤ 0 or a nonzero light-shrink timer, is always on. A freeze (ice mode 2 or 3) latches "frozen" instead; a thaw clears every latch, and a frozen track that disappears is never sent. *Changed:* the per-class rows (dr actions, ST split, AM 44-47 and the rest) are a table with `Verified` false. A class whose death never lowers its health (Armos Knight, health pinned at 10, `d_a_am.cpp:1217-1218`) therefore sends nothing until its row is verified live (P1).
+- A death is sent when a latched track is missing from a **complete** walk and all of these hold: the stage and table are unchanged, the home room is still `mStayNo` and loaded and settled, and the pid was not one this game light-shrank for a partner (no echo). Otherwise the disappearance is counted by reason (`nosig`, `frozen`, `offroom`, `room`, `stage`, `echo`) for `/status`.
+
+**Receiver** (`replica/placed.go`, into `reconcileM6`'s targets)
+- A PKILL bit is accepted only for Link's stage, table and room, with the partner in that room, and only for an ordinal the receiver's own tables place. It becomes a pending kill with a cutoff (`ProcessIDCounter`, 0x803F6A24, read when the bit arrives) and a TTL of 100 ticks. At most 64 kills are pending.
+- Each tick, the receiver picks for each pending kill the lowest-pid live member of its class whose pid is below the cutoff, that is not already taken this tick, and that passes `combat.Eligible` and every other M6.0 gate (the room settled, Link's demo gate, the weapon rules). That target goes through the same `ApplyActors` as M6.0's (the timer first, then the weapon), and the WriteGuard's allow asks the placed rule too. The pid joins `ever` and the "remote" set the sender reads.
+- A pending kill is dropped when Link changes stage, table or room, when the partner leaves the room, or when its TTL runs out. It is also dropped as `gone` once no member of its class with a pid below the cutoff is alive in a complete walk (a simultaneous kill on both sides). While no member has been seen yet (still creating, or the walk was partial), it waits for its TTL instead.
+
+**Live checks** P1-P8 are the plan's (§8.2 "M6.1"): P1 records each class's signature with `coop-watch`, and a row flips to verified only after it passes.
+
+### 7.3 Later
 
 **M7 (C)**
 - The `isActor` call-site shim with stage-keyed dead tables, so partner-killed enemies never spawn. Entries of the 0x24-byte chunks are not dead-checked and still respawn (Appendix C item 32).
