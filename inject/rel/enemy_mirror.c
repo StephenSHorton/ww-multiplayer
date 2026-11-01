@@ -314,6 +314,15 @@ typedef void (*em_mtx_rot_t)(f32 (*m)[4], s16 a);
 #define mDoMtx_XrotM      ((em_mtx_rot_t)0x8000CD88)
 #define mDoMtx_YrotM      ((em_mtx_rot_t)0x8000CE28)
 #define mDoMtx_ZrotM      ((em_mtx_rot_t)0x8000CEC8)
+// wind#46 (OSHIP): mDoMtx_XYZrotM(Mtx, x, y, z) = mtx * Rz * Ry * Rx
+// (symbols.txt:128, what the warship's setMtx calls through the stack),
+// PSMTXMultVec (symbols.txt:13041) and J3DModel::calc (wwapi.h).
+typedef void (*em_mtx_xyz_t)(f32 (*m)[4], s16 x, s16 y, s16 z);
+#define mDoMtx_XYZrotM    ((em_mtx_xyz_t)0x8000CB48)
+typedef void (*em_mult_vec_t)(const void* m, const cXyz* src, cXyz* dst);
+#define PSMTXMultVec      ((em_mult_vec_t)0x8030DA44)
+typedef void (*em_model_calc_t)(void* model);
+#define em_J3DModel_calc  ((em_model_calc_t)0x802EE8C0)
 typedef void (*em_set_c_t)(void* shape, const cXyz* c);              // SetC__8cM3dGCylFRC4cXyz / SetC__8cM3dGSphFRC4cXyz
 #define cM3dGCyl_SetC     ((em_set_c_t)0x80251D88)
 #define cM3dGSph_SetC     ((em_set_c_t)0x8025238C)
@@ -556,19 +565,21 @@ static const em_kind EM_KINDS[EMK_KIND_COUNT] = { EM_ROW(MO2), EM_ROW(BK), EM_RO
 #else
                                                   { .proc = 0xFFFF, .id = EMK_KIND_MT },
 #endif
-                                                  EM_ROW(ST) };
+                                                  EM_ROW(ST), EM_ROW(OSHIP) };
 
 // The rows sit at their ids; a kind id is a bit of the u16 kind_mask
 // em_ext caches (layout 4, D5; bit 8 is MT, batch D: with EMK_WITH_MT 0
 // its row is a hole em_kind_of never returns and Go never sets the bit;
-// bit 9 is ST); the annex overrides cover ids
+// bit 9 is ST, bit 10 OSHIP, wind#46); the annex overrides cover ids
 // < WWENEMY_ANNEX_KINDS only, the knob table ids WWENEMY_KNOB_ID_MIN..15
 // (R-1, R-4, em_hkd and friends), so no term ties the count to them.
 typedef char em_check_kind_ids[(EMK_MO2_ID == EMK_KIND_MO2 && EMK_BK_ID == EMK_KIND_BK && EMK_CC_ID == EMK_KIND_CC &&
                                 EMK_KI_ID == EMK_KIND_KI && EMK_AM_ID == EMK_KIND_AM && EMK_AM2_ID == EMK_KIND_AM2 &&
                                 EMK_TN_ID == EMK_KIND_TN && EMK_BB_ID == EMK_KIND_BB && EMK_KIND_BB == 7 &&
                                 EMK_KIND_MT == 8 && EMK_ST_ID == EMK_KIND_ST && EMK_KIND_ST == 9 &&
-                                EMK_KIND_COUNT == EMK_KIND_ST + 1 && EMK_KIND_COUNT <= 16 && sizeof(EMK_ST_ARC) <= 4 &&
+                                EMK_OSHIP_ID == EMK_KIND_OSHIP && EMK_KIND_OSHIP == 10 &&
+                                EMK_KIND_COUNT == EMK_KIND_OSHIP + 1 && EMK_KIND_COUNT <= 16 && sizeof(EMK_ST_ARC) <= 4 &&
+                                sizeof(EMK_OSHIP_ARC) <= 4 &&
                                 sizeof(EMK_MO2_ARC) <= 4 && sizeof(EMK_BK_ARC) <= 4 && sizeof(EMK_CC_ARC) <= 4 &&
                                 sizeof(EMK_KI_ARC) <= 4 && sizeof(EMK_AM_ARC) <= 4 && sizeof(EMK_AM2_ARC) <= 4 &&
                                 sizeof(EMK_TN_ARC) <= 4 && sizeof(EMK_BB_ARC) <= 4) ? 1 : -1];
@@ -577,7 +588,7 @@ typedef char em_check_kind_ids[(EMK_MO2_ID == EMK_KIND_MO2 && EMK_BK_ID == EMK_K
 #define EM_PLAIN_OK(K)    (EMK_##K##_MTX != EMK_MTX_PLAIN || ((EMK_##K##_CAPS & EMK_CAP_FOPEN) && EMK_##K##_MORF != 0))
 typedef char em_check_plain_rows[(EM_PLAIN_OK(MO2) && EM_PLAIN_OK(BK) && EM_PLAIN_OK(CC) && EM_PLAIN_OK(KI) &&
                                   EM_PLAIN_OK(AM) && EM_PLAIN_OK(AM2) && EM_PLAIN_OK(TN) && EM_PLAIN_OK(BB) &&
-                                  EM_PLAIN_OK(ST)) ? 1 : -1];
+                                  EM_PLAIN_OK(ST) && EM_PLAIN_OK(OSHIP)) ? 1 : -1];
 // The allow rows' hooks and the fields their cases name (wwenemy_kinds.h
 // KI/AM/AM2; d_a_ki.h, d_a_am.h, d_a_am2.h): spheres in KI's cylinder
 // fields, one shared body for AM/AM2 (D7), the head sphere = the eye or
@@ -1205,6 +1216,89 @@ static int em_st_gate(void* a, const em_kind* k) {
 //        the WAIT loop.
 // hkd is em_hkd(x, k); slot the block slot (MT's custody handback reads its
 // annex aux and health live).
+// --- wind#46: the warship (OSHIP, docs/design/enemy-rows-next.md) ----------
+// Its 5 cylinders mCyl[i] (d_a_oship.h:125).
+#define EM_OSHIP_CYL(a, i)  ((u8*)(a) + EMK_OSHIP_CYL + (i) * EMK_OSHIP_CYL_STRIDE)
+
+// Every cylinder's Tg hit cleared: at adopt and at handback (the copy's
+// own damage check would take the client's ball, which hit the paused
+// copy, for a hit of its own once it runs).
+static void em_oship_clr_hits(void* a) {
+    int i;
+    for (i = 0; i < EMK_OSHIP_CYLS; i++) dCcD_GObjInf_ClrTgHit(EM_OSHIP_CYL(a, i));
+}
+
+// em_validate's OSHIP case: a normal ship (mModelType 0xFF; 00 is the gold
+// ship with its GOLD_SHIP_DELETE event, d_a_oship.cpp:711-737), not
+// already sinking (mCurrentProc 3, an int: never a u8 gate on 0x2AC).
+static int em_oship_gate(void* a, const em_kind* k) {
+    return AF(a, u8, k->gate) == EMK_OSHIP_MODEL_NORMAL && AF(a, s32, EMK_OSHIP_PROC_MODE) != EMK_OSHIP_MODE_DELETE;
+}
+
+// EMK_MTX_MODEL, step 5 for the warship (setMtx, d_a_oship.cpp:466-501,
+// and _execute's tail, :831-841): M = T(cur) * XYZrotM(shape.x, 0,
+// shape.z) * Ry(cur_angle) into the model's base matrix (its cullMtx) and
+// mFlagMtx (the majuu flag's parent: its pointers already name this
+// copy's fields, written by the copy's own executes before the pause);
+// attention, eye, wave and track points from M; then J3DModel::calc (the
+// HEAD and CANON joint callbacks read mAimRotY / mAimRotX, consumed from
+// aux) and the smoke point at the HEAD joint. No scale: a ship never
+// shrinks (it sinks itself, em_oship_sink).
+static void em_oship_body(const em_slot* sl, void* a, void* model) {
+    f32 m[3][4];
+    const f32* n;
+    cXyz o;
+    em_mtx_trans_s(m, sl->cur.x, sl->cur.y, sl->cur.z);
+    mDoMtx_XYZrotM(m, AF(a, s16, EMK_AC_SHAPE_X), 0, AF(a, s16, EMK_AC_SHAPE_Z));
+    mDoMtx_YrotM(m, sl->cur_angle);
+    PSMTXCopy(m, (u8*)a + EMK_OSHIP_FLAG_MTX);
+    PSMTXCopy(m, (u8*)model + J3DMODEL_BASE_TR_MTX_OFFSET);
+    o.x = 0.0f;
+    o.y = (f32)EMK_OSHIP_ATTN_UP;
+    o.z = 0.0f;
+    PSMTXMultVec(m, &o, (cXyz*)((u8*)a + EMK_AC_ATTN_POS));
+    o.y = (f32)EMK_OSHIP_EYE_UP;
+    PSMTXMultVec(m, &o, (cXyz*)((u8*)a + EMK_AC_EYE_POS));
+    o.y = 0.0f;
+    o.z = (f32)EMK_OSHIP_WAVE_Z;
+    PSMTXMultVec(m, &o, (cXyz*)((u8*)a + EMK_OSHIP_WAVE_POS));
+    o.z = 0.0f;
+    PSMTXMultVec(m, &o, (cXyz*)((u8*)a + EMK_OSHIP_TRACK_POS));
+    AF(a, s16, EMK_OSHIP_WAVE_ROT_Y) = sl->cur_angle;
+    em_J3DModel_calc(model);
+    if ((n = (const f32*)em_node_mtx(model, EMK_OSHIP_JOINT_HEAD)) != 0) {
+        AF(a, f32, EMK_OSHIP_SMOKE_POS + 0) = n[3];
+        AF(a, f32, EMK_OSHIP_SMOKE_POS + 4) = n[7];
+        AF(a, f32, EMK_OSHIP_SMOKE_POS + 8) = n[11];
+    }
+}
+
+// EMK_COLL_OSHIP: setCollision (d_a_oship.cpp:405-436) on the copy, 5
+// cylinders along its bearing (cur_angle: em_slot_frame writes it to both
+// current.angle.y and shape.y), y 30 below cur, their own Set bits (Tg so
+// the client's own cannonball explodes on the hull, Co). Option B: no
+// em_hits, nothing is ever reported (the client's ball reaches the host's
+// real ship as its fxsync copy).
+static void em_oship_colliders(const em_slot* sl, void* a) {
+    static const s16 off[EMK_OSHIP_CYLS] = { 50, -50, 0, 180, -180 };
+    static const s16 r[EMK_OSHIP_CYLS] = { 170, 170, 290, 200, 200 };
+    static const s16 h[EMK_OSHIP_CYLS] = { 500, 500, 190, 190, 190 };
+    f32 sn = cM_ssin(sl->cur_angle);
+    f32 cs = cM_scos(sl->cur_angle);
+    cXyz c;
+    int i;
+    for (i = 0; i < EMK_OSHIP_CYLS; i++) {
+        u8* cyl = EM_OSHIP_CYL(a, i);
+        c.x = sl->cur.x + sn * (f32)off[i];
+        c.y = sl->cur.y - (f32)EMK_OSHIP_CYL_Y;
+        c.z = sl->cur.z + cs * (f32)off[i];
+        cM3dGCyl_SetC(cyl + CC_SHAPE_CENTER, &c);
+        AF(cyl, f32, CC_SHAPE_RADIUS) = (f32)r[i];
+        AF(cyl, f32, CC_SHAPE_HEIGHT) = (f32)h[i];
+        cCcS_Set(EM_CCS, cyl);
+    }
+}
+
 static void em_handback(void* a, em_slot* sl, const em_ext_slot* xs, const em_kind* k, u8 hkd, int slot) {
     u32* src = (u32*)((u8*)a + AC_CURRENT);
     u32* dst = (u32*)((u8*)a + AC_OLD);
@@ -1375,6 +1469,21 @@ static void em_handback(void* a, em_slot* sl, const em_ext_slot* xs, const em_ki
             if (res) em_set_anm(morf, res, MORF_ATTR_LOOP, EM_HANDBACK_MORF, 1.0f);
         }
         break;
+    case EMK_KIND_OSHIP: {
+        // wind#46 (design §2 "Handback"): WAIT (changeModeByRange re-arms
+        // the timers, d_a_oship.cpp:504-516), no pending player fire, hit
+        // timer and sway 0, mOrigPos here (pathMove chases it, :169-171),
+        // the host's last health (1..3), no Tg hit from the client's ball.
+        s8 hp = EB_S8(WWENEMY_SLOTS_OFF + slot * WWENEMY_SLOT_SIZE + WWENEMY_SL_HEALTH_OFF);
+        em_oship_clr_hits(a);
+        AF(a, s32, EMK_OSHIP_PROC_MODE) = 0;
+        AF(a, s32, EMK_OSHIP_PL_FIRE) = -1;
+        AF(a, s32, EMK_OSHIP_HIT_TIMER) = 0;
+        AF(a, s16, EMK_OSHIP_SWAY) = 0;
+        for (i = 0; i < 3; i++) AF(a, f32, EMK_OSHIP_ORIG_POS + 4 * i) = AF(a, f32, AC_CUR_POS + 4 * i);
+        if (hp > 0 && hp <= EMK_OSHIP_HEALTH_MAX) AF(a, s8, AC_HEALTH) = hp;
+        break;
+    }
     }
     (void)slot;
     sl->anm_state = WWENEMY_ANM_S1;
@@ -1395,6 +1504,24 @@ static void em_dead(em_slot* sl) {
     sl->adopted = 0;
     sl->state = WWENEMY_STATE_DEAD;
     sl->recently_dead = EM_DEAD_LATCH;
+}
+
+// wind#46, the warship's own-delete death (design §5): on the slot's DYING
+// edge (the host's mCurrentProc 3 or health 0; a catch-up too) the copy is
+// handed back, then put straight into DELETE (mCurrentProc 3 without
+// modeProcInit, so no modeDeleteInit: no second IBALL drop) with health 0,
+// and runs on unpaused: its own modeDelete sinks it, sets switch A, calls
+// onSalvageForOship and deletes its flag and itself (d_a_oship.cpp
+// :735-758). The slot latches DEAD (apid kept); em_oship_gate refuses the
+// sinking copy (mode 3) anyway.
+static void em_oship_sink(em_slot* sl, const em_ext* x, const em_ext_slot* xs, const em_kind* k, void* a, int slot) {
+    em_handback(a, sl, xs, k, em_hkd(x, k), slot);
+    AF(a, s32, EMK_OSHIP_PROC_MODE) = EMK_OSHIP_MODE_DELETE;
+    AF(a, s8, AC_HEALTH) = 0;
+    em_dead(sl);
+    sl->actor = 0;
+    sl->hit_withheld = 0;
+    sl->hit_cooldown = 0;
 }
 
 static void em_base_matrix(em_slot* sl, const em_kind* k, void* a, void* morf, f32 scale, u8 hkd);
@@ -1542,6 +1669,17 @@ static void em_consume_owned(em_slot* sl, const em_kind* k, void* a, u32 off, u3
         // m0304, the KAITEN spin's extra yaw (d_a_st.cpp:894, 2607), raw:
         // em_base_matrix's ST case adds it to the smoothed shape.y.
         if (annex) AF(a, s16, EMK_ST_M0304) = AX_S16(aux + 0);
+        break;
+    case EMK_KIND_OSHIP:
+        // wind#46: shape.x (the slot tilt) and shape.z (slot +0x18) raw,
+        // the host's wave roll and attack sway in them (never waveRot
+        // here); aux {mAimRotY, mAimRotX} for the joint callbacks.
+        AF(a, s16, EMK_AC_SHAPE_X) = sl->tgt_tilt;
+        AF(a, s16, EMK_AC_SHAPE_Z) = EB_S16(off + WWENEMY_SL_CC_M316Z_OFF);
+        if (annex) {
+            AF(a, s16, EMK_OSHIP_AIM_Y) = AX_S16(aux + 0);
+            AF(a, s16, EMK_OSHIP_AIM_X) = AX_S16(aux + 2);
+        }
         break;
     }
     (void)hkd;
@@ -1872,10 +2010,13 @@ static u8 em_validate(const em_ext* x, const em_ext_slot* xs, const em_slot* sl,
     case EMK_KIND_ST:
         if (!em_st_gate(a, k)) return WWENEMY_ERR_GATE;
         break;
+    case EMK_KIND_OSHIP:
+        if (!em_oship_gate(a, k)) return WWENEMY_ERR_GATE;
+        break;
     }
     morf = AF(a, void*, k->morf);
     if (!morf) return WWENEMY_ERR_MORF;
-    model = AF(morf, void*, MORF_MODEL);
+    model = k->mtx == EMK_MTX_MODEL ? morf : AF(morf, void*, MORF_MODEL);   // wind#46: OSHIP's row MORF is the model
     if (!model) return WWENEMY_ERR_MORF;
     // CC's and KI's executes NULL actor.model and their Draws set it back
     // (d_a_cc.cpp:171, 2093; d_a_ki.cpp:209, 949), AM never writes it: no
@@ -1931,7 +2072,8 @@ static u8 em_adopt(enemy_mirror_state* s, em_slot* sl, em_ext_slot* xs, const em
     // EMK_CAP_TILT_CUR its tilt seed is current.angle.x. MT's slot angle is
     // shape.y too, the host's post-sway head yaw its builders read
     // (body_control1, mt.rel 0x1F68-0x1F78; batch D R-D6).
-    sl->cur_angle = AF(a, s16, (k->mtx == EMK_MTX_PLAIN || k->mtx == EMK_MTX_MT) ? AC_SHAPE_ANGLE_Y : AC_CUR_ANGLE_Y);
+    sl->cur_angle = AF(a, s16, (k->mtx == EMK_MTX_PLAIN || k->mtx == EMK_MTX_MT || k->mtx == EMK_MTX_MODEL) ? AC_SHAPE_ANGLE_Y
+                                                                                                           : AC_CUR_ANGLE_Y);
     sl->cur_tilt = (k->caps & (EMK_CAP_DR | EMK_CAP_TILT_CUR)) ? AF(a, s16, k->tilt) : 0;
     AF(a, f32, AC_SPEED + 0) = 0.0f;
     AF(a, f32, AC_SPEED + 4) = 0.0f;
@@ -2005,6 +2147,9 @@ static u8 em_adopt(enemy_mirror_state* s, em_slot* sl, em_ext_slot* xs, const em
         xs->cc_saved_bits = AF(a, u8, EMK_ST_DRAW_GATE);
         AF(a, s16, EMK_ST_HAIR_TIMER) = 1;
         em_st_clr_hits(a);
+        break;
+    case EMK_KIND_OSHIP:
+        em_oship_clr_hits(a);
         break;
     }
     // A clean hit entry and no stale Tg hit from the copy's own last frame.
@@ -3014,6 +3159,10 @@ static void em_colliders(enemy_mirror_state* s, em_slot* sl, const em_ext* x, co
     u8* co;
     u8* tg;
     int sph = (k->caps & EMK_CAP_SPH_COLL) != 0;
+    if (k->coll == EMK_COLL_OSHIP) {
+        em_oship_colliders(sl, a);               // wind#46, option B: no em_hits
+        return;
+    }
     em_hits(s, sl, k, a, i, hkd);
     if (k->coll == EMK_COLL_ST) {
         em_st_colliders(sl, a);
@@ -3182,6 +3331,10 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
     // a second item, whatever WW_ENEMY_QUIET_DEATH says) and for a row
     // without enemyice (em_die needs its shrink timer, D12/R-14).
     // A quiet death goes on with the steps below at a shrinking scale.
+    if (k->mtx == EMK_MTX_MODEL && (sl->tgt_flags & WWENEMY_SF_DYING)) {
+        em_oship_sink(sl, x, xs, k, a, i);       // wind#46: the copy sinks itself
+        return;
+    }
     if ((sl->tgt_flags & WWENEMY_SF_DYING) || em_quiet_dying(sl)) {
         int quiet = em_quiet_dying(sl) || (sl->tgt_flags2 & WWENEMY_SF2_QUIET) || (hkd & WWENEMY_HKD_LEGACY_DEATH) ||
                     (sl->tgt_flags & WWENEMY_SF_RELEASE) || k->id >= EMK_KIND_KI || k->ice == 0;
@@ -3242,6 +3395,11 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
     // the frame advances, no sounds: play skips the bas sound when pos is
     // NULL, m_Do_ext.cpp:1468-1470) with the blur mesh off.
     morf = AF(a, void*, k->morf);
+    if (k->mtx == EMK_MTX_MODEL) {
+        // wind#46: a bare model, no animation; its matrix, points and calc.
+        em_oship_body(sl, a, morf);
+        goto attn;
+    }
     if (s->flags & WWENEMY_FLAG_ANIM) {
         em_animate(s, sl, k, a, morf, frame);
     } else {
@@ -3268,6 +3426,7 @@ static void em_slot_frame(enemy_mirror_state* s, em_ext* x, int i, u32 frame) {
     if (k->id == EMK_KIND_BB) em_bb_tail(sl, xs, a, hkd, dying);   // batch C R-14: after calc wrote BD4
     if (k->eye == EMK_EYE_CC && !(hkd & WWENEMY_HKD_EYE)) em_cc_eye(sl, a);
     else if (k->eye == EMK_EYE_FIXED && !(hkd & WWENEMY_HKD_EYE)) em_fixed_eye(sl, k, a);
+attn:
     // The Z-target flag (BK, CC): a CC is created with flags 0 and gets
     // LOCKON only in execute (d_a_cc.cpp:2645, 785-1053), a hidden BK
     // returns before :4283 sets it; the host's flag is streamed (ATTN).

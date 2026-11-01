@@ -121,7 +121,10 @@ import (
 //	7  enemy mirror: the ST Stalfos kind row (kind 9, a new KindHash; off by
 //	   default, st / st+u; WireVersion stays 4). A mixed pair would drop every
 //	   enemy kind at the KindHash check, so it is refused at the hello instead
-const ProtocolVersion uint16 = 7
+//	8  enemy mirror: the OSHIP warship kind row (kind 10, a new KindHash; off
+//	   by default, oship+u) and the projectile kind 7, a warship's
+//	   cannonball (MsgFx; FxWireVersion stays 1), for the same reason
+const ProtocolVersion uint16 = 8
 
 // Connection roles, the hello's role byte.
 const (

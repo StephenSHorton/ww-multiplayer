@@ -46,8 +46,9 @@
 #define EMK_KIND_BB              7            // batch C, default off (bb / bb+u); hook byte WWENEMY_HKD_HI_OFF + 0
 #define EMK_KIND_MT              8            // batch D (R-D6), default off (mt+u only); hook byte WWENEMY_HKD_HI_OFF + 1; the first cut (cut_order 1: this define stays, the row goes)
 #define EMK_KIND_ST              9            // wind#27 (enemy-rows-next.md ST), default off (st / st+u); hook byte WWENEMY_HKD_HI_OFF + 2
-#define EMK_KIND_COUNT           10           // rows MO2, BK, CC, KI, AM, AM2, TN, BB, MT, ST (the Go Kinds table), whatever EMK_WITH_MT says: an MT cut leaves a hole row at 8
-#define EMK_WITH_MT              1            // batch D D10: 0 cuts the MT row before the build (EM_KINDS[8] becomes a hole row, no em_mt_* code); EMK_KIND_COUNT stays 10
+#define EMK_KIND_OSHIP           10           // wind#46 (enemy-rows-next.md OSHIP), default off (oship+u only); hook byte WWENEMY_HKD_HI_OFF + 3
+#define EMK_KIND_COUNT           11           // rows MO2, BK, CC, KI, AM, AM2, TN, BB, MT, ST, OSHIP (the Go Kinds table), whatever EMK_WITH_MT says: an MT cut leaves a hole row at 8
+#define EMK_WITH_MT              1            // batch D D10: 0 cuts the MT row before the build (EM_KINDS[8] becomes a hole row, no em_mt_* code); EMK_KIND_COUNT stays 11
 #define EMK_KIND_NONE            0xFF
 
 // --- capability bits (row caps) ------------------------------------------
@@ -65,12 +66,13 @@
 #define EMK_MTX_DR               1            // dr_matrix_set(a + dr) (0x80022460) + PSMTXCopy calc_mtx -> model+0x24 + McaMorf_calc
 #define EMK_MTX_CC               2            // draw_SUB recipe (d_a_cc.cpp:80-104, D11) into a stack Mtx -> m2B4 model+0x24 + McaMorf_calc
 #define EMK_MTX_PLAIN            3            // T(cur) * Ry(cur_angle) * Rx(s16 +0x20C) * Rz(s16 +0x210), no scale fold (D16) -> model+0x24 + McaMorf_calc (d_a_ki.cpp:1053-1061, d_a_am.cpp:97-112, d_a_am2.cpp:73-87); HKD_MTX_PLAIN skips it
-#define EMK_MTX_MODEL            4            // reserved: a bare J3DModel (warship), not compiled in this build
+#define EMK_MTX_MODEL            4            // wind#46 (OSHIP): row MORF is a bare J3DModel*, no McaMorf: T(cur) * XYZrotM(shape.x, 0, shape.z) * Ry(cur_angle) -> model+0x24 and the class's flag matrix, then J3DModel::calc (em_oship_matrix)
 #define EMK_MTX_TRYXZ            5            // batch C R-11 (BB): T(cur.x, cur.y + f32 ice+0x28, cur.z) * Ry(cur.y + s16 0x368 + C00[0].x/2) * Rx(cur.x + s16 0x366 + C00[0].z/2) * Rz(cur.z), setBaseScale(actor.scale) (d_a_bb.cpp:2313-2326); BB's HKD_MTX skips it
 #define EMK_COLL_NONE            0
 #define EMK_COLL_STD             1            // Co ahead by co_forward, Tg at cur, head sphere at head_center, defence at def_center (enemy_mirror.c:803-831); A1 (D7): no Tg Set when tg == co, no head/def when 0
 #define EMK_COLL_CC              2            // mCyl only: SetC(cur), R 35, H 30 (HUSE_WALK) or 100, At stripped, Tg/Co from flags2
 #define EMK_COLL_ST              4            // ST: the 7 Tg/Co spheres at their joints (em_st_colliders; 3 is EMK_COLL_MT)
+#define EMK_COLL_OSHIP           5            // OSHIP: setCollision's 5 cylinders around cur, Tg/Co Set, never reported (option B: em_hits is skipped)
 #define EMK_ATTACH_NONE          0
 #define EMK_ATTACH_BK            1            // boko stick, shield, bouen (d_a_bk.cpp:4104-4136, 4371-4416)
 #define EMK_ATTACH_TN            2            // TN (R-6, R-7): the shield pre-calc before the body calc, then parts, armor calc, sword, pieces AND, def centre after it
@@ -1045,7 +1047,7 @@ typedef char emk_check_bb_row[(EMK_BB_ID == EMK_KIND_BB && EMK_KIND_BB == 7 &&
 #define EMK_MT_HKD_EXTRA         0x80         // == WWENEMY_HKD_EXTRA (extra): skip the colour phase and frames
 
 typedef char emk_check_mt_count[((EMK_WITH_MT == 0 || EMK_WITH_MT == 1) && EMK_KIND_ST == EMK_KIND_MT + 1 &&
-                                 EMK_KIND_COUNT == EMK_KIND_ST + 1) ? 1 : -1];
+                                 EMK_KIND_OSHIP == EMK_KIND_ST + 1 && EMK_KIND_COUNT == EMK_KIND_OSHIP + 1) ? 1 : -1];
 typedef char emk_check_mt_row[(EMK_MT_ID == EMK_KIND_MT && EMK_KIND_MT == EMK_KIND_BB + 1 &&
                                EMK_KIND_MT < 7 + WWENEMY_HKD_HI_KINDS && EMK_KIND_MT < WWENEMY_KNOB_KINDS &&
                                EMK_MT_HKD_COLL == WWENEMY_HKD_MODEL_EQ && EMK_MT_HKD_CHAIN == WWENEMY_HKD_ATTACH &&
@@ -1197,5 +1199,95 @@ typedef char emk_check_st_row[(EMK_ST_ID == EMK_KIND_ST && EMK_KIND_ST < 7 + WWE
                                EMK_ST_QUIET_FRAMES == EMK_QUIET_FRAMES && EMK_ST_INVULN_WAIT < 0xFF &&
                                EMK_ST_BCK_WAIT >= EMK_ST_BCK_FIRST && EMK_ST_BCK_WAIT <= EMK_ST_BCK_LAST &&
                                EMK_ST_PLAY_SKIP == 0 && EMK_ST_BLUR_ON == 0 && EMK_ST_WEAPON == 0) ? 1 : -1];
+
+// --- row OSHIP: warship, fpcNm_OSHIP_e (daOship_c, d_a_oship.h:88-151) -------
+// wind#46 (docs/design/enemy-rows-next.md "Enemy mirror row: Warship";
+// d_a_oship.cpp citations as ".cpp:N"). Not an fopEn_enemy_c: no
+// enemyice, no damagereaction, no McaMorf; its body is the bare J3DModel
+// mpModel (EMK_MTX_MODEL) with two joint callbacks that read mAimRotY /
+// mAimRotX (.cpp:96-125). Every disc placement is unkeyed (setID 0xFFFF):
+// oship+u only. Wire: AngleY shape.y (current.y is the same on the copy),
+// tilt shape.x, slot +0x18 shape.z (both raw, dLib_waveRot and the attack
+// sway already in them, .cpp:467-478); aux {mAimRotY, mAimRotX}.
+// Option B: no hit relay. The copy's 5 cylinders take the client's own
+// cannonball (Tg Set) so it explodes on the hull, and nothing is reported;
+// the damage crosses as the fxsync copy of that ball in the host's world.
+// Death is the copy's own (em_oship_sink): handback, mCurrentProc 3,
+// health 0, unpaused; its modeDelete sinks it, sets switch A, calls
+// onSalvageForOship and deletes the flag and itself (.cpp:735-758).
+#define EMK_OSHIP_ID             10
+#define EMK_OSHIP_PROC           0x00B4       // f_pc_name.h:189; wwapi/addr ProcOship
+#define EMK_OSHIP_CLASS_SIZE     0xE00        // d_a_oship.h:151
+#define EMK_OSHIP_ARC            ""           // none: no BCK (the archive is "Oship", 5 chars, never read from the row)
+#define EMK_OSHIP_BCK_FIRST      0
+#define EMK_OSHIP_BCK_LAST       0
+#define EMK_OSHIP_BCK_WAIT       0
+#define EMK_OSHIP_MORF           0x4B0        // J3DModel* mpModel (d_a_oship.h:123), not a morf (EMK_MTX_MODEL)
+#define EMK_OSHIP_GATE           0x2B6        // u8 mModelType (d_a_oship.h:98): 0xFF only (00 is the gold ship)
+#define EMK_OSHIP_DR             0
+#define EMK_OSHIP_DR_MODE        0
+#define EMK_OSHIP_DR_ACTION      0
+#define EMK_OSHIP_TILT           0
+#define EMK_OSHIP_CO_CYL         0
+#define EMK_OSHIP_TG_CYL         0
+#define EMK_OSHIP_HEAD_SPH       0
+#define EMK_OSHIP_DEF_SPH        0
+#define EMK_OSHIP_HEAD_CENTER    0
+#define EMK_OSHIP_DEF_CENTER     0
+#define EMK_OSHIP_CO_FORWARD     0
+#define EMK_OSHIP_TG_HIT_UP      0
+#define EMK_OSHIP_INVULN         0xD72        // the low s16 of int mHitTimer 0xD70 (d_a_oship.h:138): the wire's INVULN only
+#define EMK_OSHIP_INVULN_WAIT    0
+#define EMK_OSHIP_ICE            0
+#define EMK_OSHIP_WEAPON         0
+#define EMK_OSHIP_BARE           0
+#define EMK_OSHIP_BLUR_ON        0
+#define EMK_OSHIP_BLUR_SHAPE     0
+#define EMK_OSHIP_BLUR_SCALE     0
+#define EMK_OSHIP_ANM_GATE       0
+#define EMK_OSHIP_PLAY_SKIP      0
+#define EMK_OSHIP_SPH_SRC        0
+#define EMK_OSHIP_CAPS           0x00
+#define EMK_OSHIP_MTX            4            // EMK_MTX_MODEL
+#define EMK_OSHIP_COLL           5            // EMK_COLL_OSHIP
+#define EMK_OSHIP_ATTACH         0
+#define EMK_OSHIP_EYE            0            // em_oship_matrix writes eye, attention, wave, track and smoke points
+#define EMK_OSHIP_ATTN_F2        0x01         // EMK_OSHIP_F2_ATTN
+#define EMK_OSHIP_QUIET_FRAMES   20           // unused: the copy sinks itself
+// OSHIP class fields (d_a_oship.h)
+#define EMK_OSHIP_PROC_MODE      0x2AC        // int mCurrentProc: 3 DELETE (mode_tbl .cpp:765-774) refused; the handback writes 0, the sink 3
+#define EMK_OSHIP_MODE_DELETE    3
+#define EMK_OSHIP_ORIG_POS       0x2B8        // cXyz mOrigPos: pathMove chases it (.cpp:169-171); cur.pos at handback
+#define EMK_OSHIP_WAVE_POS       0x468        // cXyz mWavePos (setMtx .cpp:495-496)
+#define EMK_OSHIP_WAVE_ROT_Y     0x476        // s16 mWaveRot.y
+#define EMK_OSHIP_TRACK_POS      0x480        // cXyz mTrackPos (.cpp:498-499)
+#define EMK_OSHIP_CYL            0x4F0        // dCcD_Cyl mCyl[5] (d_a_oship.h:125)
+#define EMK_OSHIP_CYL_STRIDE     0x130
+#define EMK_OSHIP_CYLS           5
+#define EMK_OSHIP_SMOKE_POS      0xD08        // cXyz mSmokePos: anmMtx[HEAD] origin (.cpp:840-841)
+#define EMK_OSHIP_FLAG_MTX       0xD20        // Mtx mFlagMtx: the majuu flag's parent matrix (.cpp:484, 860-866)
+#define EMK_OSHIP_HIT_TIMER      0xD70        // int mHitTimer: 0 at handback
+#define EMK_OSHIP_PL_FIRE        0xD7C        // int mPlFireTimer: -1 at handback (createInit .cpp:897)
+#define EMK_OSHIP_SWAY           0xD82        // s16 mAttackSwayAmount: 0 at handback
+#define EMK_OSHIP_AIM_Y          0xD84        // s16 mAimRotY: the HEAD joint (aux[0])
+#define EMK_OSHIP_AIM_X          0xD88        // s16 mAimRotX: the CANON joint (aux[1])
+#define EMK_OSHIP_JOINT_HEAD     1            // VBTSP_JNT_HEAD_e (res/Object/Oship.h)
+#define EMK_OSHIP_ATTN_UP        900          // l_HIO.mAttentionOffsY (.cpp:62)
+#define EMK_OSHIP_EYE_UP         300          // mEyeOffsY
+#define EMK_OSHIP_WAVE_Z         380          // mWaveOffsZ (mTrackOffsZ is 0)
+#define EMK_OSHIP_CYL_Y          30           // setCollision: centre y = cur.y - 30 (.cpp:426)
+#define EMK_OSHIP_F2_ATTN        0x01         // flags2: host attention_info.flags != 0
+#define EMK_OSHIP_MODEL_NORMAL   0xFF
+#define EMK_OSHIP_HEALTH_MAX     3
+
+typedef char emk_check_oship_row[(EMK_OSHIP_ID == EMK_KIND_OSHIP && EMK_KIND_OSHIP < 7 + WWENEMY_HKD_HI_KINDS &&
+                                  EMK_KIND_OSHIP < WWENEMY_KNOB_KINDS && EMK_OSHIP_MTX == EMK_MTX_MODEL &&
+                                  EMK_OSHIP_COLL == EMK_COLL_OSHIP && EMK_OSHIP_ICE == 0 && EMK_OSHIP_CAPS == 0 &&
+                                  EMK_OSHIP_TG_CYL == 0 && EMK_OSHIP_HEAD_SPH == 0 && EMK_OSHIP_ATTACH == EMK_ATTACH_NONE &&
+                                  EMK_OSHIP_EYE == EMK_EYE_NONE && EMK_OSHIP_ATTN_F2 == EMK_OSHIP_F2_ATTN &&
+                                  EMK_OSHIP_INVULN == EMK_OSHIP_HIT_TIMER + 2 && EMK_OSHIP_AIM_X == EMK_OSHIP_AIM_Y + 4 &&
+                                  EMK_OSHIP_CYL + EMK_OSHIP_CYLS * EMK_OSHIP_CYL_STRIDE == 0xAE0 &&
+                                  EMK_OSHIP_WAVE_ROT_Y == EMK_OSHIP_WAVE_POS + 0xE &&
+                                  EMK_OSHIP_QUIET_FRAMES == EMK_QUIET_FRAMES) ? 1 : -1];
 
 #endif

@@ -55,7 +55,8 @@ const (
 	FxKindRemove     = 4
 	FxKindCannon     = 5
 	FxKindArrow      = 6
-	FxKindMax        = 6
+	FxKindECannon    = 7 // wind#46: a warship's cannonball (the enemy-sync host's, with the OSHIP kind on)
+	FxKindMax        = 7
 
 	FxArrowMax = 3
 
