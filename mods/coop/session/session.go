@@ -105,8 +105,9 @@ type Flags struct {
 	// placedKill is --coop-placed-kill (§7.2a, M6.1), the host's choice:
 	// the hub allows proto.FeaturePlacedKill, so a partner's kill of an
 	// unkeyed placed enemy light-shrinks one live instance in the other
-	// game while both are in the room. Off by default until the live
-	// checks P1-P3 pass. A joiner that names it is refused (ForJoin).
+	// game while both are in the room. On by default since the live
+	// checks (wind#29, docs/TESTING.md P1-P8); --coop-placed-kill=off
+	// turns it off. A joiner that names it is refused (ForJoin).
 	placedKill, placedSet bool
 	// iso is --coop-iso: the disc image whose M1 stage tables the session
 	// uses; "" for the disc patch last wrote.
@@ -148,7 +149,7 @@ const (
 // --coop-live-switches, --coop-iso or --yes alone stay in rest, where the
 // command's parser treats them as it always has.
 func ExtractFlags(args []string) (Flags, []string, error) {
-	f := Flags{liveSwitches: true} // live switches are on unless turned off (v0.6.1)
+	f := Flags{liveSwitches: true, placedKill: true} // live switches (v0.6.1) and placed kills (wind#29) are on unless turned off
 	if !slices.ContainsFunc(coopOptionArgs(args), func(a string) bool {
 		return a == "--coop" || strings.HasPrefix(a, "--coop=")
 	}) {
@@ -654,7 +655,7 @@ func (cs *Session) startHub(rep log.Reporter, srvLog func(string), f Flags, st *
 		live = "; live switches: the current table's switches apply when idle, once every shown room's actors have run 2 s (--coop-live-switches=off waits for the next room change)"
 	}
 	if f.placedKill {
-		live += "; --coop-placed-kill: a partner's kill of an unkeyed placed enemy light-shrinks one live instance in the other game while both are in the room (§7.2a, unverified signatures held)"
+		live += "; placed kills: a partner's kill of an unkeyed placed enemy light-shrinks one live instance in the other game while both are in the room (§7.2a, unverified signatures held; --coop-placed-kill=off turns it off)"
 	}
 	log.Logf(rep, log.OK, "Co-op world %s at seq %d: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them%s%s).", cs.world, st.Seq(), merge, live)
 	cs.console.help()
