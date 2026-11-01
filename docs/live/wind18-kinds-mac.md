@@ -69,3 +69,9 @@ No adoption while gated: no `adopt` line mentions a gate. Sweep: no ISI, DSI or 
 - T2 client hits, the pass signal being the client ACK's Health: B's swings (fern's rig/swing.py) on setID 0's copy gave `applied_at` ACKs with Health 15 -> 13 -> 11 -> 9 ... -> 5 -> 1, the host's own Darknut reading the same (9/15 after three hits). One swing while the host's copy was briefly `INVULN` came back `dropped/no_cross` (no damage, no double apply). Later swings that caught setIDs 1 and 2 came back as their own `applied_at` ACKs (health 24/30 and 15).
 - Remote bodies: the host's Darknuts hit B's Link by PHIT/PACK throughout (B's life 80 -> 19 quarter hearts); B voided out on a bad warp, respawned at the entrance, and the mirror resumed (`adopted 0111`) with no errors.
 - Not run: the kill and T3's quiet death (I stopped at Health 1 with B at five hearts rather than risk a death prompt); the armor-break reset and the B* bcks; the T4 cave kills. Canaries flat, no ERR_KEY, no ISI/DSI.
+
+## BB (Kargaroc) BB-1 and BB-3 on the Mac rig (`M_NewD2 6 3`, `mo2,bk+u,cc+u,ki+u,bb`)
+
+- BB-1: B adopts both keyed Kargarocs as kind-7 slots plus BK setID 1 (`[0:bk 1][1:bb 0][2:bb 2]`), canaries flat. `enemy-match --dry --kinds bb` on A and on B diff clean before ` pid=` (setIDs 0 and 2, verdict ok, 2 taken 0 refused). fp_miss (u16 at 0x80413296) is 0 on both. The screenshot look (yaw, tilt, tail, beak) was not taken.
+- BB-3 host kill: A's `enemy-kill` on setID 2 shrinks and deletes it, and the zone slot records setID 2 dead; on B the copy is gone too, with no item actor on either game and canaries flat. B then reloaded room 3 (`stage-hop M_NewD2 6 3`): setID 2 stayed dead (1 Kargaroc on B), so the keyed death persists.
+- Not run: BB-2 client hits (the perched bird is out of sword reach without a patched backstab.py), BB-3's sword kill and knockback, BB-4, BB-5. No ERR_KEY, panic or reject; no ISI/DSI.
