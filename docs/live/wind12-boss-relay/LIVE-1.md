@@ -40,3 +40,15 @@ for t2-t7 (intro bit kept). Both bound world b83d8a075d861acb (`bound the file`,
   Jalhalla falls on this landing in the spikes ...` once; B's death demo, own t06 byte 0x31 -> 0x39, Warpf (0x006A).
 - Caveat: the poked 0x65 is itself the spike landing, so the "next throw" was poked, not a real Mirror Shield freeze + throw
   (the real-item path passed on the PC, handoff real-items/LIVE-2.md:22).
+
+## Molgera (kazeB 0 0): PASS
+- Both: Bwd proc 0xDA, `m18AE` 1, intro-skip create `m18B0` -10 (table 7 bit 5 set).
+- Field note: `m18AE` is the s16 at +0x18AE (low half of the +0x18AC word), `m18B0` the s16 at +0x18B0, `m1BB1` the byte at
+  +0x1BB1. A first poke wrote `m18AE` as a byte (769): the REL answered WAITING `0x02010200` and wrote nothing (correct).
+- A: faked pull (`m18AE` 3, `m18B0` 2, `m1BB1` 0x78) + A's request `00DA424B`, retried back to back because vanilla moves
+  `m18AE` 3 -> 2 within a frame (try 1 WAITING `0x02020100`, try 2 APPLIED `0x01030200`); `m18AE` -> 0xC, A's live t07 byte 0x30 -> 0x38.
+- B: `holding t07 WT boss defeated back ...`, `the partner killed Molgera ... once its tongue is pulled out (boss_kill)`,
+  `boss_kill 168: waiting (m18AE 0x1, m18B0 -10, m1BB5 0)` once.
+- B: same faked pull (no request poke), 2 tries: `boss_kill 185: applied (m18AE 0x3, m18B0 2, m1BB5 0)` once; `m18AE` 0xC,
+  own t07 byte 0x30 -> 0x38, Warpf (0x006A) at (0, 300, 0). Pulls faked, not real Hookshot pulls (real pulls passed on the PC,
+  handoff real-items/LIVE-2.md:21).
