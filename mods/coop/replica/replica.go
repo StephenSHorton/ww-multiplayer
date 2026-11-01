@@ -923,6 +923,12 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 	r.reconcileM4(o, armed, &rep)
 	r.reconcileM5(o, armed)
 	r.reconcileM6(o, armed)
+	for _, sc := range r.m6.pl.takePlacedOut() {
+		if armed && r.worldUp && r.features&proto.FeaturePlacedKill != 0 {
+			out.send(&sc)
+			rep.Scoped++
+		}
+	}
 	r.reconcileSalvage(o, armed)
 	r.escapeTick(o, armed)
 	r.bossTick(o, armed)
@@ -934,8 +940,11 @@ func (r *Replica) tick(s *state.Snapshot, err error, out *outbox) Report {
 
 // scopeFeature is the feature a SCOPED kind needs (as the hub has it).
 func scopeFeature(k wire.ScopeKind) proto.Feature {
-	if k == wire.ScopeKill {
+	switch k {
+	case wire.ScopeKill:
 		return proto.FeatureCombat
+	case wire.ScopePlaced:
+		return proto.FeaturePlacedKill
 	}
 	return proto.FeaturePuzzle
 }
@@ -1222,6 +1231,12 @@ func (r *Replica) onScoped(m *wire.Scoped) {
 		// Relayed live, never kept (§6.3): only the room it is for, at
 		// this moment, could apply it.
 		r.m5Edge(m)
+		return
+	}
+	if m.Kind == wire.ScopePlaced {
+		// A partner's kill of an unkeyed enemy (§7.2a, M6.1): pending
+		// for one live instance, never kept as a store.
+		r.onPlaced(m)
 		return
 	}
 	if k.kind == wire.ScopeDan {

@@ -74,6 +74,8 @@ type m6 struct {
 
 	// rf is the stale-actor refresh's state (refresh.go).
 	rf refreshState
+	// pl is M6.1's state (placed.go).
+	pl placedState
 
 	// What /status shows (CombatStatus).
 	place     world.Place
@@ -103,10 +105,13 @@ type CombatStatus struct {
 	// VerifyFail the light-shrinks and zone bytes that did not hold.
 	ZoneSet, Shrunk, Released, Held, DemoHeld, Refused, VerifyFail int
 	LastHeld                                                       string
+	// Placed is M6.1's (§7.2a): placement-matched kills of unkeyed
+	// enemies.
+	Placed PlacedStatus
 }
 
 func newM6() m6 {
-	return m6{ever: map[uint32]bool{}, held: map[uint32]string{}, demoHeld: map[uint32]bool{}, place: world.Nowhere, rf: newRefreshState()}
+	return m6{ever: map[uint32]bool{}, held: map[uint32]string{}, demoHeld: map[uint32]bool{}, place: world.Nowhere, rf: newRefreshState(), pl: newPlacedState()}
 }
 
 // combatStatus is the M6 receiver's part of r's Status. r.mu is held.
@@ -116,6 +121,7 @@ func (r *Replica) combatStatus() CombatStatus {
 		Granted: r.features&proto.FeatureCombat != 0, Tables: r.cfg.Tables != nil && r.cfg.Tables.Enemies != nil,
 		Place: m.place, StoreBits: m.storeBits, ZoneSet: m.zoneSet, Shrunk: m.shrunk, Released: m.released,
 		Held: len(m.held), DemoHeld: len(m.demoHeld), Refused: m.refused, VerifyFail: r.writer.Stats().CombatFailed, LastHeld: m.lastHeld,
+		Placed: r.placedStatus(),
 	}
 }
 
@@ -192,6 +198,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 		clear(m.held)
 		clear(m.demoHeld)
 		m.rf.forget()
+		m.pl.forget()
 		r.ar.forget()
 	}
 	if o.consistent() {
@@ -242,7 +249,10 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 	// Tier 3 (refresh_relay.go) needs it when a bit of a kind
 	// --coop-refresh names landed: a chest or a pickup too.
 	rf := rt.anyRefresh(r.rfOn)
-	if len(stores) == 0 && !rt.any() && !rf {
+	// M6.1 (placed.go) walks while the partner is in Link's room or a
+	// partner's kill waits.
+	pl := r.placedGranted() && (r.partnerInRoom(stage, s.Table, s.StayNo) || len(m.pl.pending) > 0 || len(m.pl.tracks) > 0)
+	if len(stores) == 0 && !rt.any() && !rf && !pl {
 		return
 	}
 	name := stage.String()
@@ -297,7 +307,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 		return setID >= 0 && setID < enemies.MaxSetID && ws != nil && ws[setID/32]&(1<<(setID%32)) != 0 && mask.Has(setID)
 	}
 	ct := CombatTick{Flags: o.rooms.flags, FlagsOK: o.rooms.ok, Kills: kills, Claimed: r.cfg.Claimed}
-	if !live && !rt.any() && !rf {
+	if !live && !rt.any() && !rf && !pl {
 		r.setCombat(ct)
 		return
 	}
@@ -345,7 +355,7 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 	}
 	keyed := func(a *actors.Actor) bool { return a.Keyed() && kills(int(a.HomeRoom), int(a.SetID)) }
 	allow := func(a *actors.Actor) bool {
-		return keyed(a) && rt.roomSettled(int(a.HomeRoom)) == "" || rt.deathAllow(a)
+		return keyed(a) && rt.roomSettled(int(a.HomeRoom)) == "" || rt.deathAllow(a) || m.pl.placedAllow(a)
 	}
 	demo, demoWhy := r.linkDemo(o)
 	for i := range w.Actors {
@@ -404,6 +414,11 @@ func (r *Replica) reconcileM6(o *obs, armed bool) {
 			t.Weapon = &c
 		}
 		m.targets = append(m.targets, t)
+	}
+	if pl {
+		r.placedTick(&w, stage, s.Table, s.StayNo, rt.roomSettled, demo, demoWhy)
+	} else {
+		clear(m.pl.targets)
 	}
 	m.demo = demo
 	ct.Walk, ct.Allow, ct.Demo = &w, allow, demo
@@ -522,7 +537,9 @@ func (r *Replica) applyCombat(ctx context.Context, ws m6Writes, rep *Report) {
 		delete(m.demoHeld, d.Carrier.PID)
 		m.shrunk++
 		what := "light-shrunk the partner's kill: " + d.Carrier.String()
-		if m.rf.deathPIDs[d.Carrier.PID] {
+		if ok, line := m.pl.placedDone(d.Carrier.PID); ok {
+			what = line + ": " + d.Carrier.String()
+		} else if m.rf.deathPIDs[d.Carrier.PID] {
 			delete(m.rf.swHeld, d.Carrier.PID)
 			m.rf.shrunk++
 			what = "refresh: light-shrunk a stale enemy whose death switch landed: " + d.Carrier.String()
