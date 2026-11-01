@@ -34,9 +34,9 @@ const (
 )
 
 // addedSinceD6 are the subcommands new since the pre-D6 list, in neither
-// binary before it: bug-report (bug_report.go); wwdev's smoke and
-// smooth-steps (cmd/wwdev/smoke.go, smooth_steps.go).
-var addedSinceD6 = []string{"bug-report", "smoke", "smooth-steps"}
+// binary before it: bug-report (bug_report.go); wwdev's smoke,
+// smooth-steps and rf-ask (cmd/wwdev/smoke.go, smooth_steps.go, rf_ask.go).
+var addedSinceD6 = []string{"bug-report", "smoke", "smooth-steps", "rf-ask"}
 
 // registrySubcommands returns every name and alias in the command
 // registry, sorted. A name used twice is an error.
