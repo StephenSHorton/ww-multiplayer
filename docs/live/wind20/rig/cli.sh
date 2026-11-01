@@ -7,7 +7,7 @@
 set -euo pipefail; . "$(dirname "$0")/env.sh"
 role=$1 log=$2 dpid=$3 name=$4 port=${5:-25566}
 if [ "$role" = host ]; then args=(host "$name" --port "$port"); else args=(join "127.0.0.1:$port" "$name"); fi
-cd "$WW_REPO"
-WW_DOLPHIN_PID=$dpid WW_DOLPHIN_INDEX= ./ww-multiplayer "${args[@]}" \
+cd "$RIG_DIR"
+WW_DOLPHIN_PID=$dpid WW_DOLPHIN_INDEX= "$WW_BIN/ww-multiplayer" "${args[@]}" \
   >"$RIG_DIR/logs/$log" 2>"$RIG_DIR/logs/$log.err" </dev/null &
 echo $! > "$RIG_DIR/pids/$log"; echo $!

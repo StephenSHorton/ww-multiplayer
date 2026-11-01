@@ -26,17 +26,18 @@ R1 (two machines, app) and R2's two-machine half are wind#13 (owl on the PC + a 
 1. R5 rest and R10 rest on CLI loopback (`cli.sh`): one Dolphin pair, one boot.
 2. R7a then R7b on the same pair (R7b restarts A's Dolphin last).
 3. R8 with a scratch copy of the v0.5.0 macOS zip (`xattr -dr com.apple.quarantine` on the scratch copy only).
-4. R6 on `mp-local --coop` with fresh fixture user dirs (binding writes a tag into the card: never on the shared originals).
+4. R6 on `mac-rig.sh mp-local wind20 --coop` with the rig's own u1/u2 (binding writes a tag into the card: never on the shared fixtures).
 
-## Mac caveats to check first
+## Mac rig (docs/mac-rig.md, wind#3)
 
-- Save states: F1 `saves/start.sav` and the fixture StateSaves were made by the PC's Dolphin 2509; 2603 may refuse
-  them. Fallback (rules): cold boot + `wwdev auto-recapture`, which needs the `ww/rel-blob` lease. Ask wind#3
-  for its result before trying.
+- Boot with flint's `scripts/mac-rig.sh` (also `~/ww-shared/bin/mac-rig.sh`): `setup wind20`, then under an
+  Irori `ww/dolphin-slot-<n>` lease `pair wind20` (two Dolphins, MEM1 override and `-b`, the Mac start save
+  `~/ww-shared/fixtures/start-mac-1CE30685.sav`; the PC's save states don't load in Mac Dolphin 2603),
+  `shot <pid> out.png`, `fps <pid> <pid>` (30 = full speed; say so on the card if under 28), `stop wind20`.
+- The tools are the entitled `~/ww-shared/bin/wwdev` and `ww-multiplayer` (attach needs the entitlement).
 - `ISO_PATH` must be set before any `stage-hop` (LIVE-6 b2: a bad point with no disc check hung the game).
   `env.sh` sets it to `~/ww-shared/disc/WW-mp.iso`.
-- The CLI `host` listens on every interface (server.go `ListenHost` ""): `env.sh` exports `WW_LISTEN_HOST=127.0.0.1`.
-  The Mac's application firewall is off (`socketfilterfw --getglobalstate`: State = 0), so no dialog either way.
+- The CLI `host` listens on every interface (server.go `ListenHost` ""). The Mac's firewall is off, so no dialog.
 - `M_NewD2 0 16` loops Link through void-outs on 28-Hyrule3 (LIVE-6 b2); skip it for the 8 hops.
 
 ## Scripts (rig/)
@@ -44,13 +45,11 @@ R1 (two machines, app) and R2's two-machine half are wind#13 (owl on the PC + a 
 Ported from the PC's `archive/rig-scripts-2026-10-27` and `archive/ww-online-review/live/l6-b2-cli.ps1`.
 Every process's PID is recorded in `$RIG_DIR/pids/` and stopped by that PID (never by command-line match).
 
-- `env.sh`: paths (`WW_REPO`, `WW_SHARED`, `ISO_PATH`, `RIG_DIR`, `DOLPHIN_BIN`) and `WW_LISTEN_HOST`.
-- `fresh-user.sh user-4|user-3`: this card's own copy of a fixture Dolphin user dir (also the card reset).
-- `boot.sh user-N`: Dolphin with the MEM1 override and file logs (boot1k.sh), Start through the title, screenshot, PID.
+- `env.sh`: paths (`WW_BIN`, `WW_SHARED`, `ISO_PATH`, `RIG`, `RIG_DIR`).
 - `drive.sh <pid>`: press A until Link is in play (driveg.sh).
 - `healer.sh <pidA> <pidB>`: Link's life kept at max (s2v2-live/healer.sh).
 - `cli.sh host|join <log> <dolphin-pid> <name> [port]`: one CLI host/join with only the `WW_*` vars given on its command line.
-- `stop.sh [-STOP|-CONT|-KILL] <name>...`: stop, suspend or resume by recorded PID.
+- `stop.sh [-STOP|-CONT|-KILL] <name>...`: stop, suspend or resume a Go process by recorded PID (Dolphins: `mac-rig.sh stop`).
 - `sweep.sh`: the full-log sweep (Go logs + both Dolphin logs) after every block.
 
 Records of each block go next to this file as `LIVE-wind20-<block>.md`, with the build hashes.
