@@ -13,6 +13,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 )
 
@@ -25,8 +26,11 @@ import (
 // rep (host/join pass one shared with puppet-sync so each line shows once).
 // onPos, when non-nil (the TUI path via liveStateLocalPosSetter), is invoked
 // every tick this Dolphin's own position resolves — #22's minimap bridge.
-// CLI callers pass nil.
-func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphinPID uint32, rep log.Reporter, connLog *network.ConnectLog, onPos func(x, y, z float32)) error {
+// CLI callers pass nil. onVitals, when non-nil, gets this game's hearts,
+// magic and rupees each time they are read (about four times a second,
+// wind#55; ok false while they can't be), the same sample the pose
+// trailer carries.
+func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphinPID uint32, rep log.Reporter, connLog *network.ConnectLog, onPos func(x, y, z float32), onVitals func(vissync.Vitals, bool)) error {
 	log.Logf(rep, log.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, serverAddr)
 	d, err := env.Open(dolphinPID)
 	if err != nil {
@@ -79,6 +83,7 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	sessionLoop := func(ctx context.Context) error {
 		posErrs, poseErrs := 0, 0
 		var equip vissync.EquipSampler // the shield bit, debounced (two samples)
+		vit := vitalsSampler{on: onVitals}
 		boatsOn := boatsync.SettingsFromEnv().On
 		// capture reads one sample of this Dolphin's Link: nil while Link
 		// is not loaded.
@@ -142,7 +147,7 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 			// FaceState: 8 B = (mat1_tex0:u16 BE)
 			// (mat1_tex1:u16 BE)(mat4_tex0:u16 BE)
 			// (mat4_tex1:u16 BE).
-			s.face = faceTrailer(d, link, [3]float32{pos.PosX, pos.PosY, pos.PosZ}, &equip, boatsOn)
+			s.face = faceTrailer(d, link, [3]float32{pos.PosX, pos.PosY, pos.PosZ}, &equip, boatsOn, vit.sample(d, time.Now()))
 			return s
 		}
 		// send ships one sample: the position, then the pose.
@@ -212,11 +217,12 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 // byte, the appearance flags (bit 0 = casual clothes; receivers before it
 // copy only the first 16 bytes); then vissync's sea, sword-out and
 // shield-in-hand bits ORed into it and the two equip bytes (19 bytes in
-// all); then, with boats on, boatsync's ship, 40 bytes more (59 in all),
-// always once the equip bytes are there. linkPos is the position sent
-// with this pose (an aboard ship goes relative to it). nil when the eye
-// bytes cannot be read.
-func faceTrailer(d avatar.TunicMem, link *player.Link, linkPos [3]float32, equip *vissync.EquipSampler, boatsOn bool) []byte {
+// all); then boatsync's ship, 40 bytes more (all zero with boats off, or
+// no ship), always once the equip bytes are there; then vit, the vitals
+// (vissync vitals.go), 5 bytes: 64 in all, network.MaxFaceBytes. linkPos
+// is the position sent with this pose (an aboard ship goes relative to
+// it). nil when the eye bytes cannot be read.
+func faceTrailer(d avatar.TunicMem, link *player.Link, linkPos [3]float32, equip *vissync.EquipSampler, boatsOn bool, vit []byte) []byte {
 	fb, err := link.Face()
 	if err != nil || len(fb) != player.FaceBytes {
 		return nil
@@ -230,11 +236,43 @@ func faceTrailer(d avatar.TunicMem, link *player.Link, linkPos [3]float32, equip
 		return append(fb, app)
 	}
 	fb = append(fb, app|extra, eq[0], eq[1])
+	var b boatsync.Boat
+	ok = false
 	if boatsOn {
-		b, ok := boatsync.Local(d, linkPos)
-		fb = append(fb, boatsync.Encode(b, ok)...)
+		b, ok = boatsync.Local(d, linkPos)
 	}
-	return fb
+	fb = append(fb, boatsync.Encode(b, ok)...)
+	if len(vit) != vissync.VitalsBytes {
+		vit = vissync.EncodeVitals(vissync.Vitals{}, false)
+	}
+	return append(fb, vit...)
+}
+
+// vitalsEvery is how often the vitals are read: hearts and magic move
+// slowly next to a pose, and a partner's row should follow a hit within
+// about a second (wind#55).
+const vitalsEvery = 250 * time.Millisecond
+
+// vitalsSampler reads this game's vitals at vitalsEvery and keeps the
+// encoded bytes for the trailers in between. on, when non-nil, gets each
+// read. The zero value (on nil) is ready.
+type vitalsSampler struct {
+	on   func(vissync.Vitals, bool)
+	at   time.Time
+	last []byte
+}
+
+// sample is the vitals' trailer bytes as of now.
+func (s *vitalsSampler) sample(m mem.Reader, now time.Time) []byte {
+	if s.last != nil && now.Sub(s.at) < vitalsEvery {
+		return s.last
+	}
+	v, ok := vissync.LocalVitals(m)
+	s.at, s.last = now, vissync.EncodeVitals(v, ok)
+	if s.on != nil {
+		s.on(v, ok)
+	}
+	return s.last
 }
 
 // poseSample is one BroadcastPose sample: the position, and the localized

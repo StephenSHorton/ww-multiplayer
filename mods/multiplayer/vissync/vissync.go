@@ -7,7 +7,8 @@
 // (writes it when it changes).
 //
 // Pose trailer (docs/09 §5.4, extended here): [16 face bytes][appearance]
-// [mSelectEquip[0]][mSelectEquip[1]]. The appearance byte's bit 0 is the
+// [mSelectEquip[0]][mSelectEquip[1]], then boatsync's 40-byte run and the
+// 5 vitals bytes (vitals.go), 64 in all. The appearance byte's bit 0 is the
 // casual clothes (tunicsync), bit 1 the sender is on the sea stage, bit 2
 // its sword is out, bit 3 its shield is in its right hand. A sender
 // before this sends 17 bytes (or 16), and every receiver reads only the

@@ -9,6 +9,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
@@ -108,6 +109,11 @@ func trailer(run []byte) []byte {
 func TestEncodeDecode(t *testing.T) {
 	if RunOffset != 19 || RunOffset+RunBytes > network.MaxFaceBytes {
 		t.Fatalf("the run ends at %d, past the server's %d-byte trailer cap", RunOffset+RunBytes, network.MaxFaceBytes)
+	}
+	// The vitals (vissync, wind#55) follow the run and end the trailer.
+	if vissync.VitalsOffset != RunOffset+RunBytes || vissync.VitalsOffset+vissync.VitalsBytes > network.MaxFaceBytes {
+		t.Fatalf("the vitals at %d..%d don't follow the run (%d) within the %d-byte cap",
+			vissync.VitalsOffset, vissync.VitalsOffset+vissync.VitalsBytes, RunOffset+RunBytes, network.MaxFaceBytes)
 	}
 	b := Boat{Present: true, Aboard: true, SailOn: true, Part: 3, MastFrame: 9, HeadBck: 7, HeadFrame: 2, Room: -1,
 		Pos: [3]float32{1, -2, 3}, Angle: [3]int16{1, -2, 3}, SailAngle: 4, Tiller: -5, PartA: 6, PartB: -7, Stage: "Siren"}

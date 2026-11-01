@@ -184,6 +184,23 @@ func (v View) MaxLife() int {
 // MaxMagic is mMaxMagic.
 func (v View) MaxMagic() int { return int(v.image(addr.OffMaxMagic)) }
 
+// Life is mLife, in quarter hearts.
+func (v View) Life() int {
+	return int(binary.BigEndian.Uint16(v.s.Save[addr.InfoOffSavedata+addr.OffLife:]))
+}
+
+// Magic is mMagic.
+func (v View) Magic() int { return int(v.image(addr.OffMagic)) }
+
+// Rupee is mRupee.
+func (v View) Rupee() int {
+	return int(binary.BigEndian.Uint16(v.s.Save[addr.InfoOffSavedata+addr.OffRupee:]))
+}
+
+// WalletSize is mWalletSize: 0, 1, 2 = 200, 1000, 5000 rupees
+// (d_save.h:20-30).
+func (v View) WalletSize() int { return int(v.image(addr.OffWalletSize)) }
+
 // GetItem reports whether get-item flag bit of inventory slot slot is set
 // (dSv_player_get_item_c::onItem, d_save.cpp:204-207).
 func (v View) GetItem(slot, bit int) bool {
