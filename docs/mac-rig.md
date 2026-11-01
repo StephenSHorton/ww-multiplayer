@@ -79,6 +79,12 @@ scripts/mac-rig.sh stop <rig>         # end this rig's Dolphins by PID; then rel
 - **Don't use bare `wwdev dolphin2` on the shared Mac**: it adopts any running Dolphin as Dolphin 1, which is another agent's. `mac-rig.sh pair` launches both itself and finds each by its own `-u` argument.
 - **Always pin `MP_LOCAL_PIDS`** (the script does): other agents' Dolphins run on the same Mac and
   enumeration order would otherwise pick theirs. For one Dolphin use `WW_DOLPHIN_PID=<pid>`.
+- **Co-op on the rig** (`mac-rig.sh mp-local <rig> --coop=new ...`): the script exports the rig's
+  `USER_DIR_1/2` (`u1`, `u2`), so co-op backs up, reads and binds those cards, never the default
+  Dolphin folders. It also adds `--coop-iso ~/ww-shared/disc/WW-mp.iso` unless you name one: without
+  it the stage tables come from the disc `patch` last wrote, a per-user record that any agent's
+  `patch` run moves. And it adds `--yes`, since nobody is at a TTY to answer the bind prompt and the
+  rig's cards are copies of the fixtures. Flags after a `--` are passed through unchanged.
 - **Input**: `wwdev input` / `input-release` work unchanged (they write the mailbox; no OS
   permission needed). Lock-on/guard still need the trigger poke (WW-MAC-RULES).
 - **Screenshots**: `wwdev screenshot` is Win32-only. `mac-rig.sh shot` finds the PID's render
