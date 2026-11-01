@@ -317,6 +317,20 @@ func (g *FakeGame) EnterFileSelect() {
 	g.st8(addr.NextStageEnable, 0)
 }
 
+// StartEnding is GTower's `endhr` asking for "ENDING" and the play scene
+// giving way to the staff-roll movie: dScnPly_Draw sees the request and
+// changes to the ending scene instead of a play scene (d_s_play.cpp:
+// 310-312), so mCurStage keeps the old stage, Link goes with the play
+// scene (putSave as in leaveStage), and mNextStage keeps "ENDING"; the
+// ending scene's create clears mEnable (d_s_title.cpp:113).
+func (g *FakeGame) StartEnding() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.writeStageRef(addr.NextStage, addr.StageEnding, 0, 0, -1)
+	g.leaveStage()
+	g.st8(addr.NextStageEnable, 0)
+}
+
 // leaveStage deletes the play scene, if one is up: putSave of the loaded
 // stage's table, read back from its STAG as dStage_Delete does
 // (d_stage.cpp:2255-2256), and Link with it.

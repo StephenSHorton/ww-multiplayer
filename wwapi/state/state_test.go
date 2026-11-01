@@ -153,6 +153,7 @@ func TestReadDecodes(t *testing.T) {
 		{"StageRoom", s.StageRoom, drc.Room},
 		{"StageLayer", s.StageLayer, drc.Layer},
 		{"NextEnable", s.NextEnable, int8(1)},
+		{"NextStageName", s.NextStageName, outset.Name},
 		{"StagInfo", s.StagInfo, fakegame.StagChunk},
 		{"EvtMode", s.EvtMode, uint8(1)},
 		{"EvtOrderCount", s.EvtOrderCount, int8(2)},

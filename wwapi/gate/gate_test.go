@@ -75,6 +75,8 @@ func TestStableTruthTable(t *testing.T) {
 		{"credits", func(s *state.Snapshot) { s.StageName = "ENDING" }, "credits"},
 		{"credits sea", func(s *state.Snapshot) { s.StageName = "ENDumi" }, "credits"},
 		{"epilogue", func(s *state.Snapshot) { s.StageName = "sea_E" }, "credits"},
+		{"ending asked", func(s *state.Snapshot) { s.NextStageName = "ENDING"; s.NextEnable = 1 }, "credits"},
+		{"ending movie", func(s *state.Snapshot) { s.NextStageName = "ENDING"; s.PlayerPtr = 0 }, "credits"},
 		{"no table", func(s *state.Snapshot) { s.Table = -1 }, "no save table"},
 		{"bad table", func(s *state.Snapshot) { s.Table = 16 }, "not valid"},
 		{"stage change pending", func(s *state.Snapshot) { s.NextEnable = 1 }, "stage change is pending"},
@@ -428,5 +430,20 @@ func TestGatesOverFakeGame(t *testing.T) {
 	st := tick(3)
 	if st.CanWriteCounter(KeyNum) || !st.CanWriteCounter(MaxLife) {
 		t.Errorf("pending key: key %v max-life %v", st.CanWriteCounter(KeyNum), st.CanWriteCounter(MaxLife))
+	}
+}
+
+// TestStableStaleNextStage: mNextStage keeps the last change's name after
+// it, so an ordinary stage there (a hop, a loading zone) leaves STABLE
+// open; only "ENDING" means the credits.
+func TestStableStaleNextStage(t *testing.T) {
+	var tr Tracker
+	run(t, &tr, 6)
+	for i := 0; i <= StableTicks; i++ {
+		s := good(uint32(7 + i))
+		s.NextStageName = s.StageName
+		if st := tr.Observe(s); !st.Stable {
+			t.Fatalf("tick %d: Stable false (%s) with a stale next stage", i, st.StableWhy)
+		}
 	}
 }

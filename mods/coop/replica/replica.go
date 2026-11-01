@@ -1395,7 +1395,14 @@ func (r *Replica) sendPresence(o *obs, armed bool, out *outbox, rep *Report) {
 func presenceOf(o *obs, armed bool) *wire.Presence {
 	s := o.s
 	p := &wire.Presence{Table: -1, Room: -1, Layer: -1, Point: s.StagePoint}
-	if st, err := wire.MakeStage(s.StageName); err == nil {
+	stage := s.StageName
+	if s.InCredits() {
+		// GT Q5: the ending's movie runs with mCurStage still GTower;
+		// saying ENDING tells the partners (their credits line) and the
+		// hub (it places this game nowhere).
+		stage = addr.StageEnding
+	}
+	if st, err := wire.MakeStage(stage); err == nil {
 		p.Stage = st
 	}
 	if addr.ValidTable(int(s.Table)) {

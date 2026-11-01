@@ -79,6 +79,11 @@ type Snapshot struct {
 	StageRoom  int8
 	StageLayer int8
 
+	// NextStageName is mNextStage's name: the last stage change asked
+	// for (it stays after the change). "ENDING" means the ending has
+	// begun (InCredits).
+	NextStageName string
+
 	// NextEnable is mNextStage.mEnable: 1 from the moment a stage change
 	// is asked for until the new stage starts.
 	NextEnable int8
@@ -233,14 +238,8 @@ func (s *Snapshot) decode() {
 	pl := func(a uint32) []byte { return s.Player[a-PlayerRegion.Start:] }
 	sv := func(a uint32) []byte { return s.Save[a-SaveRegion.Start:] }
 
-	name := st(addr.CurStageName)[:addr.StageNameLen]
-	for i, c := range name {
-		if c == 0 {
-			name = name[:i]
-			break
-		}
-	}
-	s.StageName = string(name)
+	s.StageName = cstr(st(addr.CurStageName)[:addr.StageNameLen])
+	s.NextStageName = cstr(st(addr.NextStageName)[:addr.StageNameLen])
 	s.StagePoint = int16(binary.BigEndian.Uint16(st(addr.CurStagePoint)))
 	s.StageRoom = int8(st(addr.CurStageRoomNo)[0])
 	s.StageLayer = int8(st(addr.CurStageLayer)[0])
@@ -376,4 +375,25 @@ func agree(f *folds, dst, a, b []byte) int {
 		}
 	}
 	return torn
+}
+
+// cstr is b up to its first NUL.
+func cstr(b []byte) string {
+	for i, c := range b {
+		if c == 0 {
+			return string(b[:i])
+		}
+	}
+	return string(b)
+}
+
+// InCredits reports whether this game has reached the ending (GT Q5): a
+// credits stage is loaded (addr.InCredits), or the ending has been asked
+// for. The retail ending never loads a stage called ENDING: endhr's
+// request for it starts the staff-roll movie while mCurStage still reads
+// GTower (d_s_play.cpp:310), so the request in mNextStage is the signal.
+// Nothing else asks for "ENDING", and the name stays until the next
+// change (NAMEEX's "Name", d_s_name.cpp:111).
+func (s *Snapshot) InCredits() bool {
+	return addr.InCredits(s.StageName) || s.NextStageName == addr.StageEnding
 }

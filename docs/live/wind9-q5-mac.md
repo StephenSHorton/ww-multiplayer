@@ -30,3 +30,49 @@ rest of Q5-1.
 
 Crash sweep: no ISI, DSI or invalid access in either `dolphin.log`; no panic in the session
 log. Both Dolphins stopped by PID; mp-local stopped by its stop file; lease released.
+
+## Q5-1, the real ending (2026-11-01, later; grove)
+
+Build: main b9d8b2d (REL 0xA9DE0F1E), wwdev built from it in the worktree and entitled; disc
+`~/ww-shared/disc/WW-mp.iso` (code hash 0x04765DD0, "matches this version" on both). Rig
+`wind9q5` (fresh `setup`), lease `ww/dolphin-slot-5`. Both cards replaced by the wind#11 fixture
+`b-28-Hyrule3-GanonK-cleared.gci` (md5 c6b3c091…, as in MD5SUMS), cold-booted with
+`mac-rig.sh recapture` to a rig start save, then `pair` from it (PIDs 72581, 72591, both 30 fps).
+`MP_LOCAL_PORT=0 mac-rig.sh mp-local wind9q5 Aryll Tetra --coop=new`: world 63cbd1fd… founded
+from A's file, both files bound, both replicas armed.
+
+1. Baseline: t0 saved memBit byte 0x803C4F99 (sw114 mask 0x04, sw118 mask 0x40, from
+   `addr.SwitchBit`) = 0x12 on both games: both clear.
+2. `WW_DOLPHIN_PID=72581 wwdev stage-hop GTower 2 0 9 --yes` at 11:45:30. The real ending played
+   on A: Ganondorf's last lines, Link and Tetra in the sea, Tetra's ship, the staff-roll scenes.
+   An A-press loop (A for 150-200 ms every 1-3 s) ran through it to get past the text boxes.
+3. Polled every 5 s: `mCurStage` (0x803C9D3C) read `GTower` for the whole ending (16 min), then
+   `Name` at 12:01:59. It never read `ENDING`, `ENDumi` or `sea_E`. `coop-probe` on A during the
+   ending: `STABLE closed: Link is not loaded`, not the credits reason.
+4. B never logged "has reached the credits"; its puppet log said only `player 1 (Aryll) is out
+   of this stage (GTower; here Hyrule)`. Nothing went out from A during the ending (no gains, no
+   relay). B's 0x803C4F99 stayed 0x12 and so did A's: sw114/sw118 were never set on either.
+5. A's card was unchanged afterwards (md5 still c6b3c091…): no clear save was written (the
+   A-press loop was stopped at the NAMEEX screen).
+
+Why (zeldaret/tww, main): `dScnPly_Draw` turns a next stage of "ENDING" into the ending scene
+(`fpcNm_ENDING_SCENE_e`, d_s_play.cpp:310-312) instead of a play scene, so `mCurStage` keeps
+GTower. The ending scene is `d_s_title.cpp`'s movie: when it ends, clear count 0 goes to NAMEEX
+(`d_s_title.cpp:72-80`), whose create sets stage `Name` and clear count 1 and opens the save menu
+(`d_s_name.cpp:105-169`); `changeGameScene` then starts the second quest. No code names ENDumi;
+sea_E only in a weather check. So the stage list Q5 keyed on is reachable only by dev hops, and in
+real play the credits notice never fired. Nothing leaked: the movie has no Link, and the second
+quest's file is refused (`NoticeClearCount`).
+
+Fix (this PR): `state.Snapshot.InCredits` adds `mNextStage` = "ENDING" (the request stays in
+mNextStage through the movie until NAMEEX's "Name"); the gate checks it first, the differ,
+watcher and derives use it, and PRESENCE says ENDING through the movie, so the partner line fires
+and the hub places the finisher nowhere. Offline tests in docs/TESTING.md §GT Q5.
+
+Caveats: the stage was read every 5 s, so a short stretch between two reads is not ruled out;
+the A-press loop may have skipped prompts. Still owed: a rerun on this fix (B's partner line at
+the ending request), B's own ending, and Q5-2 (let NAMEEX save, then `coop-tag show` and the
+refusal on loading the cleared file).
+
+Crash sweep: no ISI, DSI or invalid access in either `dolphin.log`; no panic in the session log.
+Both Dolphins stopped by PID, mp-local by its stop file, lease released (handed to reed, wind#44).
