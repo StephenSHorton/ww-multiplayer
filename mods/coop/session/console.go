@@ -451,6 +451,13 @@ func coopStatusOf(player string, st replica.Status) session.CoopStatus {
 	if p := st.Partner; p != nil && !p.Stage.IsEmpty() {
 		cs.PartnerStage, cs.PartnerRoom = p.Stage.String(), int(p.Room)
 	}
+	for _, p := range st.Partners {
+		cp := session.CoopPartner{Name: p.Name, Room: int(p.Presence.Room)}
+		if p.Presence.Flags&wire.PresenceInGame != 0 {
+			cp.Stage = p.Presence.Stage.String()
+		}
+		cs.Partners = append(cs.Partners, cp)
+	}
 	cs.Room = coopRoomOf(st.Room)
 	return cs
 }

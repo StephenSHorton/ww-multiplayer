@@ -134,6 +134,14 @@ const (
 	VerbStatus  Verb = "status"   // where co-op is
 )
 
+// CoopPartner is one partner in CoopStatus.Partners: Stage "" while it
+// is in no stage, Room -1 at a stage start.
+type CoopPartner struct {
+	Name  string
+	Stage string
+	Room  int
+}
+
 // Command is one console command. Player picks the Dolphin when the
 // session runs two; "" is the only one, or, for /coop and /status, all.
 type Command struct {
@@ -212,10 +220,14 @@ type CoopStatus struct {
 	NoKeyTable bool
 	Life       bool
 	LifeWhy    string
-	// Partner is where the partner is (its last PRESENCE): Stage "" for
-	// unknown, Room -1 at a stage start.
+	// Partner is where the partner is (its last PRESENCE) while there is
+	// exactly one: Stage "" for unknown (or with two or more), Room -1 at
+	// a stage start.
 	PartnerStage string
 	PartnerRoom  int
+	// Partners is every partner by name (co-op for three or more), each
+	// where its last PRESENCE put it.
+	Partners []CoopPartner
 	// Room is what the session's world holds, from this pipeline's view
 	// of it (the app's Room items card); nil before the hub's world came
 	// in.
