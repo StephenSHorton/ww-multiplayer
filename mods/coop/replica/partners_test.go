@@ -165,3 +165,28 @@ func (er *escRig) warpTo(name string) EscapeResult {
 	er.t.Fatalf("WarpTo(%s) never answered", name)
 	return EscapeResult{}
 }
+
+// TestPlacedKillsAnyPartner: M6.1's "a partner in the room" (the sender's
+// tracking, the receiver's pending kills) is any partner, as the scoped
+// stores' is.
+func TestPlacedKillsAnyPartner(t *testing.T) {
+	rr := newRecRig(t, Config{}, proto.FeatureImage)
+	st, _ := wire.MakeStage("M_NewD2")
+	in := func() bool {
+		rr.r.mu.Lock()
+		defer rr.r.mu.Unlock()
+		return rr.r.partnerInRoom(st, 3, 5)
+	}
+	say(t, rr.r, down(t, 2, "Tetra", "sea", 0, 44, 0, inGame), down(t, 3, "Medli", "M_NewD2", 3, 5, 0, inGame))
+	if !in() {
+		t.Fatal("Medli in DRC room 5, Tetra at sea: no partner in the room")
+	}
+	say(t, rr.r, down(t, 3, "Medli", "M_NewD2", 3, 4, 0, inGame))
+	if in() {
+		t.Fatal("nobody in room 5: a partner in the room")
+	}
+	say(t, rr.r, down(t, 2, "Tetra", "M_NewD2", 3, 5, 0, inGame))
+	if !in() {
+		t.Fatal("Tetra came to room 5: no partner in the room")
+	}
+}
