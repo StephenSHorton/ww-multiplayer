@@ -1353,6 +1353,7 @@ func (r *Replica) candidateMsg(o *obs) *wire.World {
 
 func (r *Replica) gainsMsg(gs []world.Gain) *wire.GainsUp {
 	r.batch++
+	r.act.noteSent(gs) // the Activity tab tells its own echo (activity.go)
 	m := &wire.GainsUp{Batch: r.batch, Gains: make([]wire.Gain, len(gs))}
 	for i, g := range gs {
 		m.Gains[i] = wire.Gain(g)

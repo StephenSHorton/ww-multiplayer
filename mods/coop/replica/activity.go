@@ -68,6 +68,47 @@ type activityRing struct {
 	entries []Activity
 	// place is each partner's last place, by connection, for "entered".
 	place map[uint8]string
+	// self is this replica's own co-op connection once learned (0 until
+	// then): the hub answers every GAINS c->s with the same delta as
+	// GAINS s->c to its origin too (hub.relay toOrigin), so an origin
+	// that is no partner and only brings bytes this replica proposed is
+	// itself. sent is those bytes, by image offset (bounded).
+	self uint8
+	sent map[uint16]bool
+}
+
+// noteSent remembers the offsets of a GAINS c->s (under mu).
+func (a *activityRing) noteSent(gs []world.Gain) {
+	if a.self != 0 {
+		return
+	}
+	if a.sent == nil || len(a.sent) > 4096 {
+		a.sent = map[uint16]bool{}
+	}
+	for _, g := range gs {
+		a.sent[g.Off] = true
+	}
+}
+
+// isSelf says whether origin is this replica's own connection, learning
+// it from a first echo (see self).
+func (a *activityRing) isSelf(origin uint8, partner bool, gs []world.Gain) bool {
+	if origin == 0 || partner {
+		return false
+	}
+	if a.self != 0 {
+		return origin == a.self
+	}
+	if len(gs) == 0 || a.sent == nil {
+		return false
+	}
+	for _, g := range gs {
+		if !a.sent[g.Off] {
+			return false
+		}
+	}
+	a.self, a.sent = origin, nil
+	return true
 }
 
 func (a *activityRing) add(now time.Time, es ...Activity) {
@@ -268,7 +309,16 @@ func (r *Replica) noteGains(m *wire.GainsDown, before *save.Image, gs []world.Ga
 		names[o] = v.p.Name
 	}
 	who, where, table := GainWho(m.Origin, names), "", -1
-	if v := r.partners[m.Origin]; v != nil && !v.p.Stage.IsEmpty() {
+	v := r.partners[m.Origin]
+	if r.act.isSelf(m.Origin, v != nil, gs) {
+		// This game's own gains, as the hub answered them.
+		who, v = "You", nil
+		if o := r.last; o != nil && o.s != nil && o.s.StageName != "" {
+			table = o.stagTable
+			where = PlaceName(table, o.s.StageName)
+		}
+	}
+	if v != nil && !v.p.Stage.IsEmpty() {
 		table = int(v.p.Table)
 		where = PlaceName(table, v.p.Stage.String())
 	}

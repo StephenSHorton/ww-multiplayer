@@ -1,0 +1,16 @@
+mp-local.log:[server] co-op: PlayerB (co-op 2) joined world 7f5777ea283a0866 (seq 2; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|chest-claim)
+mp-local.log:[coop-A] co-op: set t09 Hyrule chest 3 (0x803C50CF, and its live copy |= 0x08)
+mp-local.log:[coop-A] co-op: PlayerA:   activity: 1 entries; last: PlayerB opened a chest in Hyrule Castle
+mp-local.log:[coop-B] co-op: PlayerB:   activity: 1 entries; last: You opened a chest in Hyrule Castle
+mp-local.log:[coop-B] co-op: set t09 Hyrule chest 4 (0x803C50CF, and its live copy |= 0x10)
+mp-local.log:[coop-A] co-op: PlayerA:   activity: 2 entries; last: You opened a chest in Hyrule Castle
+mp-local.log:[coop-B] co-op: PlayerB:   activity: 2 entries; last: PlayerA opened a chest in Hyrule Castle
+mp-local.log:[coop-A] co-op: PlayerA:   activity: 2 entries; last: You opened a chest in Hyrule Castle
+mp-local.log:[coop-B] co-op: PlayerB:   activity: 2 entries; last: PlayerA opened a chest in Hyrule Castle
+mp-local.log:[coop-A] co-op: PlayerA:   activity: 3 entries; last: PlayerB entered Dragon Roost Cavern
+mp-local.log:[coop-B] co-op: PlayerB:   activity: 2 entries; last: PlayerA opened a chest in Hyrule Castle
+mp-local-1.log:[server] co-op: PlayerB (co-op 2) joined with an unbound file (unbound)
+mp-local-1.log:[server] co-op: PlayerB (co-op 2) joined world 7f5777ea283a0866 (seq 1; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|chest-claim)
+mp-local-1.log:[coop-A] co-op: set t09 Hyrule chest 2 (0x803C50CF, and its live copy |= 0x04)
+mp-local-1.log:[coop-A] co-op: PlayerA:   activity: 1 entries; last: PlayerB opened a chest in Hyrule Castle
+mp-local-1.log:[coop-B] co-op: PlayerB:   activity: 1 entries; last: a partner opened a chest in Hyrule Castle

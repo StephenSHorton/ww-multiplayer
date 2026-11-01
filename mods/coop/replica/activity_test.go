@@ -195,3 +195,27 @@ func TestStatusActivity(t *testing.T) {
 		t.Fatalf("activity %q, want %q", got, want)
 	}
 }
+
+// TestActivitySelf: the hub echoes a replica's own GAINS back to it
+// (hub.relay toOrigin); an origin that is no partner and brings only
+// bytes this replica sent is itself, learned once.
+func TestActivitySelf(t *testing.T) {
+	var a activityRing
+	mine := []world.Gain{{Off: 0x400, Val: 1}}
+	if a.isSelf(5, false, mine) {
+		t.Fatal("self before anything was sent")
+	}
+	a.noteSent(mine)
+	if a.isSelf(7, false, []world.Gain{{Off: 0x401, Val: 1}}) {
+		t.Fatal("an unknown origin with bytes this replica never sent is self")
+	}
+	if a.isSelf(3, true, mine) {
+		t.Fatal("a partner is self")
+	}
+	if !a.isSelf(5, false, mine) || a.self != 5 {
+		t.Fatal("the echo of this replica's own gains is not self")
+	}
+	if !a.isSelf(5, false, []world.Gain{{Off: 0x999, Val: 1}}) || a.isSelf(0, false, mine) {
+		t.Fatal("a learned self is not kept, or the hub's own origin 0 is self")
+	}
+}
