@@ -110,7 +110,7 @@ const (
 	ScopeKill ScopeKind = 4
 	// ScopePlaced: placement-matched kills of unkeyed enemies (§7.2a,
 	// M6.1), u32[16] like KILL's, but bit b of word w is placement
-	// ordinal 32w+b of the room (enemies.Table.Placed), not a setID. No
+	// ordinal 32w+b of the room (enemies.Table.PlacedIn), not a setID. No
 	// game records these deaths; the hub relays them to the players in the
 	// same room and keeps none (world.ScopePlaced).
 	ScopePlaced ScopeKind = 5

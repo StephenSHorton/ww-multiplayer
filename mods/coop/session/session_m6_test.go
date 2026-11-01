@@ -950,3 +950,20 @@ func TestHubCombatStatus(t *testing.T) {
 		t.Errorf("logHubStatus:\n%s", l)
 	}
 }
+
+// TestPlacedStatus: /status's M6.1 line, empty unless granted.
+func TestPlacedStatus(t *testing.T) {
+	var st replica.Status
+	if got := placedStatus(st); got != "" {
+		t.Errorf("not granted: %q", got)
+	}
+	st.Combat.Placed = replica.PlacedStatus{Granted: true, Tracked: 3, Sent: 2, Unsent: map[string]int{"offroom": 1, "nosig": 4}, Pending: 1, Taken: 5, Gone: 1, Refused: 2}
+	want := "placed kills: on; 3 tracked, 2 sent, not sent: nosig 4, offroom 1; 1 pending, 5 taken, 1 gone, 0 expired, 0 dropped, 2 refused"
+	if got := placedStatus(st); got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+	st.DryRun = true
+	if got := placedStatus(st); got != "" {
+		t.Errorf("dry run: %q", got)
+	}
+}

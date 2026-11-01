@@ -752,11 +752,11 @@ M6.1 shares the deaths of unkeyed placed enemies (setID 0xFFFF), which no game r
 
 **Semantics.** Relay only: there is no store, because every room load creates an unkeyed enemy again (`d_stage.cpp:1688-1708`). A partner's kill takes one live instance in the receiver's game. An enemy created after the kill arrived is never taken (the cutoff below).
 
-**Feature.** `proto.FeaturePlacedKill` (1<<10, `placed-kill`) is a session feature, a TableFeature and Shareable. *Changed:* it is **not** in `DefaultFeatures`. A host turns it on with `--coop-placed-kill` (or the app's rules) until the live checks P1-P3 pass. An old hub masks it out of every grant, and the hub relays PKILL only to the peers it grants it to. `wire.Schema` stays 1, and a mixed-version pair keeps every other co-op feature.
+**Feature.** `proto.FeaturePlacedKill` (1<<10, `placed-kill`) is a session feature, a TableFeature and Shareable. *Changed:* it is **not** in `DefaultFeatures`. A host turns it on with `--coop-placed-kill`, and only from the CLI for now: the app's rules can turn a feature off but not add one outside the defaults. It stays that way until the live checks P1-P3 pass. M6.1 rides on M6.0's walk and applier, so a replica runs it only when it is granted `FeatureCombat` too. An old hub masks it out of every grant, and the hub relays PKILL only to the peers it grants it to. `wire.Schema` stays 1, and a mixed-version pair keeps every other co-op feature.
 
 **Wire.** SCOPED kind **PKILL = 5** has KILL's word range (u32[16]). Bit 32w+b is placement ordinal 32w+b of the room. `world.Scopes` treats it as room-scoped and relay-only, like ROOMEDGE: it reaches only players in the same room, nothing is kept, and a player entering the room gets nothing.
 
-**Identity** (`enemies.Table.Placed`, built on first use from the M1 table, as the kill index is)
+**Identity** (`enemies.Table.PlacedIn`, built on first use from the M1 table, as the kill index is)
 - The ordinal is an entry's index among the (stage, room)'s entries in `Table.Enemies` order, across layers (at most 51 per room on the owner's disc, well under 512). Both sides number them the same way when their tables' identity matches, which `TableFeatures` already requires.
 - An actor matches an entry by its fingerprint: proc, params, the raw f32 bits of `home.pos` and `home.angle`, with three class rules. A Keese's home y is a wildcard (it moves to the ceiling, `d_a_ki.cpp:678-682`). A Kargaroc's home y is f32(y + 70) (`d_a_bb.cpp:2709-2711`). A Floormaster's angle x and z are 0 (`d_a_fm.cpp:3296-3299`).
 - Entries in one room with equal fingerprints, on any layer, form an interchangeable class: k deaths in the class set its k lowest ordinals, and the receiver takes any live member of the class.
@@ -764,7 +764,7 @@ M6.1 shares the deaths of unkeyed placed enemies (setID 0xFFFF), which no game r
 
 **Sender** (`replica/placed.go`)
 - Every tick that the feature is granted and a partner is in Link's room, the sender walks the actors and tracks the matched, eligible actors whose home room is Link's room (`mStayNo`), from the first time it sees one executing (`mInitState` 2, with the enemyice self-pointer set).
-- The signature is latched per pid. The generic one, health ≤ 0 or a nonzero light-shrink timer, is always on. A freeze (ice mode 2 or 3) latches "frozen" instead; a thaw clears every latch, and a frozen track that disappears is never sent. *Changed:* the per-class rows (dr actions, ST split, AM 44-47 and the rest) are a table with `Verified` false. A class whose death never lowers its health (Armos Knight, health pinned at 10, `d_a_am.cpp:1217-1218`) therefore sends nothing until its row is verified live (P1).
+- The signature is latched per pid. The generic one, health ≤ 0 or a nonzero light-shrink timer, is always on. A freeze (ice mode 2 or 3) latches "frozen" instead; a thaw clears every latch, and a frozen track that disappears is never sent. *Changed:* the per-class rows (dr actions, ST split, AM 44-47 and the rest) are listed here and not coded. Each row is added only after P1 confirms it. A class whose death never lowers its health (Armos Knight, health pinned at 10, `d_a_am.cpp:1217-1218`) therefore sends nothing until its row is verified live (P1).
 - A death is sent when a latched track is missing from a **complete** walk and all of these hold: the stage and table are unchanged, the home room is still `mStayNo` and loaded and settled, and the pid was not one this game light-shrank for a partner (no echo). Otherwise the disappearance is counted by reason (`nosig`, `frozen`, `offroom`, `room`, `stage`, `echo`) for `/status`.
 
 **Receiver** (`replica/placed.go`, into `reconcileM6`'s targets)
@@ -772,7 +772,13 @@ M6.1 shares the deaths of unkeyed placed enemies (setID 0xFFFF), which no game r
 - Each tick, the receiver picks for each pending kill the lowest-pid live member of its class whose pid is below the cutoff, that is not already taken this tick, and that passes `combat.Eligible` and every other M6.0 gate (the room settled, Link's demo gate, the weapon rules). That target goes through the same `ApplyActors` as M6.0's (the timer first, then the weapon), and the WriteGuard's allow asks the placed rule too. The pid joins `ever` and the "remote" set the sender reads.
 - A pending kill is dropped when Link changes stage, table or room, when the partner leaves the room, or when its TTL runs out. It is also dropped as `gone` once no member of its class with a pid below the cutoff is alive in a complete walk (a simultaneous kill on both sides). While no member has been seen yet (still creating, or the walk was partial), it waits for its TTL instead.
 
-**Live checks** P1-P8 are the plan's (§8.2 "M6.1"): P1 records each class's signature with `coop-watch`, and a row flips to verified only after it passes.
+**Consequences**
+- An interchangeable class of N members (stacked Keese, a layer twin) shares kills by count, not by member. If both players kill the same member, the receiver still has N-1 alive, so it shrinks one more. The `gone` rule only applies once no member below the cutoff is alive. P7 checks this.
+- As in M6.0, the light-shrink runs the class's generic death: each game drops its own item.
+
+**Live checks** P1-P8 are in docs/TESTING.md ("Co-op: placement-matched kills"). P1 records each class's signature with `coop-watch`, and a class row is coded only after it passes.
+
+**Left for later:** a session test with two FakeGames through a real hub (`TestCoopSessionM6Placed`; each hop has its own unit test), and the placed, out and held counts in `coop-tables`' coverage line.
 
 ### 7.3 Later
 

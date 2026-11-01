@@ -116,7 +116,8 @@ After a change to co-op behaviour, or a move of its code that the goldens cannot
 - **M3** A1-A6 and the escapes R1-R4: chests, pickups, rooms, dungeon items, switches, ocean and charts;
 - **M4** P1-P9: story bits, items, songs, capacities, keys, hearts and magic;
 - **M5** Z1-Z6: live room puzzles;
-- **M6.0** K1-K10: the kill union and the light-shrink.
+- **M6.0** K1-K10: the kill union and the light-shrink;
+- **M6.1** P1-P8 (host with `--coop-placed-kill`): placement-matched kills of unkeyed enemies, below.
 
 Each section of §8.2 lists its fixtures (F1-F5 save states) and steps.
 
@@ -688,6 +689,23 @@ Offline (`go test -count=1 ./mods/coop/class ./mods/coop/story ./wwapi/state ./w
 - [ ] **The pig pen**: A puts a pig in Outset's pen; after B's next stage change B's byte 0xBF has A's bit and B's Outset shows the same pig after 0x0520. Nothing else on B changes.
 - [ ] **A recorded reward**: A gets Kreeb's piece (or Sam's, or Linda and Anton's). B's max life rises by one quarter heart once 0x1B20 (0x1B10, 0x2280) lands, and B's Kreeb gives the after-talk, no second piece.
 - [ ] **The Goron trade** (unrecorded): A hands merchant 1 the Shop Guru Statue. Note whether 0x3E04 is set in the same talk that hands over the heart piece, and that B's max life does not move. If the bit and the piece go together on every path, 0x3E04 can become the Record.
+
+### Co-op: placement-matched kills of unkeyed enemies (M6.1, P1-P8)
+
+docs/08-coop-design.md §7.2a. **Off by default:** the host runs `--coop --coop-placed-kill` (the joiner just `--coop`), and both sides need this build (an older side never gets PKILL and keeps everything else). The feature rides on combat, so neither `--coop-dry-run` nor a host without the combat feature runs it. `/status` prints `placed kills: on; N tracked, N sent, not sent: <reason> N, ...; N pending, N taken, N gone, N expired, N dropped, N refused` on each side. The enemy mirror's default kinds (`mo2,bk+u,cc+u,ki+u`) claim their own unkeyed enemies, so pick classes the mirror leaves alone. Boko Babas, Miniblins and Armos are never mirror kinds by default (Armos is opt-in and keyed only).
+
+Rooms (owner disc, from `coop-tables`): kindan r1 (three unkeyed Boko Babas next to keyed ChuChus, so it exercises M6.0 and M6.1 in one room), ma2room r1 (seven unkeyed Miniblins, none with a byte-2 switch), Siren r0 and r8 (unkeyed Armos), kindan r3, r9 and r14 (Boko Babas). Sea r44 has stacked Keese for P7, but `ki+u` claims them unless the mirror is off (`WW_ENEMY_SYNC=0`) or the kinds leave out `ki+u`.
+
+Offline (`go test -count=1 ./wwapi/tables/enemies ./mods/coop/replica ./mods/coop/hub ./mods/coop/world ./mods/coop/wire ./mods/coop/session`): `TestPlacedOrdinals`, `TestPlacedMatch`, `TestPlacedStableThroughCache`; `TestPlacedSend`, `…SendNoSignature`, `…SendFrozen`, `…SendAlone`, `…Take`, `…Refused`, `…Simultaneous`, `…Cutoff`, `…MirrorClaimed`, `…SaveState`; `TestHubPlacedFilter`, `TestHubPlacedOldPeer`; `TestScopePlaced`; the wire round-trip `SCOPED PKILL`; `TestPlacedStatus`, the `--coop-placed-kill` flag cases.
+
+- [ ] **P1 signatures**: in kindan r1, A kills each Boko Baba normally (sword). With `coop-watch` on A, note what each death shows before the actor goes (health, light-shrink timer, mode). With only the generic signature on, a death that never shows health <= 0 or the timer is counted `nosig` on A and not sent. Record which classes need a class row, and flip a row only after it passes.
+- [ ] **P2 Keese home**: with the mirror off, a Keese's home x and z still equal its entry's after it moves to the ceiling (`actors`), and it is matched (tracked > 0).
+- [ ] **P3 Miniblins, pass/fail**: in ma2room r1, A kills a Miniblin and B's matching Miniblin shrinks. Both games then respawn their Miniblins the same way (hidden at home). After three kill cycles nothing diverges.
+- [ ] **P4 different rooms**: A kills an enemy in a room B is not in. Nothing is applied on B, and A counts it as not sent (the partner was elsewhere, so it was never tracked). If A leaves the room before the enemy vanishes, A counts `offroom`.
+- [ ] **P5 simultaneous kill**: A and B kill the same Boko Baba at once. Each game drops only its own item, and the late PKILL is counted `gone`, never shrinking another enemy.
+- [ ] **P6 layer twin**: a room whose two layers place the same enemy (Hyroom r0 has 40 such classes). The kill matches whichever layer B loaded.
+- [ ] **P7 stacked Keese** (mirror off): sea r44, A kills one of a stack, and B shrinks one of the same stack. Known artefact: if both players kill the same member, B still shrinks one more of the stack. The `gone` rule only applies when no member is left alive.
+- [ ] **P8 mixed versions**: a host with `--coop-placed-kill` and a joiner on v0.6.1. The joiner gets every other co-op feature as usual, and nothing on it is shrunk for an unkeyed kill. The hub never relays PKILL to a peer it did not grant placed-kill (`TestHubPlacedOldPeer`).
 
 ### Setup: an RVZ, WIA or GCZ disc (review idea 16)
 
