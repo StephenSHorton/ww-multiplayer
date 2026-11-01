@@ -7,6 +7,7 @@ import (
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 )
 
 // LiveState is the mutable, mutex-guarded bridge between a running multiplayer
@@ -40,6 +41,10 @@ type LiveState struct {
 	// forever, on CLI paths that never wire a LiveState at all).
 	localX, localY, localZ float32
 	hasLocalPos            bool
+	// localVitals + hasLocalVitals back session.Live's LocalVitals
+	// (wind#55), set via SetLocalVitals.
+	localVitals    vissync.Vitals
+	hasLocalVitals bool
 
 	// chat receives incoming chat lines from the puppet-sync client's OnChat
 	// callback (#20): Engine points it at the running session's
@@ -62,6 +67,7 @@ func (ls *LiveState) Begin(role, selfName string, hostIPs []string) {
 	ls.hostIPs = hostIPs
 	ls.localX, ls.localY, ls.localZ = 0, 0, 0
 	ls.hasLocalPos = false
+	ls.localVitals, ls.hasLocalVitals = vissync.Vitals{}, false
 }
 
 // SetChat points incoming chat at sink (nil drops it). begin() leaves it
@@ -123,6 +129,28 @@ func (ls *LiveState) SetLocalPos(x, y, z float32) {
 	ls.mu.Unlock()
 }
 
+// SetLocalVitals records this player's own latest hearts, magic and
+// rupees (wind#55): feed.BroadcastPose's onVitals, about four times a
+// second. ok false (a failed read, no file loaded) clears them.
+func (ls *LiveState) SetLocalVitals(v vissync.Vitals, ok bool) {
+	ls.mu.Lock()
+	ls.localVitals, ls.hasLocalVitals = v, ok
+	ls.mu.Unlock()
+}
+
+// LocalVitals is the last SetLocalVitals; ok is false before one, or
+// after one that couldn't read them.
+func (ls *LiveState) LocalVitals() (v session.Vitals, ok bool) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	return sessionVitals(ls.localVitals), ls.hasLocalVitals
+}
+
+// sessionVitals is v as the session's network-free type.
+func sessionVitals(v vissync.Vitals) session.Vitals {
+	return session.Vitals{Life: v.Life, MaxLife: v.MaxLife, Magic: v.Magic, MaxMagic: v.MaxMagic, Rupees: v.Rupees}
+}
+
 // Players returns the OTHER humans in the session, one entry per person, as
 // network-free session.Player values. Returns nil when no client is registered
 // yet. The raw client snapshot is de-duplicated (see remoteViews +
@@ -173,14 +201,25 @@ func remoteViews(c *network.Client, selfName string) []session.Player {
 		if selfName != "" && rp.Name == selfName {
 			continue // our own broadcast/puppet twin — not another human
 		}
-		pv := session.Player{ID: rp.ID, Name: rp.Name, Color: rp.Color, HasColor: rp.HasColor}
-		if rp.Position != nil {
-			pv.X, pv.Y, pv.Z = rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
-		}
+		pv := playerView(rp)
 		pv.Place, pv.HasPlace = freshPlace(rp, now)
 		out = append(out, pv)
 	}
 	return out
+}
+
+// playerView is one remote as a network-free session.Player: its tunic
+// color, its position once it has broadcast one, and its vitals once its
+// pose trailer carries them (wind#55).
+func playerView(rp network.RemotePlayer) session.Player {
+	pv := session.Player{ID: rp.ID, Name: rp.Name, Color: rp.Color, HasColor: rp.HasColor}
+	if v, ok := vissync.DecodeVitals(rp.FaceState); ok {
+		pv.Vitals, pv.HasVitals = sessionVitals(v), true
+	}
+	if rp.Position != nil {
+		pv.X, pv.Y, pv.Z = rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
+	}
+	return pv
 }
 
 // dedupePlayersByName collapses the duplicate remote-player entries the network
@@ -313,6 +352,15 @@ func LiveStateLocalPosSetter(ls *LiveState) func(x, y, z float32) {
 		return nil
 	}
 	return ls.SetLocalPos
+}
+
+// LiveStateVitalsSetter adapts a *LiveState into BroadcastPose's onVitals
+// callback (wind#55), nil when ls is nil, like LiveStateLocalPosSetter.
+func LiveStateVitalsSetter(ls *LiveState) func(vissync.Vitals, bool) {
+	if ls == nil {
+		return nil
+	}
+	return ls.SetLocalVitals
 }
 
 // PuppetClient is the puppet-sync client registered with the bridge.

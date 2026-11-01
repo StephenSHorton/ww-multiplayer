@@ -11,6 +11,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
@@ -114,7 +115,7 @@ func RunHostSession(ctx context.Context, cancel context.CancelFunc, env Env, nam
 	}
 	rep.Log(log.Info, "Ctrl+C to stop.")
 
-	err := runMultiplayerGoroutines(ctx, cancel, env.Feed, name, fmt.Sprintf("localhost:%d", port), rep, LiveStateClientSetter(ls), LiveStateLocalPosSetter(ls), coop, true)
+	err := runMultiplayerGoroutines(ctx, cancel, env.Feed, name, fmt.Sprintf("localhost:%d", port), rep, LiveStateClientSetter(ls), LiveStateLocalPosSetter(ls), LiveStateVitalsSetter(ls), coop, true)
 
 	srv.Stop()
 	if coop != nil {
@@ -153,7 +154,7 @@ func RunJoinSession(ctx context.Context, cancel context.CancelFunc, env Env, add
 	}
 	rep.Log(log.Info, "Ctrl+C to stop.")
 
-	err := runMultiplayerGoroutines(ctx, cancel, env.Feed, name, addr, rep, LiveStateClientSetter(ls), LiveStateLocalPosSetter(ls), coop, false)
+	err := runMultiplayerGoroutines(ctx, cancel, env.Feed, name, addr, rep, LiveStateClientSetter(ls), LiveStateLocalPosSetter(ls), LiveStateVitalsSetter(ls), coop, false)
 
 	env.clear()
 	return err
@@ -187,7 +188,7 @@ func RunJoinSession(ctx context.Context, cancel context.CancelFunc, env Env, add
 // claims (enemy-mirror-general.json D8); the host's game has none.
 // Returns RunPipelines' result: the first real failure, or nil on a normal
 // ctx-cancel shutdown.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), coop Coop, host bool) error {
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), onVitals func(vissync.Vitals, bool), coop Coop, host bool) error {
 	claims := enemyClaims(host)
 	connLog := feed.NewConnectLog(addr, rep)
 	// A warp to the partner takes its position from pose sync (without
@@ -197,7 +198,7 @@ func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe
 	}
 	ps := []Pipeline{
 		{Name: "broadcast-pose", Run: func(ctx context.Context) error {
-			return feed.BroadcastPose(ctx, fe, name, addr, 0, rep, connLog, onPos)
+			return feed.BroadcastPose(ctx, fe, name, addr, 0, rep, connLog, onPos, onVitals)
 		}},
 		{Name: "puppet-sync", Run: func(ctx context.Context) error {
 			return feed.PuppetSync(ctx, fe, name, addr, name, 0, rep, connLog, onClient)

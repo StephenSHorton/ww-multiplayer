@@ -126,6 +126,7 @@ func (e *Engine) Live() session.Live {
 	var l session.Live
 	if e.ls != nil {
 		x, y, z, ok := e.ls.LocalPos()
+		vit, vitOK := e.ls.LocalVitals()
 		l = session.Live{
 			Players:     e.ls.Players(),
 			PlayerCount: e.ls.PlayerCount(),
@@ -135,6 +136,9 @@ func (e *Engine) Live() session.Live {
 			LocalY:      y,
 			LocalZ:      z,
 			LocalOK:     ok,
+
+			LocalVitals:   vit,
+			LocalVitalsOK: vitOK,
 		}
 		l.LocalPlace, l.LocalHasPlace = e.ls.LocalPlace()
 	}
