@@ -130,8 +130,8 @@ type Config struct {
 	// replica uses: proto.FeatureImage, and with Apply proto.FeatureSwitches,
 	// proto.FeatureLiveSwitches, proto.M4Features, proto.FeaturePuzzle and
 	// proto.FeatureCombat too
-	// (the host decides whether to allow the live-switch opt-in,
-	// --coop-live-switches). A dry run asks for what M2 did,
+	// (the host decides whether to allow live switches, on by default
+	// since v0.6.1, --coop-live-switches=off). A dry run asks for what M2 did,
 	// proto.FeatureImage. Bits outside proto.SessionFeatures are ignored.
 	Want proto.Feature
 	// Policy limits what the replica proposes, plans and writes to the

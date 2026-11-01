@@ -114,15 +114,14 @@ import (
 // before the relay applies.
 //
 // The --coop-boss-kill row set (Config.BossKill, ParseBossKill) picks the
-// rows the relay asks for, each side its own: gohma,kalle,molgera,
-// jalhalla,helmaroc by default (Helmaroc King since HK-1, the two-Dolphin
-// check and a real hammer fight passed, docs/TESTING.md "Batch F";
-// Molgera and Jalhalla since MB-2, JH-1 and the two-Dolphin checks passed
-// with a real Hookshot pull and a real light freeze and spike throw,
-// "Batch E"). Gohdan joins the default once GD-4 and the D4 live check
-// pass (G-D1; docs/TESTING.md "Batch D"); until then it is asked for only
-// when named, and a list replaces the default, so all six are named:
-// --coop-boss-kill=gohma,kalle,gohdan,molgera,jalhalla,helmaroc. A row
+// rows the relay asks for, each side its own: all six by default,
+// BossKillDefault (Helmaroc King since HK-1, the two-Dolphin check and a
+// real hammer fight passed, docs/TESTING.md "Batch F"; Molgera and
+// Jalhalla since MB-2, JH-1 and the two-Dolphin checks passed with a real
+// Hookshot pull and a real light freeze and spike throw, "Batch E";
+// Gohdan since v0.6.1, the owner's call with GD-4's natural fight still
+// owed, "Batch D"). A list replaces the default, so a side that leaves a
+// boss out names the rest, e.g. --coop-boss-kill=gohma,kalle,molgera. A row
 // left out is held as before (bossHold) and logged once; the WriteGuard
 // takes every row's proc whatever the set (bossRules).
 
