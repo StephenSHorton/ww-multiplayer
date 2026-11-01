@@ -36,3 +36,12 @@ King of Red Lions in Hyrule's basin (drawn counter at 0x804138EC rising about 30
   so "pose feed paused through the reboot" cannot be seen on this path. A reboot *from play* with the
   feed live needs the disc-cover path (a reset with the cover open), which the rig cannot drive
   unattended. That is still BT-9's reboot half.
+
+## BT-10 regression sweep (in part)
+
+`wwdev smoke --no-boot` on the same pair, boats on by default (`MP_LOCAL_PIDS` pinned, `MP_LOCAL_PORT=0`):
+**pass, 54 checks, 0 failed**. That covers steady, walk both ways, A's hop Hyrule -> sea r44 -> back,
+the after-hop walk, mp-local alive and a clean stop. Afterwards: no ISI/DSI/invalid access/JUTException
+in either dolphin.log, no ERROR or panic in mp-local.log, and the boat block's drawn counter rising
+with error word 0 on both games.
+Not judged: V6's eyes, tunic colours and face sync by eye, and P6 (the boat cannon) on this build.
