@@ -20,7 +20,9 @@ No crash: `crash-context` on both games caught nothing; no ISI/DSI or invalid ac
 | Tier 3 `leaves,dry` | **PASS** | New world, sw47 clear on both, then set on A: B logs `actor_refresh dry run: would ask the REL to delete the stale Obj_Leaves ... (bit kind 1, bit 0x2F); nothing is written` once; B's seq at 0x804137B0 stays 1; B's pile stays, its bit landed. |
 | Tier 3 `saku` (kindan r3 Ksaku pair, room switches 227/228, the scoped path) | **PASS** | A's room byte 0x803C53B7 \|= 0x18: B logs `set the partner's room switch 0xE3, 0xE4 in room 3`. With B's Link 104 XZ from the barricade (1550 below it) nothing is asked and nothing logged; moved to 800 XZ: `asking the REL to delete the stale Saku ... (actor_refresh 4)` once, then `applied` (state 0x0101, both halves standing); gone on B. |
 | RC-10 `kokiie` (kindan r5 flower house, sw28) | **PASS** | sw28 cleared on both, reloaded: the house hangs (y 6920) with five SHAND on both. A's sw28 set: B logs `asking the REL to re-create the stale Kokiie ... (actor_refresh 3)` once, then `re-created ... (new pid 1423)`; on B the house is at y 1380 (fallen) and no SHAND is left; A sends none. Screenshot not useful (the house is below B's camera). |
-| Tier 3 `item`, `stone2` rerun; RC-10 other rows | **NOT RUN** | Slot time. `item` needs a DRC rupee with a bit; stone2 DRC r2 sw17. |
+| Tier 3 `stone2` rerun on 0x1CE30685 (M_NewD2 r2 Ebrock2 sw17) | **PASS** | Second session (lease `ww/dolphin-slot-2`, new world). A's sw17 set (0x803C5385 \|= 0x02): B logs `asking the REL to delete the stale Stone2 ... (actor_refresh 1)` once, then `applied`; gone on B; A sends none. |
+| Tier 3 `item` (M_NewD2 r3 daItem 0x15, item bit 3) | **PASS** | Same session. A's item bit 3 set (0x803C5397 \|= 0x08): B logs `asking the REL to delete the stale daItem ... (actor_refresh 2)` once, then `applied` (state 0x0002); the pickup is gone on B; A sends none. |
+| RC-10 other rows (swhit0, warpt, mflft, vmc) and their dry runs | **NOT RUN** | One-Dolphin passes only (records 1 and 2). |
 
 ## Findings
 
