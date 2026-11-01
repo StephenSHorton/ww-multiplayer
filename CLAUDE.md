@@ -51,6 +51,7 @@ ww-multiplayer/
 │   │   ├── ciso.go              # CISO decompressor
 │   │   └── rels/                # RELS.arc patcher: the mod's REL in an actor module's place, the profile list repointed, the 64 KB ARAM growth guard;
 │   │                            #   optional in-place byte patches to vanilla RELs (seaheap.go: BytePatch, SeaHeapFix over rel.PatchBytes, checked by inject.CheckOverlaps)
+│   ├── seachart/                # The app's Great Sea chart: island art read from the player's own disc (Fmap.arc tiles, FmapDat.bin, each stage's 2DMA square), upscaled, cached in the config dir; never in git
 │   ├── netutil/                 # Address parsing shared by host/join/server; join codes (WW-XXXX-XXXX, joincode.go)
 │   ├── dolphintool/             # Dolphin's DolphinTool beside its Dolphin: probe `convert --help`, RVZ/WIA/GCZ -> temporary ISO (patch's Converter), free space
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors; convert.go: an RVZ/WIA/GCZ input converted first)
