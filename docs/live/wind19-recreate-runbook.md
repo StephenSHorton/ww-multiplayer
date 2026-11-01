@@ -84,6 +84,32 @@ own breaks send no request. Then `<token>,dry`: one `would ask` line per
 candidate and the seq at 0x804137B0 does not move. `/status` shows the
 `actor_refresh (...)` part.
 
+The PC's rig did this with `boot2.sh` (one Dolphin per fixture user dir,
+detached, MEM1 override) and `mpl.ps1` (mp-local with the co-op flags,
+stopped through `MP_LOCAL_STOP_FILE`). The same on macOS (prefer
+wind#3's `docs/mac-rig.md` script once it exists; this is the fallback):
+
+```bash
+# Run from your wind19 worktree with wwdev built there. One slot lease for the pair.
+R=~/ww-scratch/wind19; mkdir -p $R && cd ~/projects/ww-mp-wind19
+cp -R ~/ww-shared/fixtures/dolphin-user-4 $R/user-A; cp -R ~/ww-shared/fixtures/dolphin-user-3 $R/user-B
+DOLPHIN=~/Applications/Dolphin.app/Contents/MacOS/Dolphin   # or /Applications/...
+ISO=~/ww-shared/disc/WW-mp.iso; SAV=~/ww-shared/fixtures/start-totg-1CE30685.sav
+boot() { "$DOLPHIN" -u "$1" -e "$ISO" -s "$SAV" \
+  -C Dolphin.Core.RAMOverrideEnable=True -C Dolphin.Core.MEM1Size=0x03000000 >"$1.out" 2>&1 & echo $!; }
+A=$(boot $R/user-A); B=$(boot $R/user-B); echo "$A $B" > $R/pids   # kill by these PIDs only
+USER_DIR_1=$R/user-A USER_DIR_2=$R/user-B MP_LOCAL_PIDS=$A,$B MP_LOCAL_STOP_FILE=$R/stop \
+  go run ./cmd/wwdev mp-local --coop=new --coop-iso "$ISO" --coop-refresh=<token> --yes > $R/mpl-<token>.log 2>&1 &
+# mp-local takes one --coop-refresh for both games (coopsession's flag parse), as the PC ran it. The
+# box's "on B" is about who asks: A breaks, B's relay asks; A's relay sees no stale copy. Record that
+# both sides had the token. For a strictly one-sided run use `host`/`join` as two processes instead.
+until grep -q 'Local multiplayer running' $R/mpl-<token>.log; do sleep 2; done
+touch $R/stop   # clean stop; then kill $A $B
+```
+
+If the `-s` state refuses on the Mac Dolphin's revision, cold-boot without
+`-s` and use `wwdev auto-recapture` (wind#3 measures which works).
+
 Tier 3 tokens owed (coop-remaining §2C): `leaves` (FW r5 leaf pile #105
 sw47), `item` (a DRC rupee), `saku` (FW r3 Ksaku pair sw227/228, the
 scoped path), and `dry`. #199 rewrote refresh.c into tables, so the old
