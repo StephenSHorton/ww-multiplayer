@@ -65,3 +65,23 @@ both `stage-hop ma2room 2 1`. The Miniblins (proc 0xF9, params 0xE4FF0F90) are h
 - No ISI/DSI or invalid access in either dolphin.log, and no panic in either process.
 
 So since main's #232/#267 the mixed-version case is moot for releases: a v0.6.1 player can't play co-op with any later build at all.
+
+## P5, P6, P7 (newt, second slot, 2026-11-01)
+Rig wind29 (lease ww/dolphin-slot-1), main eb7948f, REL 0xA9DE0F1E, CryZe `9-Hyrule1` state, mp-local `--coop=new --coop-placed-kill` with `WW_ENEMY_SYNC=0`.
+- **P6 Hyroom r0 (pass, same layer):** this file loads the room's enemy layer, with 7 Darknuts (proc 0xC0) and 10 Moblins (proc 0xBD), all unkeyed and the same on both sides.
+  `/status` read 0 tracked right after the hop and 17 a few seconds later, once the room had settled. A's `enemy-kill` on Moblin 0x80A81020 gave
+  `1 sent`, and B logged `placed: light-shrunk the partner's kill of Hyroom room 0 ordinal 16 (table 9): actor 0x80A81020`. Both games went to 9 Moblins.
+  Both games had the same layer; two different layers at once needs B on a later progression and was not run.
+- **P7 sea r44 stacked Keese (pass):** alder's start-save try found no Keese, and they are not night-only: setting mTime
+  (status_b+0xC, 0x803C4C2C, 180.0 = noon) to 10.0 and hopping still loaded layer 5 (6 ChuChus, 4 Miniblins). The disc places the
+  room's Keese on layers 6, 7 and 11 (12, 8 and 6 entries; `coop-tables --section enemies --json`). `stage-hop sea 0 44 6` on both
+  gave 12 Keese (proc 0xD8, params 0xFFFF0101) and 12 tracked each. A killed 0x80A5EEFC, and B logged `... sea room 44 ordinal 10 (table 0):
+  actor 0x80A64974`, a different member of the same interchangeable stack (B's lowest-pid live one). Both went to 11. The hop to the same
+  room on another layer counted the 6 departing layer-5 tracks as `nosig` (not sent); this is harmless.
+- **P5 counter:** `placedGone` counts `gone` only when this game saw a member of the placement's class after the PKILL arrived
+  (`k.seen`). In the simultaneous Miniblin kill, B's own instance was deleted before A's PKILL came, and each Miniblin is its own class
+  (distinct homes), so nothing was ever seen, and the pending kill waited out `placedTTL` (100 ticks) and counted `expired`. That
+  behaviour is correct (nothing extra shrank); TESTING's P5 wording is widened to say so.
+- Not driven: the Boko Baba and Armos sword kills (P1). Blind input can't land a slash before the Boko Baba bites, and the Armos needs a hit
+  to its back. Both need a person or a guard/lock-on recipe.
+- No ISI/DSI or invalid access in either dolphin.log, and no panic in mp-local.
