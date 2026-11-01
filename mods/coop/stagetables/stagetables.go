@@ -130,6 +130,19 @@ func (st *Tables) KillVerdict() func(table int, stage string, room, setID int) b
 	}
 }
 
+// PlacedVerdict is the hub's verdict on SCOPED PKILL's placement
+// ordinals (synctables.SyncedPlaced; §7.2a, M6.1); nil without an enemy
+// table.
+func (st *Tables) PlacedVerdict() func(table int, stage string, room, ordinal int) bool {
+	if st == nil || st.t == nil || st.t.Enemies == nil {
+		return nil
+	}
+	t := st.t
+	return func(table int, stage string, room, ordinal int) bool {
+		return synctables.SyncedPlaced(t, table, stage, room, ordinal)
+	}
+}
+
 // M1 is the tables themselves; nil without tables.
 func (st *Tables) M1() *tables.Tables {
 	if st == nil {

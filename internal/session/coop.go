@@ -29,8 +29,11 @@ type CoopOptions struct {
 	// by default since v0.6.1, so the zero value (the TUI's choices, a
 	// CLI host without the flag) has them on.
 	LiveSwitchesOff bool
-	DryRun          bool   // --coop-dry-run
-	ISO             string // --coop-iso; "" for the disc patch last wrote
+	// PlacedKill is --coop-placed-kill (docs/08 §7.2a, M6.1): the host
+	// allows placement-matched kills of unkeyed enemies. Off by default.
+	PlacedKill bool
+	DryRun     bool   // --coop-dry-run
+	ISO        string // --coop-iso; "" for the disc patch last wrote
 	// Yes answers every question yes at once (--yes).
 	Yes bool
 	// BossKill is --coop-boss-kill, the boss-dead relay's row set; "" is

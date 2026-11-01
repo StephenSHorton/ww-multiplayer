@@ -1341,7 +1341,7 @@ func TestFeatureString(t *testing.T) {
 	}{
 		{0, "none"},
 		{DefaultFeatures, "image|puzzle|combat|switches|story|inventory|keys|life|magic"},
-		{TableFeatures, "puzzle|combat|live-switches|switches|keys|life"},
+		{TableFeatures, "puzzle|combat|live-switches|switches|keys|life|placed-kill"},
 		{FeatureBind | AskBind | 1<<20, "bind|ask-bind|0x100000"},
 	}
 	for _, tc := range cases {

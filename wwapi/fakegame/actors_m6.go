@@ -114,7 +114,7 @@ type Enemy struct {
 	// d_stage.cpp:1300-1310): a K1 enemy's death switch is angle.z's low
 	// byte, a door's rooms angle.x's.
 	Angle [3]int16
-	// Pos is its current.pos as it is created.
+	// Pos is its current.pos and home.pos as it is created.
 	Pos [3]float32
 }
 
@@ -583,6 +583,9 @@ func (g *FakeGame) layActor(a *liveActor, p Enemy, status uint32) {
 	for i := range 3 {
 		g.st16(a.at+addr.ActorOffHomeAngle+uint32(2*i), uint16(p.Angle[i]))
 		g.st32(a.at+addr.ActorOffCurPos+uint32(4*i), math.Float32bits(p.Pos[i]))
+		// fopAc_Create copies the entry's position into home.pos too
+		// (f_op_actor.cpp:270-283), which M6.1 matches placements by.
+		g.st32(a.at+addr.ActorOffHomePos+uint32(4*i), math.Float32bits(p.Pos[i]))
 	}
 }
 

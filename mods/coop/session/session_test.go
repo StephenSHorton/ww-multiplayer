@@ -65,6 +65,9 @@ func TestExtractCoopFlags(t *testing.T) {
 		{name: "live switches false", args: []string{"--coop", "--coop-live-switches=FALSE"}, want: Flags{on: true, liveSet: true}, rest: []string{}},
 		{name: "live switches no", args: []string{"--coop", "--coop-live-switches=no"}, want: Flags{on: true, liveSet: true}, rest: []string{}},
 		{name: "live switches 0", args: []string{"--coop", "--coop-live-switches=0"}, want: Flags{on: true, liveSet: true}, rest: []string{}},
+		{name: "placed kill", args: []string{"--coop", "--coop-placed-kill"}, want: Flags{on: true, liveSwitches: true, placedKill: true, placedSet: true}, rest: []string{}},
+		{name: "placed kill off", args: []string{"--coop", "--coop-placed-kill=off"}, want: Flags{on: true, liveSwitches: true, placedSet: true}, rest: []string{}},
+		{name: "placed kill bad", args: []string{"--coop", "--coop-placed-kill=maybe"}, wantErr: "--coop-placed-kill=on"},
 		{name: "live switches =on", args: []string{"--coop", "--coop-live-switches=on"}, want: Flags{on: true, liveSwitches: true, liveSet: true}, rest: []string{}},
 		{name: "bad world", args: []string{"--coop=xyz"}, wantErr: "--coop=new, or a world ID"},
 		{name: "zero world", args: []string{"--coop=0000000000000000"}, wantErr: "--coop=new, or a world ID"},
@@ -110,6 +113,7 @@ func TestCoopFlagsForJoin(t *testing.T) {
 		{Flags{on: true, liveSwitches: true, liveSet: true}, "--coop-live-switches is the host's choice"},
 		{Flags{on: true, liveSet: true}, "--coop-live-switches is the host's choice"}, // =off too
 		{Flags{on: true, dryRun: true, iso: "ww.iso"}, ""},
+		{Flags{on: true, placedKill: true, placedSet: true}, "--coop-placed-kill is the host's choice"},
 	}
 	for _, tt := range tests {
 		err := tt.f.ForJoin()

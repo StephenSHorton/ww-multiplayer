@@ -38,3 +38,21 @@ func KillMask(t *tables.Tables, table int, stage string, room int) enemies.KillS
 	}
 	return t.Enemies.KillMask(stage, room)
 }
+
+// SyncedPlaced reports whether co-op may share a kill of the unkeyed
+// enemy of placement ordinal ordinal in room of stage, in save table
+// table's game (§7.2a, M6.1): a placed entry of the enemy table
+// (enemies.Table.PlacedOK: an unkeyed K1 entry, not BOSS, Morth, a
+// searchlight Bokoblin or a Miniblin with a byte-2 switch). Nothing
+// records it; the hub relays it and the receiver light-shrinks one live
+// instance.
+//
+// False for a table outside 0..15, a room outside 0..63, an ordinal
+// outside 0..511 and without an enemy table.
+func SyncedPlaced(t *tables.Tables, table int, stage string, room, ordinal int) bool {
+	if t == nil || t.Enemies == nil || !addr.ValidTable(table) || room < 0 || room >= addr.RoomCount ||
+		ordinal < 0 || ordinal >= enemies.MaxOrdinal || stage == "" {
+		return false
+	}
+	return t.Enemies.PlacedOK(stage, room, ordinal)
+}

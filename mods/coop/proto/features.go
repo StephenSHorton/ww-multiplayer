@@ -75,6 +75,17 @@ const (
 	// count itself is DERIVED and never enters the world.
 	FeatureKeys Feature = 1 << 7
 
+	// FeaturePlacedKill is placement-matched kills of unkeyed enemies
+	// (SCOPED PKILL; §7.2a, M6.1): a partner's kill of an unkeyed placed
+	// K1 enemy, sent while both players are in the same room, light-shrinks
+	// one live instance of the same placement here. It reads the M1 enemy
+	// table (the placement ordinals, TableFeatures), and no game records
+	// these deaths, so the hub only relays them. Not in DefaultFeatures
+	// until the live checks P1-P3 pass: a host turns it on
+	// (--coop-placed-kill). An older hub never grants it (it masks grants
+	// to its SessionFeatures), so a mixed-version pair keeps the rest.
+	FeaturePlacedKill Feature = 1 << 10
+
 	// FeatureLife is derived max life (§3 "Max life", M4): 12 quarter
 	// hearts plus the pieces and four per container the replica's own game
 	// has collected, raised through the HUD's pending counter, never
@@ -117,12 +128,13 @@ const M4Features = FeatureStory | FeatureInventory | FeatureKeys | FeatureLife |
 
 // SessionFeatures is every session feature: what a replica may want and a
 // host may allow.
-const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLiveSwitches | FeatureSwitches | M4Features
+const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLiveSwitches | FeatureSwitches | M4Features | FeaturePlacedKill
 
 // DefaultFeatures is what a host allows unless told otherwise (a --coop
-// session): everything but live switches. The session adds
-// FeatureLiveSwitches itself unless the host passes
-// --coop-live-switches=off (on by default since v0.6.1; startHub).
+// session): everything but live switches and placed kills. The session
+// adds FeatureLiveSwitches itself unless the host passes
+// --coop-live-switches=off (on by default since v0.6.1; startHub), and
+// FeaturePlacedKill only with --coop-placed-kill (off by default).
 const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSwitches | M4Features
 
 // TableFeatures are the session features that read the M1 stage tables
@@ -136,7 +148,7 @@ const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSw
 // other classes (chests, pickups, visited rooms, dungeon items, ocean,
 // charts and the sea map, story bits, registers, inventory and
 // capacities, §3) and max magic need no table.
-const TableFeatures = FeatureSwitches | FeatureLiveSwitches | FeaturePuzzle | FeatureCombat | FeatureKeys | FeatureLife
+const TableFeatures = FeatureSwitches | FeatureLiveSwitches | FeaturePuzzle | FeatureCombat | FeatureKeys | FeatureLife | FeaturePlacedKill
 
 // Shareable are the session features a host may turn on and off while
 // its hub runs (the app's owner-editable rules, the ww-online review's
@@ -193,6 +205,7 @@ var featureNames = []struct {
 	{FeatureKeys, "keys"},
 	{FeatureLife, "life"},
 	{FeatureMagic, "magic"},
+	{FeaturePlacedKill, "placed-kill"},
 	{FeatureMerge, "merge"},
 	{FeatureBind, "bind"},
 	{AskUnsaved, "ask-unsaved"},

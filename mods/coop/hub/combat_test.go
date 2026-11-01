@@ -23,7 +23,7 @@ func TestHubKillFilter(t *testing.T) {
 		asked = append(asked, ask{table, stage, room, setID})
 		return setID == 33 || setID == 511
 	}
-	f := Filter(syncAll, kill)
+	f := Filter(syncAll, kill, nil)
 	for _, c := range []struct {
 		k     world.Key
 		w     int
@@ -50,7 +50,7 @@ func TestHubKillFilter(t *testing.T) {
 			t.Errorf("filter(%s, %d) first asked %+v, want %+v", c.k, c.w, asked, c.first)
 		}
 	}
-	none := Filter(syncAll, nil)
+	none := Filter(syncAll, nil, nil)
 	if got := none(world.Key{Kind: world.ScopeKill, Stage: drc, Table: 3, Room: 1}, 1); got != 0 {
 		t.Errorf("a nil kill verdict keeps 0x%X", got)
 	}
@@ -151,5 +151,103 @@ func TestHubCombatNeedsEqualTables(t *testing.T) {
 	}
 	if got := pick[*wire.Scoped](a.take(t)); len(got) != 0 {
 		t.Fatalf("alice got bob's refused kill: %+v", got)
+	}
+}
+
+// TestHubPlacedFilter: PKILL's bits pass by the placed verdict alone
+// (§7.2a, M6.1); a nil verdict passes none, and the kill verdict is
+// never asked about them.
+func TestHubPlacedFilter(t *testing.T) {
+	killAsked := false
+	kill := func(int, string, int, int) bool { killAsked = true; return true }
+	placed := func(table int, stage string, room, ord int) bool {
+		return table == 9 && stage == "kindan" && room == 1 && ord == 4
+	}
+	f := Filter(syncAll, kill, placed)
+	k := world.Key{Kind: world.ScopePlaced, Stage: "kindan", Table: 9, Room: 1}
+	if got := f(k, 0); got != 1<<4 {
+		t.Errorf("placed word 0: 0x%X, want 0x10", got)
+	}
+	if got := f(k, 16); got != 0 {
+		t.Errorf("placed word 16: 0x%X, want 0", got)
+	}
+	if killAsked {
+		t.Error("PKILL asked the kill verdict")
+	}
+	if got := Filter(syncAll, kill, nil)(k, 0); got != 0 {
+		t.Errorf("a nil placed verdict passed 0x%X", got)
+	}
+	if got := f(world.Key{Kind: world.ScopeKill, Stage: "kindan", Table: 9, Room: 1}, 0); got != 0xFFFFFFFF {
+		t.Errorf("KILL through the placed filter: 0x%X, want the kill verdict's", got)
+	}
+}
+
+// TestHubPlacedOldPeer: FeaturePlacedKill is off unless the host allows
+// it; then PKILL reaches only the peers in the room that were granted it
+// (a peer that never asked, as an older replica, gets none and keeps
+// every other feature), refused bits are counted, and nothing is stored.
+func TestHubPlacedOldPeer(t *testing.T) {
+	if DefaultFeatures&FeaturePlacedKill != 0 {
+		t.Fatal("placed-kill is on by default")
+	}
+	cfg := fullCfg()
+	cfg.Features |= FeaturePlacedKill
+	cfg.SyncedPlaced = func(_ int, _ string, _, ord int) bool { return ord < 8 }
+	r := newRig(t, cfg)
+	a := newConn(1, "alice")
+	r.attach(a)
+	m := hello(wire.FileBound, testWorld, 1)
+	m.Want |= uint32(FeaturePlacedKill)
+	if w := welcomeOf(t, r.exchange(a, m)); Feature(w.Features)&FeaturePlacedKill == 0 {
+		t.Fatalf("alice asked for placed-kill and got %s", Feature(w.Features))
+	}
+	b := newConn(2, "bob")
+	r.attach(b)
+	m = hello(wire.FileBound, testWorld, 2)
+	m.Want |= uint32(FeaturePlacedKill)
+	welcomeOf(t, r.exchange(b, m))
+	old := r.join(newConn(3, "old")) // wants DefaultFeatures: an older replica
+	for _, c := range []*fakeConn{a, b, old} {
+		r.send(c, presence("kindan", 9, 1))
+	}
+	a.take(t)
+	b.take(t)
+	old.take(t)
+	r.send(a, scoped(wire.ScopePlaced, "kindan", 9, 1, wire.ScopedWord{Word: 0, Bits: 1<<4 | 1<<9}))
+	if got := pick[*wire.Scoped](b.take(t)); len(got) != 1 || got[0].Kind != wire.ScopePlaced || !slices.Equal(got[0].Words, []wire.ScopedWord{{Word: 0, Bits: 1 << 4}}) {
+		t.Fatalf("bob got %+v, want ordinal 4 alone", got)
+	}
+	if got := pick[*wire.Scoped](old.take(t)); len(got) != 0 {
+		t.Fatalf("the peer without placed-kill got %+v", got)
+	}
+	st := r.status()
+	if len(st.Scopes) != 0 {
+		t.Errorf("stores %v after a PKILL", st.Scopes)
+	}
+	for _, p := range st.Peers {
+		if want := map[string]int{"alice": 1}[p.Name]; p.ScopedRefused != want {
+			t.Errorf("%s: %d scoped bits refused, want %d", p.Name, p.ScopedRefused, want)
+		}
+		if p.Name == "old" && p.Features != DefaultFeatures {
+			t.Errorf("old peer features %s, want %s", p.Features, DefaultFeatures)
+		}
+	}
+	// The old peer sending one is refused with a NOTICE, and nobody gets it.
+	r.send(old, scoped(wire.ScopePlaced, "kindan", 9, 1, wire.ScopedWord{Word: 0, Bits: 1}))
+	if got := pick[*wire.Scoped](a.take(t)); len(got) != 0 {
+		t.Fatalf("an ungranted peer's PKILL reached alice: %+v", got)
+	}
+	if got := pick[*wire.Notice](old.take(t)); len(got) != 1 {
+		t.Errorf("the ungranted PKILL got notices %+v, want one", got)
+	}
+
+	// A host that does not allow it grants it to nobody.
+	r = newRig(t, fullCfg())
+	c := newConn(1, "carol")
+	r.attach(c)
+	m = hello(wire.FileBound, testWorld, 1)
+	m.Want |= uint32(FeaturePlacedKill)
+	if w := welcomeOf(t, r.exchange(c, m)); Feature(w.Features)&FeaturePlacedKill != 0 {
+		t.Errorf("a default host granted placed-kill")
 	}
 }

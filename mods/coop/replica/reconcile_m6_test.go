@@ -110,7 +110,13 @@ func m6Tables(t testing.TB) *tables.Tables {
 func m6Enemies() *fakegame.Enemies {
 	var es []fakegame.Enemy
 	for i, p := range m6Placed {
-		es = append(es, fakegame.Enemy{Stage: drc.Name, Room: p.room, SetID: p.setID, Proc: p.proc, Boss: p.boss, Weapon: i == m6BK})
+		// At its entry's position (tablestest.Enemy): M6.1 matches an
+		// unkeyed one to its entry by home.pos.
+		e := fakegame.Enemy{Stage: drc.Name, Room: p.room, SetID: p.setID, Proc: p.proc, Boss: p.boss, Weapon: i == m6BK, Pos: [3]float32{100, 0, -50}}
+		if p.boss {
+			e.Params = 0xA
+		}
+		es = append(es, e)
 	}
 	return fakegame.PlaceEnemies(es...)
 }
