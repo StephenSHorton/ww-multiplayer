@@ -56,7 +56,7 @@ v0.4.0 ships co-op M0-M6.0 from the Go process (the re-patch v0.4.0 needs is for
 - Host-simulated enemy AI, syncing enemy health, or the remote Link as a hitbox or target.
 - Syncing a boss fight in progress, or minigame state.
 - Shared current life, magic, rupees, ammo, bottles, bag contents, time of day or position.
-- Live refresh of actors that only read their state when they are created (chests, freestanding items, bombable walls) in the receiver's current room. That is post-1.0 (M9). Since then the stale-actor refresh's Tier 3 (#171, delete) and its re-create rows (#199) do part of it, opt-in through `--coop-refresh` (docs/TESTING.md "actor_refresh re-create").
+- Live refresh of actors that only read their state when they are created (chests, freestanding items, bombable walls) in the receiver's current room. That is post-1.0 (M9; its chest claims, §6.7.1, stop two players looting one chest). Since then the stale-actor refresh's Tier 3 (#171, delete) and its re-create rows (#199) do part of it, opt-in through `--coop-refresh` (docs/TESTING.md "actor_refresh re-create").
 - More than 2 players. The protocol supports N, but only 2 are tested.
 - Second-quest files, and randomizer or Archipelago ISOs (game ID GZLE99).
 - Writing memory-card files directly. Only the game's own save menu writes the card.
@@ -619,7 +619,7 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
   - World capacities are capped at the most the game sets (wallet 2, arrows and bombs 99) before the MAX. The GTower rule matches the exact name "GTower". The FF1 rule fails closed when the STAG can't be read (item 103).
 
 ### 6.7 Create-only staleness and escape hatches
-- **Until M9:** chests, freestanding items, bombable walls and other create-only actors in the receiver's *current* room stay stale until a room reload, unless the opt-in `--coop-refresh` rows cover them (Tier 3 deletes them, and since #199 the re-create rows bring a chest, crystal switch, warp jar and the like back up in their set state; the door rows stay compiled out). Effects of a duplicate pickup:
+- **Until M9:** chests, freestanding items, bombable walls and other create-only actors in the receiver's *current* room stay stale until a room reload, unless the opt-in `--coop-refresh` rows cover them (Tier 3 deletes them, and since #199 the re-create rows bring a chest, crystal switch, warp jar and the like back up in their set state; the door rows stay compiled out). The re-create cannot help while the receiver's Link stands within 300 units of the chest (`WWRF_LINK_FAR`, the BG-release gate), so two players at one chest still both loot it; M9's chest claims (§6.7.1) close that. Effects of a duplicate pickup:
   - unique items are idempotent;
   - keys self-correct (§6.4);
   - heart pieces may add one extra quarter (max life is add-only; logged);
@@ -629,6 +629,33 @@ From M7 the getSave shim applies memory switches at every stage load as well. Th
   - other stage: the partner's PRESENCE stage and point.
 - Before M7 both are Go writes of `mNextStage` (0x803C9D48..0x803C9D55). They are inferred and best-effort, because `dComIfGp_setNextStage` (0x800537C8, `d_com_inf_game.cpp:666-690`) also records the last scene's speed and mode, and the start point when asked, which a raw write skips. So an escape's arrival replays the mode of the last stage change the game asked for: Link's create picks its entry from it (crawling in, getting up from a fall, a demo) and takes the shields' state and the soup from it (`d_a_player_main.cpp:12280-12297`, `:12444-12550`, `:12601-12616`; item 76). The start point (`mStartCode`) matters only to the volcano and ice island actors. M7 replaces both writes with the `SET_NEXT_STAGE` op. Both ship from M3 as the softlock escape.
 - **M3 as built** (items 70-75): the console's `/refresh` and `/warp`. Refresh writes back the request `mNextStage` still holds (`d_s_play.cpp:1277-1278`). The other-stage warp asks for the partner's stage by its entrance point, into the room that entrance starts in, which the replica learns from arrivals and never guesses, then warps onto the partner. A same-stage warp goes only into a room whose collision this game has loaded, and only once the partner has been in its stage for a second (item 82). Both land on the partner's own position, the one pose sync has, so the two Links overlap until one walks a step. Landing beside the partner needs a check of this game's own collision at the spot first, which needs the C side, so it waits for M7 (item 132).
+
+### 6.7.1 M9: chest claims (design, 2026-11-01, wind#7)
+
+**The race.** A closed chest offers its "Open" prompt from `actionOpenWait` every frame Link stands within 100 XZ units and faces it (`boxCheck`, `d_a_tbox.cpp:553-564`; `onCondition(dEvtCnd_CANDOOR_e)`, `:985-994`). Nothing on that path reads the chest bit again: `checkOpen` runs only in `CreateInit` (`:439-476`), and `OpenInit_com` sets the bit only once the open has started (`:850-859`). So when both players stand at the same closed chest, both open it and both get its item. The other way the item comes twice is a receiver near a chest the partner already opened, before a room reload: the re-create (`--coop-refresh=tbox`, RC-1/RC-2) needs Link more than 300 units away. Unique items merge idempotently and keys self-correct, but rupees, ammo and a heart piece's extra quarter come twice (§6.7 above).
+
+**The fix: one owner per chest, decided by the host.** The host's hub is the only judge. Its own replica goes through the same path as a joiner's, so the host player gets no shortcut.
+
+- *Key:* (save table, chest number), where the number is `(params >> 7) & 0x1F` and the table is the receiver's `mDan.mStageNo`. Chests of funcType 4/5 use table `STAGE_SEA2` (`d_a_tbox.cpp:314-320`, `:853-858`). funcType 6..8 are never held, as the refresh relay refuses them too.
+- *Scope:* a chest is contested only while some partner's PRESENCE has the same stage and table as the receiver, and the same room or a room of -1 (a stage start). With no partner in scope there is no claim and no hold: a partner in another room cannot reach that chest.
+- *Hold (held-until-granted):* while a partner is in scope, the receiver's replica holds each closed chest of its current room. To hold one, it swaps the chest's action function word (`mActionFunc`'s function word, +0x348) from `actionOpenWait` (.text +0x2634) to `actionWait` (.text +0x24AC). `actionWait` is the open chest's state, a bare `return TRUE` (`d_a_tbox.cpp:909-911`), so a held chest draws and collides as before but never offers the prompt. Both addresses are inside `d_a_tbox.rel`, from the base `daTbox_Execute` − 0x2FB0 behind the same fingerprint the REL uses (`wwrefresh.h` `WWRF_TBOX_FP_*`). So the word never points outside the chest's own module and nothing dangles if co-op or the REL goes away. This is one guarded Go write (a new `TargetChestHold`, modelled on `TargetSalvage`), and it needs no C.
+- *Claim:* when Link comes within 400 XZ units of a held chest, the replica sends CLAIM(key). The hub grants it if nobody holds the key and the world's chest bit is clear, and denies it otherwise. GRANT restores `actionOpenWait` on the claimant (the "unhold"), and the prompt comes back by the time Link reaches 100 units. At a run (about 17 units a frame at 30 fps) the 300 units from 400 to 100 take about half a second, far more than a LAN round trip. The claimant renews at 1 Hz while in range.
+- *Consumed:* the chest bit landing in the world (GAINS) ends the lease. Since `OpenInit_com` sets the bit when the open starts, an open in progress is already consumed. The partner's chest stays held (closed, no prompt). The re-create then shows it open once its Link is more than 300 units away. Without `tbox` in `--coop-refresh` it shows open at the next room reload. The item is never given twice.
+- *Release:* the claimant sends RELEASE when Link has been more than 600 units away for 2 s, on a room or stage change, and on co-op off. The hub drops a peer's leases when it disconnects and expires any lease not renewed for 5 s. A released, unconsumed chest is held again on the claimant if a partner is still in scope.
+
+**Gates (both directions).**
+- *Hold:* the word is `actionOpenWait`, the chest bit is clear, Link is more than 300 XZ units away (the refresh relay's `LINK_FAR`), no event order is queued (0x803C9EA0, the refresh gate 11), Link is in no event, the fingerprint matches, and the write lands on the frame beat (`FrameWriter`). A chest Link is already near when the partner comes into scope is not held; that is a residual race.
+- *Restore:* the word is `actionWait`, **and** this replica holds the chest by its pid and params, **and** the chest bit is clear, **and** the hub has not marked the key consumed. A vanilla open chest also sits in `actionWait`, and restoring one is exactly the double-loot bug, so the held-by-us record is required.
+- *Restore all* held chests on co-op off, session end, replica stop and an unlinked REL. If the Go process dies, held chests stay closed until a room reload, and `/refresh` is the escape.
+- *Re-create interplay:* the REL judges a chest whose word is `actionWait` as GATE (`refresh.c`, the Tbox gate). The refresh relay therefore restores a held, consumed chest in the same tick it sends its re-create request. Both steps are behind the same more-than-300 gate, so Link cannot reach the restored chest before it is replaced open.
+
+**Fail open.** With the hub unreachable for 2 s, co-op off, or a host without the feature, nothing is held. Losing the arbiter must never lock a chest. Without it the race is the same as before M9, and that is logged.
+
+**Wire.** A new `Sub` 0x09 CLAIM, which travels both ways: `[op:u8][table:s8][no:u8][room:s8]`. Up, op is CLAIM or RELEASE. Down, op is GRANT, DENY or CONSUMED. Only a peer granted the new session feature `FeatureChestClaim` (1 << 18, default on, `Shareable`) sends it or is sent it. The hub masks `want` with `SessionFeatures` (`hub/session.go:204`), so an older host never grants it and no schema bump is needed.
+
+**Residuals (stated as §6.8 states the salvage gap).** A chest Link was already within 300 units of when the partner came into scope. An appear-chest reaching `actionOpenWait` from `actionDemo2` or `actionSwOnWait2` (`:941-947`, `:1016-1022`) while Link is near. Its first hold waits for the gates, and until then it can be opened without a claim. Both are logged.
+
+**Live checks:** docs/TESTING.md "Co-op: M9 chest claims" (CC-1..CC-6).
 
 ---
 
@@ -1133,7 +1160,7 @@ WW_DOLPHIN_INDEX=0 ./wwdev.exe peek 0x803F773C 4             # JKRHeap::mCodeEnd
 | M6.1 Placement-matched kills of unkeyed enemies | after v0.4.0 (planned) | no | cloud; owner acceptance |
 | M7 C co-op pump | before v1.0 (planned) | **yes** | C build, recapture and acceptance on owner; Go and invariants in cloud |
 | M8 v1.0 release hardening | v1.0.0 | no | both |
-| M9 (post-1.0) Create-only refresh, chest-claim arbitration | v1.1 (the refresh is in part on main, opt-in: Tier 3 and the re-create rows) | yes | owner |
+| M9 (post-1.0) Create-only refresh, chest-claim arbitration | v1.1 (the refresh is in part on main, opt-in: Tier 3 and the re-create rows; chest claims §6.7.1 are Go only, no C) | no for the claims, yes for the refresh | Go in cloud/Mac; two-Dolphin acceptance |
 
 **Dependencies**
 - M0 → M1 → M2 → M3 → M4.

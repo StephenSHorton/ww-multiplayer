@@ -890,6 +890,17 @@ When the catch-up has work depends on when a sea square's salvage actors are cre
 - [ ] **SV6 the crane gate**: B lowers the crane over any light while a partner bit has just landed (SV1 form (b) with a second light in the old square): B's log has `salvage: waiting: the crane is over salvage point N` and no mark until the crane is up; B's own salvage runs as unmodded, and no crash or odd item follows.
 - [ ] **SV7 no verify failures**: across SV1-SV4 and SV6, `/status`'s verify-failure count stays 0 and co-op stays on; a stage change right after a mark logs nothing alarming.
 
+### Co-op: M9 chest claims (wind#7)
+
+Go only, no recapture (docs/08 §6.7.1). Once a partner is in the same stage and table, each closed chest of the room is held: its action word is swapped from `actionOpenWait` to `actionWait`, so it shows no "Open" prompt. The host's hub then grants it to the first player whose Link comes within 400 units. Under the default `--coop` (`FeatureChestClaim`). Two Dolphins, `--coop` on both, a closed chest in reach of both (DRC r2's or Outset's rupee chest by the Orca house).
+
+- [ ] **CC-1 the same-chest race**: A and B walk up to the same closed chest from opposite sides. One log has `chest claim: granted (table T, no N)`, the other's has `denied`. Only the granted player gets the "Open" prompt and the item. The other's chest stays closed with no prompt, and that player's rupees and inventory do not move. A screenshot of each.
+- [ ] **CC-2 consumed then re-created**: after CC-1, with `--coop-refresh=tbox` on the denied player, that player walks more than 300 units away. The log has `restoring held chest for re-create`, then `re-created ... new pid`. The chest stands open and gives nothing. Without `tbox`, it shows open after a room reload, and still gives nothing.
+- [ ] **CC-3 alone**: B leaves the stage. A's chests are restored (`chest hold: released N (no partner in scope)`) and open as unmodded.
+- [ ] **CC-4 fail open**: stop the host process mid-hold. Within about 2 s the joiner logs `chest hold: hub unreachable, releasing all` and its chests open as unmodded.
+- [ ] **CC-5 walk away**: the granted player walks more than 600 units away without opening. After about 2 s the hub logs a release, and the chest is held again on that player while a partner is in scope.
+- [ ] **CC-6 no softlock**: open a granted chest, then stage-hop during the item-get. Co-op off and back on mid-hold. No chest is ever left with no prompt and its bit clear after a room reload, and `/status`'s verify-failure count stays 0.
+
 ### Relay scoping and origin binding (ww-online review 17)
 
 Go only (`mods/multiplayer/net/place.go`, `enemy.go` "Relay scoping"; no REL change, no recapture). broadcast-pose's positions carry a place trailer (stage, room, in play). The server relays a pose only to the puppet-sync connections in the sender's stage, never to a broadcaster, and thins an enemy STATE to its 52-byte header for an enemy client whose PSTATE puts it in another stage or room. Positions and co-op are not scoped. Every unknown place fails open. `WW_RELAY_SCOPE=off` on the server (for `mp-local`, on its process) turns scoping off for the baseline. Offline, `TestRelayScopeBandwidth` measures 79% less pose egress for four players in three stages (3352 KB/s down to 718 KB/s at 60 Hz), and `TestEnemyStateThinned` measures 63.2 KB/s down to 3.2 KB/s per 16-slot STATE stream to a client in another room. None of these has run live.
