@@ -105,9 +105,10 @@ var Nowhere = Place{Table: -1, Room: -1}
 
 // inStage reports whether p occupies a stage: a valid stage name (1-7
 // printable characters, d_resorce.cpp:707-708) that is not the title's
-// "sea_T" or file select's "Name" (§3.2 STABLE), and a valid table.
+// "sea_T" or file select's "Name" (§3.2 STABLE) or one of the credits'
+// stages (GT Q5), and a valid table.
 func (p Place) inStage() bool {
-	return validStage(p.Stage) && p.Stage != "sea_T" && p.Stage != "Name" && addr.ValidTable(p.Table)
+	return validStage(p.Stage) && p.Stage != addr.StageTitle && p.Stage != addr.StageFileSelect && !addr.InCredits(p.Stage) && addr.ValidTable(p.Table)
 }
 
 // inRoom reports whether p occupies a room of its stage.

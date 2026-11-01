@@ -244,6 +244,8 @@ func coreClosed(s *state.Snapshot) string {
 		return "on the title screen"
 	case s.StageName == addr.StageFileSelect:
 		return "on file select"
+	case addr.InCredits(s.StageName):
+		return "the credits are playing (GT Q5: this game has left the co-op world)"
 	case s.Table == -1:
 		return "no save table is loaded"
 	case !addr.ValidTable(int(s.Table)):

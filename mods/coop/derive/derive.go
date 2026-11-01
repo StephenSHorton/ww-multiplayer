@@ -431,10 +431,10 @@ func (d *Deriver) reset() {
 	d.magic.reset()
 }
 
-// outOfGame reports whether s is off any file's play: no stage, the title
-// or file select.
+// outOfGame reports whether s is off any file's play: no stage, the title,
+// file select or the credits (GT Q5).
 func outOfGame(s *state.Snapshot) bool {
-	return s.StageName == "" || s.StageName == addr.StageTitle || s.StageName == addr.StageFileSelect
+	return s.StageName == "" || s.StageName == addr.StageTitle || s.StageName == addr.StageFileSelect || addr.InCredits(s.StageName)
 }
 
 // tick is what every derive reads of one Tick.

@@ -1090,6 +1090,11 @@ func (r *Replica) handle(m wire.Msg, out *outbox) {
 		r.onScoped(m)
 	case *wire.Presence:
 		p := *m
+		if addr.InCredits(p.Stage.String()) && (r.partner == nil || !addr.InCredits(r.partner.Stage.String())) {
+			// GT Q5: the partner's game left the co-op world at the
+			// ending; this game plays on and its own ending is its own.
+			r.logf("co-op: your partner has reached the credits; their game has left the co-op world, yours plays on")
+		}
 		r.notePartnerRest(&p)
 		r.learnPartner(&p)
 		r.partner = &p
