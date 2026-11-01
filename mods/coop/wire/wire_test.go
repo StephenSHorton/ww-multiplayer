@@ -115,6 +115,10 @@ var golden = []struct {
 		Kind: ScopeKill, Stage: Stage{'M', '_', 'N', 'e', 'w', 'D', '2'}, Table: 3, Room: 5,
 		Words: []ScopedWord{{0, 0x80000001}, {15, 0x100}},
 	}, "06 | 04 | 4d5f4e6577443200 | 03 | 05 | 02 | 00 80000001 | 0f 00000100"},
+	{"SCOPED PKILL", Down, &Scoped{
+		Kind: ScopePlaced, Stage: Stage{'k', 'i', 'n', 'd', 'a', 'n'}, Table: 9, Room: 1,
+		Words: []ScopedWord{{0, 0x30}},
+	}, "06 | 05 | 6b696e64616e0000 | 09 | 01 | 01 | 00 00000030"},
 	{"SCOPED DAN", Down, &Scoped{
 		Kind: ScopeDan, Stage: Stage{'M', '_', 'N', 'e', 'w', 'D', '2'}, Table: 3, Room: -1,
 		Words: []ScopedWord{{1, 0x4}},
@@ -463,7 +467,7 @@ func TestDecodeRejects(t *testing.T) {
 		{"SCOPED count too high", Up, scoped(1, "sea", 0, 0, ScopedWord{0, 1})[:15], "count 1 needs 5 bytes, 2 follow"},
 		{"SCOPED trailing", Up, append(scoped(1, "sea", 0, 0), 0), "count 0 needs 0 bytes, 1 follow"},
 		{"SCOPED kind 0", Up, scoped(0, "sea", 0, 0), "kind 0"},
-		{"SCOPED kind 5", Down, scoped(5, "sea", 0, 0), "kind 5"},
+		{"SCOPED kind 6", Down, scoped(6, "sea", 0, 0), "kind 6"},
 		{"SCOPED no stage", Up, scoped(1, "", 0, 0), "has no stage"},
 		{"SCOPED bad stage", Up, scoped(1, "sea\x00wD", 0, 0), "bytes after its NUL"},
 		{"SCOPED table -1", Up, scoped(2, "sea", -1, 0), "table -1"},

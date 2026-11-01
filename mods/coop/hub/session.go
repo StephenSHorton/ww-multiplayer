@@ -675,8 +675,11 @@ func (h *Hub) dropped(ks []world.Key) {
 
 // scopeFeature is the feature a kind of scoped store needs.
 func scopeFeature(k wire.ScopeKind) Feature {
-	if k == wire.ScopeKill {
+	switch k {
+	case wire.ScopeKill:
 		return FeatureCombat
+	case wire.ScopePlaced:
+		return FeaturePlacedKill
 	}
 	return FeaturePuzzle
 }

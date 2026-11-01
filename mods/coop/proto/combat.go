@@ -43,17 +43,43 @@ func KillFilter(synced func(table int, stage string, room, setID int) bool) func
 	}
 }
 
+// PlacedFilter returns the scoped stores' filter for PKILL keys (§7.2a,
+// M6.1) over the host's verdict placed: the bits of word w of store k
+// whose placement ordinal placed grants for k's save table, stage and
+// room. A nil placed grants none, and so does a word outside 0..15, a
+// table outside 0..15 or a room outside 0..63. A key of another kind
+// keeps nothing.
+func PlacedFilter(placed func(table int, stage string, room, ordinal int) bool) func(world.Key, int) uint32 {
+	return func(k world.Key, w int) uint32 {
+		if k.Kind != world.ScopePlaced || placed == nil || w < 0 || w >= addr.ZoneActorCount/32 ||
+			!addr.ValidTable(k.Table) || k.Room < 0 || k.Room >= addr.RoomCount || k.Stage == "" {
+			return 0
+		}
+		var keep uint32
+		for b := range 32 {
+			if placed(k.Table, k.Stage, k.Room, 32*w+b) {
+				keep |= 1 << b
+			}
+		}
+		return keep
+	}
+}
+
 // Filter is the scoped stores' filter of a session: the switches of
 // scoped's verdict for DAN, ZONE and ROOMEDGE (ScopeFilter), the kills of
-// kill's for KILL (KillFilter). The host's hub keeps exactly what it
-// passes (hub.Config.SyncedScoped, hub.Config.SyncedKill), and a writing replica's
-// sender proposes exactly that over its own tables, which are the host's
-// when it is granted the features (TableFeatures).
-func Filter(scoped func(table int, stage string, room, no int) bool, kill func(table int, stage string, room, setID int) bool) func(world.Key, int) uint32 {
-	sw, kf := ScopeFilter(scoped), KillFilter(kill)
+// kill's for KILL (KillFilter), and the placements of placed's for PKILL
+// (PlacedFilter). The host's hub keeps exactly what it passes
+// (hub.Config.SyncedScoped, SyncedKill, SyncedPlaced), and a writing
+// replica's sender proposes exactly that over its own tables, which are
+// the host's when it is granted the features (TableFeatures).
+func Filter(scoped func(table int, stage string, room, no int) bool, kill, placed func(table int, stage string, room, id int) bool) func(world.Key, int) uint32 {
+	sw, kf, pf := ScopeFilter(scoped), KillFilter(kill), PlacedFilter(placed)
 	return func(k world.Key, w int) uint32 {
-		if k.Kind == world.ScopeKill {
+		switch k.Kind {
+		case world.ScopeKill:
 			return kf(k, w)
+		case world.ScopePlaced:
+			return pf(k, w)
 		}
 		return sw(k, w)
 	}

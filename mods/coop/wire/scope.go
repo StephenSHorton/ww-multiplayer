@@ -108,6 +108,12 @@ const (
 	// by setID (dSv_zoneActor_c, d_save.h:782; on, d_save.cpp:1325-1328).
 	// Stored per stage and room.
 	ScopeKill ScopeKind = 4
+	// ScopePlaced: placement-matched kills of unkeyed enemies (§7.2a,
+	// M6.1), u32[16] like KILL's, but bit b of word w is placement
+	// ordinal 32w+b of the room (enemies.Table.Placed), not a setID. No
+	// game records these deaths; the hub relays them to the players in the
+	// same room and keeps none (world.ScopePlaced).
+	ScopePlaced ScopeKind = 5
 )
 
 func (k ScopeKind) String() string {
@@ -120,6 +126,8 @@ func (k ScopeKind) String() string {
 		return "ROOMEDGE"
 	case ScopeKill:
 		return "KILL"
+	case ScopePlaced:
+		return "PKILL"
 	}
 	return fmt.Sprintf("ScopeKind(%d)", uint8(k))
 }
@@ -134,7 +142,7 @@ func (k ScopeKind) words() (first, last int, bits uint32, ok bool) {
 		return 0, 1, 0xFFFF, true
 	case ScopeRoomEdge:
 		return 2, 2, 0xFFFF, true
-	case ScopeKill:
+	case ScopeKill, ScopePlaced:
 		return 0, addr.ZoneActorCount/32 - 1, 0xFFFFFFFF, true
 	}
 	return 0, 0, 0, false

@@ -548,7 +548,7 @@ func New(cfg Config) (*Replica, error) {
 		t := cfg.Tables
 		r.differ.ShareScopes(proto.Filter(r.scopedSynced, func(table int, stage string, room, setID int) bool {
 			return synctables.SyncedKill(t, table, stage, room, setID)
-		}))
+		}, nil)) // the differ never proposes PKILL: the placed sender does (placed.go)
 		r.differ.HoldScopes(proto.ScopeFilter(r.scopedHeld))
 	}
 	r.planner = NewPlanner(r.policy)

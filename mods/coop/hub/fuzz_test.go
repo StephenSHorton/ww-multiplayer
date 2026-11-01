@@ -165,7 +165,7 @@ func checkScoped(t *testing.T, h *Hub, c *fakeConn, m *wire.Scoped, keep func(wo
 		t.Fatalf("%s got SCOPED %s without %s", p, k, scopeFeature(m.Kind))
 	}
 	at, _ := h.scopes.PlaceOf(p.id)
-	room := k.Kind == world.ScopeZone || k.Kind == world.ScopeRoomEdge
+	room := k.Kind == world.ScopeZone || k.Kind == world.ScopeRoomEdge || k.Kind == world.ScopePlaced
 	if at.Stage != k.Stage || at.Table != k.Table || room && at.Room != k.Room {
 		t.Fatalf("%s at %s got SCOPED %s", p, at, k)
 	}
@@ -194,7 +194,7 @@ func FuzzHubFrames(f *testing.F) {
 			conns[i] = mk(i)
 			s.attach(conns[i])
 		}
-		keep := Filter(fuzzVerdict, fuzzKillVerdict)
+		keep := Filter(fuzzVerdict, fuzzKillVerdict, nil)
 		var seq uint64
 		for len(data) >= 3 {
 			who, n := data[0], int(binary.BigEndian.Uint16(data[1:3]))
@@ -248,7 +248,7 @@ func FuzzHubFrames(f *testing.F) {
 			}
 		}
 		for _, k := range s.h.scopes.Keys() {
-			if k.Kind == world.ScopeRoomEdge {
+			if k.Kind == world.ScopeRoomEdge || k.Kind == world.ScopePlaced {
 				t.Fatalf("a room-edge store is held: %v", k)
 			}
 		}

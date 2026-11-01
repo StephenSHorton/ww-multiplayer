@@ -156,6 +156,12 @@ const (
 	// ScopeKill: a zone's mActorFlags, u32[16], dead actors by setID
 	// (dSv_zoneActor_c::on, d_save.cpp:1326-1329).
 	ScopeKill ScopeKind = 4
+	// ScopePlaced: placement-matched kills of unkeyed enemies (§7.2a,
+	// M6.1), u32[16], bit 32w+b the room's placement ordinal 32w+b.
+	// Room-scoped and relayed only, like ROOMEDGE: no game records these
+	// deaths and every room load creates the enemy again, so nothing is
+	// kept and a player entering the room gets nothing.
+	ScopePlaced ScopeKind = 5
 )
 
 func (k ScopeKind) String() string {
@@ -168,6 +174,8 @@ func (k ScopeKind) String() string {
 		return "ROOMEDGE"
 	case ScopeKill:
 		return "KILL"
+	case ScopePlaced:
+		return "PKILL"
 	}
 	return fmt.Sprintf("ScopeKind(%d)", uint8(k))
 }
@@ -185,11 +193,16 @@ func (k ScopeKind) words() (first, last int, bits uint32, ok bool) {
 		return 0, 1, 0xFFFF, true
 	case ScopeRoomEdge:
 		return 2, 2, 0xFFFF, true
-	case ScopeKill:
+	case ScopeKill, ScopePlaced:
 		return 0, maxWords - 1, 0xFFFFFFFF, true
 	}
 	return 0, 0, 0, false
 }
+
+// relayOnly reports whether kind k is relayed and never stored: ROOMEDGE,
+// whose switches clearRoomSwitch zeroes on every room change, and PKILL,
+// whose deaths no game records.
+func (k ScopeKind) relayOnly() bool { return k == ScopeRoomEdge || k == ScopePlaced }
 
 // Key names one scoped store.
 type Key struct {
@@ -234,12 +247,12 @@ func (k Key) check() error {
 
 // reaches reports whether a player at p is in k's scope: it gets k's
 // relays and its content on entry, and keeps store k alive. That is the
-// same stage and table, and for ZONE and ROOMEDGE the same room.
+// same stage and table, and for ZONE, ROOMEDGE and PKILL the same room.
 func (k Key) reaches(p Place) bool {
 	if !p.inStage() || p.Stage != k.Stage || p.Table != k.Table {
 		return false
 	}
-	return (k.Kind != ScopeZone && k.Kind != ScopeRoomEdge) || p.Room == k.Room
+	return (k.Kind != ScopeZone && k.Kind != ScopeRoomEdge && k.Kind != ScopePlaced) || p.Room == k.Room
 }
 
 // Word is one word of a scoped store: element Word of the game array its
@@ -437,7 +450,7 @@ func (s *Scopes) Apply(origin Player, k Key, words []Word) (Scoped, error) {
 			}
 		}
 	}
-	if k.Kind == ScopeRoomEdge {
+	if k.Kind.relayOnly() {
 		r.Delta = nonZero(&in)
 	} else {
 		e := s.entries[k]

@@ -179,7 +179,7 @@ func FuzzScopes(f *testing.F) {
 			for _, at := range s.at {
 				alive = alive || k.reaches(at)
 			}
-			if !alive || len(s.Get(k)) == 0 || k.Kind == ScopeRoomEdge {
+			if !alive || len(s.Get(k)) == 0 || k.Kind.relayOnly() {
 				t.Fatalf("store %s: alive %v, words %v", k, alive, s.Get(k))
 			}
 			for _, w := range s.Get(k) {
