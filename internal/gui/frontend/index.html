@@ -377,6 +377,10 @@
 		<div class="ended card" id="ended" hidden>
 			<h2>Session ended</h2>
 			<p id="end-reason"></p>
+			<div class="recap" id="recap" hidden>
+				<div class="cardhead"><h3>Session recap</h3><button class="btn small" type="button" id="recap-copy">Copy recap</button></div>
+				<ol class="log short activity" id="recap-list"></ol>
+			</div>
 			<button class="btn primary" id="back-btn">Back</button>
 		</div>
 		<div class="cols" id="cols">
@@ -507,10 +511,12 @@
 						<div class="tabs" id="feed-tabs" role="tablist" aria-label="What the log shows">
 							<button type="button" role="tab" data-tab="chat" aria-selected="true">Chat</button>
 							<button type="button" role="tab" data-tab="sync" aria-selected="false" id="tab-sync" hidden>Co-op sync</button>
+							<button type="button" role="tab" data-tab="activity" aria-selected="false" id="tab-activity" hidden>Activity</button>
 							<button type="button" role="tab" data-tab="all" aria-selected="false">All logs</button>
 						</div>
 					</div>
 					<ol class="log chatonly" id="log"></ol>
+					<ol class="log activity" id="activity" aria-live="polite" hidden></ol>
 					<form class="chat" id="chat-form">
 						<input id="chat" autocomplete="off" placeholder="Say something" maxlength="200">
 						<button class="btn" type="submit">Send</button>

@@ -483,6 +483,68 @@ export function renderCoop(st, { hosting, playing, ended }) {
 	renderProgress(st, !!(c && c.panel && playing && !ended));
 	renderRoom(st, !!(c && c.panel && playing && !ended));
 	$("tab-sync").hidden = !(c && c.mode !== "off");
+	renderActivity(st, ended);
+}
+
+// ---------- Activity (wind#57): who got what where, and the recap ----------
+
+// activity keeps the session's entries, by pipeline and ID, so the ended
+// screen's recap still has them once Go stops reporting the pipeline.
+let activity = { session: -1, byKey: new Map() };
+
+// activityList is every entry so far, oldest first.
+function activityList() {
+	return [...activity.byKey.values()].sort((a, b) => a.at - b.at || a.id - b.id);
+}
+
+function hhmm(ms) {
+	const d = new Date(ms);
+	return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+
+function activityItems(list) {
+	if (!list.length) return [el("li", { class: "empty" }, "Nothing yet: what partners get, open, defeat and enter shows here.")];
+	return list.map((a) => el("li", { class: a.kind }, el("time", {}, hhmm(a.at)), el("span", {}, a.text)));
+}
+
+// recapText is the recap as text, for Copy: a line per player with
+// counts, then every entry.
+export function recapText(list) {
+	const by = new Map();
+	for (const a of list) {
+		if (a.kind === "place") continue;
+		const n = by.get(a.who) || { got: 0, chests: 0, bosses: 0 };
+		if (a.kind === "chest") n.chests++;
+		else if (a.kind === "boss") n.bosses++;
+		else n.got++;
+		by.set(a.who, n);
+	}
+	const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
+	const lines = ["Wind Waker co-op: session recap"];
+	for (const [who, n] of by) lines.push(`${who}: ${plural(n.got, "item", "items")}, ${plural(n.chests, "chest", "chests")}, ${plural(n.bosses, "boss", "bosses")}`);
+	lines.push("");
+	for (const a of list) lines.push(hhmm(a.at) + "  " + a.text);
+	return lines.join("\n");
+}
+
+function renderActivity(st, ended) {
+	const c = st.coop;
+	if (activity.session !== st.session) activity = { session: st.session, byKey: new Map() };
+	const pipes = (c && c.panel && c.panel.pipes) || [];
+	for (const p of pipes) for (const a of p.activity || []) activity.byKey.set(p.player + ":" + a.id, a);
+	const on = !!(c && c.mode !== "off");
+	$("tab-activity").hidden = !on;
+	const list = activityList();
+	const box = $("activity");
+	const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+	if (box.childElementCount !== Math.max(list.length, 1) || (list.length && box.dataset.last !== String(list[list.length - 1].id))) {
+		box.replaceChildren(...activityItems(list));
+		box.dataset.last = list.length ? String(list[list.length - 1].id) : "";
+		if (atEnd) box.scrollTop = box.scrollHeight;
+	}
+	// The ended screen's recap: once co-op ran and something happened.
+	$("recap").hidden = !(ended && on && list.length);
+	if (ended && list.length) $("recap-list").replaceChildren(...activityItems(list));
 }
 
 // ---------- the co-op dialogs' extras ----------
@@ -586,6 +648,7 @@ export async function coopAction(id, arg, d) {
 // ---------- wiring ----------
 
 export function initCoop({ copyText }) {
+	$("recap-copy").addEventListener("click", () => copyText(recapText(activityList()), "the session recap"));
 	for (const b of $("coop-seg").children) {
 		b.addEventListener("click", () => {
 			const m = b.dataset.mode;

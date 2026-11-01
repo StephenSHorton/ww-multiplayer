@@ -4,7 +4,8 @@
 // lobby.go, setup.go, mods.go, update.go, lan.go); the values are made up.
 // Scenarios: home, home-update, home-empty, setup, setup-game,
 // setup-dolphin, mods, lobby-host, lobby-join, ingame, ingame-host,
-// reconnecting, dialog, ended. ?theme=dark|light sets the theme.
+// reconnecting, dialog, ended, ingame-ended (in game with co-op, then
+// ended: the recap). ?theme=dark|light sets the theme.
 // Variants (main_test.go's DOM checks use them):
 //
 //	&legacy=1        a pre-lobby host: a legacy lobby, no members, players
@@ -110,6 +111,7 @@
 		{ id: "0b88e1f05a7c3d29", seq: 37, created: "2026-10-12 18:40", inUse: false, stale: true, text: "" },
 	];
 
+	const t0 = Date.now(); // the Activity entries' clock
 	const host = S === "lobby-host" || S === "ingame-host";
 	const playing = S.startsWith("ingame") || S === "reconnecting";
 	const phase = playing ? "in game" : "lobby";
@@ -208,6 +210,16 @@
 					{ dungeon: "TotG", name: "Tower of the Gods", on: false, why: "no key table for it", seen: false, have: 0, taken: 0, sources: 0, open: 0, doors: 0, target: 0, pending: false },
 				],
 				life: true, lifeWhy: "", room: noRoom ? null : room,
+				// The Activity tab (wind#57): what partners got, opened,
+				// defeated and entered, oldest first.
+				activity: [
+					{ id: 1, at: t0 - 540000, who: "Blake", kind: "place", text: "Blake entered Dragon Roost Cavern" },
+					{ id: 2, at: t0 - 420000, who: "Blake", kind: "chest", text: "Blake opened a chest in Dragon Roost Cavern" },
+					{ id: 3, at: t0 - 300000, who: "Blake", kind: "dungeon", text: "Blake got the Dungeon Map in Dragon Roost Cavern" },
+					{ id: 4, at: t0 - 180000, who: "Blake", kind: "item", text: "Blake got the grappling hook in Dragon Roost Cavern" },
+					{ id: 5, at: t0 - 60000, who: "Blake", kind: "boss", text: "Blake defeated the boss in Dragon Roost Cavern" },
+					{ id: 6, at: t0 - 30000, who: "Blake", kind: "item", text: "Blake got Din's Pearl in Dragon Roost Cavern" },
+				],
 			}],
 			hub: S === "ingame-host" ? {
 				world: "7f3a91c2", seq: 412, features: "image|puzzle|combat|switches|story|inventory|keys|life|magic", merge: false,
@@ -300,7 +312,7 @@
 	// "ended": the session ends a moment after the page first reads it.
 	let endArmed = false;
 	const armEnd = () => {
-		if (S !== "ended" || endArmed) return;
+		if ((S !== "ended" && S !== "ingame-ended") || endArmed) return;
 		endArmed = true;
 		setTimeout(() => { isOver = true; for (const fn of listeners) fn({ kind: "ended", session: 1 }); }, 600);
 	};

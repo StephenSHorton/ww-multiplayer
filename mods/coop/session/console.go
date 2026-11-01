@@ -388,10 +388,24 @@ func formatStatus(player string, st replica.Status) []string {
 	if l := partnersStatus(st); l != "" {
 		lines = append(lines, l)
 	}
+	if l := activityStatus(st); l != "" {
+		lines = append(lines, l)
+	}
 	for _, l := range lines {
 		out = append(out, fmt.Sprintf("co-op: %s:   %s", player, l))
 	}
 	return out
+}
+
+// activityStatus is the Activity tab in one line: how many entries and
+// the newest ("" with none): "activity: 3 entries; last: Blake got the
+// hookshot in Dragon Roost Cavern".
+func activityStatus(st replica.Status) string {
+	n := len(st.Activity)
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("activity: %d entries; last: %s", n, st.Activity[n-1].Text())
 }
 
 // partnersStatus is where each partner is, with two or more ("" with
@@ -464,6 +478,10 @@ func coopStatusOf(player string, st replica.Status) session.CoopStatus {
 		cs.Partners = append(cs.Partners, cp)
 	}
 	cs.Room = coopRoomOf(st.Room)
+	for _, a := range st.Activity {
+		cs.Activity = append(cs.Activity, session.CoopActivity{ID: a.ID, At: a.At, Who: a.Who, Kind: string(a.Kind),
+			Label: a.Label, Where: a.Where, Text: a.Text()})
+	}
 	return cs
 }
 

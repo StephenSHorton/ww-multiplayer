@@ -68,6 +68,7 @@ func (r *Replica) onPartnerPresence(m *wire.PresenceDown) {
 		r.logf("co-op: %s has reached the credits; their game has left the co-op world, yours plays on", m.Name)
 	}
 	v.p = *m
+	r.notePlace(m)
 	r.notePartnerRest(&v.track, &v.p.Presence)
 	r.learnPartner(&v.track, &v.p.Presence)
 }

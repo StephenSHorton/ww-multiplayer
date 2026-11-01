@@ -902,9 +902,14 @@ function wire() {
 			const which = tab.dataset.tab;
 			$("log").classList.toggle("chatonly", which === "chat");
 			$("log").classList.toggle("synconly", which === "sync");
+			// Activity (wind#57) is its own list: who got what where.
+			$("log").hidden = which === "activity";
+			$("activity").hidden = which !== "activity";
+			$("chat-form").hidden = which === "activity";
 			for (const t of $("feed-tabs").children) t.setAttribute("aria-selected", String(t === tab));
-			$("feed-title").textContent = { chat: "Chat", sync: "Co-op sync", all: "All logs" }[which];
+			$("feed-title").textContent = { chat: "Chat", sync: "Co-op sync", activity: "Activity", all: "All logs" }[which];
 			$("log").scrollTop = $("log").scrollHeight;
+			$("activity").scrollTop = $("activity").scrollHeight;
 		});
 	}
 	initCoop({ copyText });
