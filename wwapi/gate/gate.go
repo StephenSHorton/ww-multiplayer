@@ -236,6 +236,10 @@ func (t *Tracker) Observe(s *state.Snapshot) Status {
 // pending stage change (§3.2) and returns why one fails, or "".
 func coreClosed(s *state.Snapshot) string {
 	switch {
+	case s.InCredits():
+		// First: the staff-roll movie has no Link, and this reason is
+		// the one that says why.
+		return "the credits are playing (GT Q5: this game has left the co-op world)"
 	case s.PlayerPtr == 0:
 		return "Link is not loaded"
 	case s.StageName == "":
@@ -244,8 +248,6 @@ func coreClosed(s *state.Snapshot) string {
 		return "on the title screen"
 	case s.StageName == addr.StageFileSelect:
 		return "on file select"
-	case addr.InCredits(s.StageName):
-		return "the credits are playing (GT Q5: this game has left the co-op world)"
 	case s.Table == -1:
 		return "no save table is loaded"
 	case !addr.ValidTable(int(s.Table)):

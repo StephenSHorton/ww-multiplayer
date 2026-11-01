@@ -497,3 +497,31 @@ func TestDifferCreditsSendNothing(t *testing.T) {
 		})
 	}
 }
+
+// TestDifferEndingMovieSendsNothing: GT Q5 on the retail path. endhr's
+// request for "ENDING" starts the staff-roll movie while mCurStage still
+// reads GTower (d_s_play.cpp:310); live on 2026-11-01 (wind#9) no ENDING,
+// ENDumi or sea_E stage was ever loaded. From the request on the game is
+// out: a bit set then is never a gain, and the presence says ENDING.
+func TestDifferEndingMovieSendsNothing(t *testing.T) {
+	gt := fakegame.Stage{Name: "GTower", Point: 2, Room: 0, Layer: 9, Table: addr.TableGT}
+	off, m := chest(addr.TableGT, 3)
+	dr := newDifferRig(t, nil)
+	dr.load(gt)
+	dr.ticks(6)
+	dr.g.StartEnding()
+	if e := dr.ticks(6); len(e.Gains) > 0 {
+		t.Fatalf("the ending's start: gains %s", fmtGains(e.Gains))
+	}
+	o := dr.observeNow()
+	if !o.s.InCredits() || o.screen != screenOut {
+		t.Fatalf("the movie: InCredits %v, screen %v; want true, out", o.s.InCredits(), o.screen)
+	}
+	if p := presenceOf(o, true); p.Stage.String() != addr.StageEnding || p.Flags&wire.PresenceInGame != 0 {
+		t.Fatalf("the movie's presence: stage %q flags %#x; want ENDING, not in game", p.Stage.String(), p.Flags)
+	}
+	dr.set(off, m)
+	if e := dr.ticks(6); len(e.Gains) > 0 {
+		t.Fatalf("a bit set during the movie: gains %s", fmtGains(e.Gains))
+	}
+}

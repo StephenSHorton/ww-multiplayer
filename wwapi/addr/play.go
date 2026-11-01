@@ -67,6 +67,7 @@ const (
 	// a loading zone or dComIfGp_setNextStage fires until the scene
 	// changes. §3.2 STABLE needs it 0 (inferred).
 	NextStage       uint32 = 0x803C9D48
+	NextStageName   uint32 = 0x803C9D48 // dStage_startStage_c::mName[8], the first field
 	NextStageEnable uint32 = 0x803C9D54
 
 	// StagInfoPtr is mStageData.mpStagInfo, a pointer to the loaded
@@ -121,18 +122,27 @@ const (
 	StageFileSelect = "Name"  // file select and naming (dScnName_c::create, d_s_name.cpp:111)
 )
 
-// The ending's stages, in the order the game plays them: GTower point 2's
-// `endhr` goes to ENDING (the staff roll), whose `ending` event (ENDumi
-// point 0, sw114) leads to sea_E's `epilogue` (r44 point 0, sw118), then
-// the clear save and the title (GT slice; overworld slice :214, :232,
-// :321).
+// The ending. GTower point 2's `endhr` asks for the stage "ENDING", but
+// ENDING is not a stage: dScnPly_Draw turns that request into the ending
+// scene (fpcNm_ENDING_SCENE_e, d_s_play.cpp:310-312), the staff-roll
+// movie, so mCurStage keeps reading GTower and no Link is loaded. When the
+// movie ends, a first-quest file goes to NAMEEX (d_s_title.cpp:72-80):
+// stage "Name", the clear count set to 1 and the clear save
+// (d_s_name.cpp:105-169); then changeGameScene starts the second quest,
+// which co-op refuses (NoticeClearCount). Live 2026-11-01 (wind#9): the
+// real ending read GTower for all of it, then Name. ENDumi (`ending`,
+// sw114) and sea_E (`epilogue`, sw118) are stage files the retail ending
+// never loads (no code names them); a dev hop can still reach them, so
+// they stay in the list.
 const (
 	StageEnding    = "ENDING"
 	StageEndingSea = "ENDumi"
 	StageEpilogue  = "sea_E"
 )
 
-// InCredits reports whether name is one of the ending's stages. GT Q5:
+// InCredits reports whether name is one of the ending's stage names (a
+// loaded stage, or mNextStage's "ENDING" request: see
+// state.Snapshot.InCredits, which callers holding a snapshot use). GT Q5:
 // from the credits on, a player's game has left the co-op world. The
 // gates treat these stages as they treat the title: nothing is written
 // into them and nothing they set is sent, so the ending's own switches
