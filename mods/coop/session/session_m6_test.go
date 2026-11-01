@@ -907,6 +907,8 @@ func TestCombatStatus(t *testing.T) {
 		{"on", replica.Status{Combat: on}, "combat: on; 4 partner kill bit(s) held for M_NewD2 (table 3); 3 written to zones, 2 light-shrunk, 1 held (link demo 13, link demo 1), 1 refused, 0 verify failures"},
 		{"nothing held", replica.Status{Combat: replica.CombatStatus{Granted: true, Tables: true, Place: world.Nowhere}},
 			"combat: on; 0 partner kill bit(s) held for nowhere; 0 written to zones, 0 light-shrunk, 0 held, 0 refused, 0 verify failures"},
+		{"pause menu", replica.Status{Combat: replica.CombatStatus{Granted: true, Tables: true, Place: in, StoreBits: 1, Waiting: "the pause menu is open"}},
+			"combat: on; 1 partner kill bit(s) held for M_NewD2 (table 3); 0 written to zones, 0 light-shrunk, 0 held (all waiting: the pause menu is open), 0 refused, 0 verify failures"},
 		{"not granted", replica.Status{Combat: replica.CombatStatus{Tables: true}}, "combat: not granted by the host (its co-op stage tables are not this side's, or it turned it off)"},
 		{"no tables", replica.Status{Combat: replica.CombatStatus{Granted: true}}, "combat: granted, but this side has no co-op enemy table, so no kill is written"},
 		{"dry run", replica.Status{DryRun: true}, "combat: none in a dry run, which asks the host for the shared image alone"},

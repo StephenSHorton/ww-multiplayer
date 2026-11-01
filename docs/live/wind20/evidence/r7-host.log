@@ -1,0 +1,135 @@
+[srv 01:22:15] Server listening on port 25640
+Hosting as "HostA" on :25640.
+Share one of these addresses with your friend (the :port is needed):
+  (LAN address):25640
+Ctrl+C to stop.
+=== Enemy host: HostA -> localhost:25640 ===
+=== Broadcast Link + Pose: HostA -> localhost:25640 ===
+=== Puppet Sync: HostA <- localhost:25640 ===
+Dolphin found.
+enemy host: host-authoritative enemies on (kinds mo2,bk+u,cc+u,ki+u), remote Link bodies step6 (WW_ENEMY_SYNC=0 turns enemy sync off); selecting by distance (WW_ENEMY_SELECT), STATE 30 Hz gate false
+enemy host: remote-Link block on, flags 0x24FF, 19 policies, FF denylist [MajyuE majroom Majroom Mjtower]
+[srv 01:22:15] HostA (enemy host 1) connected
+[net] Connected for enemy sync (enemy ID 1)
+enemy host: REL module linked (build 1CE30685); host hits apply
+enemy host: 2 enemies (mo2,bk+u,cc+u,ki+u) in M_NewD2 room 0
+WARN: enemy host: no loaded Mo2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+enemy host: Bk resource table resolved (mObjectInfo[10], mRes 0x819FA3F0): its animation stream is on
+enemy host: CC resource table resolved (mObjectInfo[22], mRes 0x81A1FFB0): its animation stream is on
+enemy host: Ki resource table resolved (mObjectInfo[15], mRes 0x81A0F8C0): its animation stream is on
+Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[srv 01:22:15] HostA (ID:1) connected
+[net] Connected as player 1
+Dolphin found.
+game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+Filtering self-echo: remotes named "HostA" will be ignored.
+[srv 01:22:15] HostA (ID:2) connected
+[net] Connected as player 2
+puppet-sync session 1 armed (server epoch 1793517735775878000)
+[net] Player HostA (ID:2) in game
+[net] Player HostA (ID:1) in game
+tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+[srv 01:22:18] JoinB (enemy client 2) connected
+[srv 01:22:18] JoinB (ID:3) connected
+[net] Player JoinB (ID:3) in game
+[net] Player JoinB (ID:3) in game
+[net] Player HostA (ID:2) in game
+[net] Player HostA (ID:1) in game
+[srv 01:22:18] JoinB (ID:4) connected
+[net] Player HostA (ID:1) in game
+[net] Player JoinB (ID:3) in game
+[net] Player JoinB (ID:4) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] Player JoinB (ID:4) in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 3 (JoinB)
+link slot 0 frozen: player 3 pose stalled
+WARN: link slot 0 despawned: player 3 silent (no MsgLeave yet)
+[srv 01:22:57] JoinB (enemy client 2) disconnected
+link slot 0 reservation expired: freed for reuse (player 3)
+[srv 01:22:58] JoinB disconnected
+[srv 01:22:58] JoinB disconnected
+[net] JoinB left the game
+[net] JoinB left the game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:1) in game
+slot 0 freed (player 3 left)
+[net] JoinB left the game
+[net] JoinB left the game
+[net] Player HostA (ID:2) in game
+[net] Player HostA (ID:2) in game
+[srv 01:23:07] JoinB (ID:5) connected
+[srv 01:23:07] JoinB (ID:6) connected
+[net] Player JoinB (ID:5) in game
+[net] Player JoinB (ID:6) in game
+[net] Player HostA (ID:1) in game
+[srv 01:23:07] JoinB (enemy client 3) connected
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:5) in game
+[net] Player JoinB (ID:6) in game
+[net] Player JoinB (ID:6) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:5) in game
+[net] Player JoinB (ID:6) in game
+[net] Player HostA (ID:1) in game
+[net] Player JoinB (ID:5) in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 5 (JoinB)
+[net] Disconnected from server
+[srv 01:24:01] JoinB disconnected
+[srv 01:24:01] JoinB (enemy client 3) disconnected
+[srv 01:24:01] HostA disconnected
+Disconnected.
+[srv 01:24:01] HostA (enemy host 1) disconnected
+[srv 01:24:01] JoinB disconnected
+[srv 01:24:01] JoinB (ID:7) connected
+[net] Disconnected from server
+[net] Disconnected from server
+[srv 01:24:01] JoinB (enemy client 4) connected
+[srv 01:24:01] HostA disconnected
+[srv 01:24:01] JoinB (ID:8) connected
+[srv 01:24:01] HostA (enemy host 5) connected
+[srv 01:24:01] HostA (ID:9) connected
+[net] Connected for enemy sync (enemy ID 5)
+[net] Connected as player 9
+puppet-sync session 2 armed (server epoch 1793517735775878000)
+WARN: link slot 0 despawned: player 5 silent (no MsgLeave yet)
+[net] Player JoinB (ID:7) in game
+[net] Player JoinB (ID:8) in game
+[net] Player HostA (ID:1) is no longer in game
+[net] Player JoinB (ID:5) is no longer in game
+[net] Player JoinB (ID:6) is no longer in game
+slot 0 freed (player 5 left)
+link slot 0 freed (will be reassigned on next pose)
+Disconnected.
+[srv 01:24:02] HostA (ID:10) connected
+[net] Connected as player 10
+[net] Player JoinB (ID:7) in game
+[net] Player JoinB (ID:8) in game
+[net] Player HostA (ID:10) in game
+[net] Player HostA (ID:9) in game
+[net] Player JoinB (ID:7) in game
+[net] Player JoinB (ID:8) in game
+[net] Player HostA (ID:2) is no longer in game
+[net] Player JoinB (ID:5) is no longer in game
+[net] Player JoinB (ID:6) is no longer in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 7 (JoinB)
+WARN: enemy host paused: read failed at 0x803CA754: mach_vm_read_overwrite failed (kr=1); no enemy STATE and no hits until it runs again
+WARN: pose feed paused: the game cannot be read; no pose, face or tunic writes until it runs again
+WARN: enemy host paused: read failed at 0x803CA754: mach_vm_read_overwrite failed (kr=4); no enemy STATE and no hits until it runs again
+WARN: enemy host paused: read failed at 0x803CA754: mach_vm_read_overwrite failed (kr=268435459); no enemy STATE and no hits until it runs again
+WARN: enemy host still paused: 1873 more in the last 30s (read failed at 0x803CA754: mach_vm_read_overwrite failed (kr=268435459))
+WARN: enemy host still paused: 1876 more in the last 30s (read failed at 0x803CA754: mach_vm_read_overwrite failed (kr=268435459))
+WARN: enemy host still paused: 1876 more in the last 30s (read failed at 0x803CA754: mach_vm_read_overwrite failed (kr=268435459))
+Shutting down... (press Ctrl+C again to force quit)
+Disconnected.
+Disconnected.
+[srv 01:26:35] HostA disconnected
+[srv 01:26:35] HostA disconnected
+WARN: enemy host: clearing the remote-Link block: mailbox: remote-Link block magic: write failed at 0x80413420: mach_vm_write failed (kr=268435459)
+WARN: enemy host: clearing the block: mailbox: enemy block magic: write failed at 0x80413100: mach_vm_write failed (kr=268435459)
+[srv 01:26:35] HostA (enemy host 5) disconnected
+[srv 01:26:35] JoinB (enemy client 4) disconnected

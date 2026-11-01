@@ -45,7 +45,7 @@ type CoopRelays struct {
 	// BossKill is the boss-dead relay's rows: "" for the default
 	// (gohma,kalle,gohdan,molgera,jalhalla,helmaroc), "none", or replica.BossKillTokens joined by ",".
 	BossKill string `json:"bossKill"`
-	// Refresh is the actor_refresh relay's tokens: "" or "none" for off,
+	// Refresh is the actor_refresh relay's tokens: "" for replica.RefreshDefault, "none" for off,
 	// or replica.RefreshTokens joined by ",", with "dry" to log only.
 	Refresh string `json:"refresh"`
 }

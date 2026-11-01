@@ -153,6 +153,8 @@ func commandTable() []command {
 		{name: "rf-probe", group: groupDev, run: runBatchDProbe},
 		// One actor_refresh request by hand, the RC re-create checks (rf_ask.go).
 		{name: "rf-ask", group: groupDev, run: runRfAsk},
+		// Turn Link toward a point by stick input, for aimed tests (face.go, wind#41).
+		{name: "face", group: groupDev, run: cmdFace},
 		{name: "mt2-probe", group: groupDev, run: runBatchDProbe},
 		// Batch E's boss_kill probes: Molgera, Jalhalla (enemy_batche_probe.go).
 		{name: "bwd-probe", group: groupDev, run: runBatchEProbe},

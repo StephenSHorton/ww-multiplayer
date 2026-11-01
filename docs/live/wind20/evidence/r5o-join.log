@@ -1,0 +1,102 @@
+Joining 127.0.0.1:25640 as "JoinB".
+Ctrl+C to stop.
+=== Enemy client: JoinB <- 127.0.0.1:25640 ===
+=== Broadcast Link + Pose: JoinB -> 127.0.0.1:25640 ===
+=== Puppet Sync: JoinB <- 127.0.0.1:25640 ===
+Dolphin found.
+enemy client: mirroring the host's enemies (kinds mo2,bk+u,cc+u,ki+u), remote bodies step6; quiet deaths for mo2,bk,cc,ki,am,am2,tn,bb,mt (WW_ENEMY_QUIET_DEATH), selecting by distance (WW_ENEMY_SELECT)
+enemy client: remote-Link block on, flags 0x24FF
+[net] Connected for enemy sync (enemy ID 2)
+enemy client: game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+enemy client: REL module linked (build 1CE30685, frame 6225)
+enemy client: not mirroring: this game is not in play
+Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[net] Connected as player 3
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+Dolphin found.
+game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+Filtering self-echo: remotes named "JoinB" will be ignored.
+[net] Connected as player 4
+puppet-sync session 1 armed (server epoch 1793517228591135000)
+tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:4) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 1 (HostA)
+enemy client: mirroring: the host lists 2 enemies in M_NewD2 room 0
+enemy client: 2 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 0
+enemy client: ACK setID 0x0 handle 1 hit 1 applied_at/none frames 1 sets 1 health 3
+enemy client: ACK setID 0x1 handle 2 hit 2 applied_at/none frames 1 sets 1 health 3
+enemy client: ACK setID 0x0 handle 1 hit 3 applied_at/none frames 1 sets 1 health 1
+enemy client: ACK setID 0x1 handle 2 hit 4 applied_at/none frames 1 sets 1 health 1
+enemy client: ACK setID 0x0 handle 1 hit 5 applied_at/none frames 1 sets 1 health 1
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 8757)
+enemy client: mirroring: the host lists 1 enemies in M_NewD2 room 0
+player 1 (HostA) is between stages: hidden until it is back here (M_NewD2)
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+enemy client: not mirroring: this game is not in play
+player 1 (HostA) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy client: mirroring: the host lists 2 enemies in M_NewD2 room 0
+enemy client: 2 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 0
+player 1 (HostA) is between stages: hidden until it is back here (M_NewD2)
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+enemy client: not mirroring: this game is not in play
+player 1 (HostA) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy client: mirroring: the host lists 1 enemies in M_NewD2 room 3
+enemy client: 1 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 3
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+player 1 (HostA) is between stages: hidden until it is back here (M_NewD2)
+enemy client: not mirroring: this game is not in play
+player 1 (HostA) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 12840)
+enemy client: not mirroring: this game is not in play
+enemy client: mirroring: the host lists 5 enemies in M_NewD2 room 4
+enemy client: 5 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 4
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+player 1 (HostA) is between stages: hidden until it is back here (M_NewD2)
+enemy client: not mirroring: this game is not in play
+player 1 (HostA) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 13354)
+enemy client: mirroring: the host lists 4 enemies in M_NewD2 room 7
+enemy client: 4 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 7
+player 1 (HostA) is between stages: hidden until it is back here (M_NewD2)
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+enemy client: not mirroring: this game is not in play
+player 1 (HostA) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy client: mirroring: the host lists 0 enemies in M_NewD2 room 8
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+player 1 (HostA) is between stages: hidden until it is back here (M_NewD2)
+enemy client: not mirroring: this game is not in play
+player 1 (HostA) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy client: mirroring: the host lists 0 enemies in M_NewD2 room 10
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+player 1 (HostA) is between stages: hidden until it is back here (M_NewD2)
+enemy client: not mirroring: this game is not in play
+player 1 (HostA) is in this stage (M_NewD2): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy client: mirroring: the host lists 0 enemies in M_NewD2 room 12
+enemy client: the host is out of play; holding the copies frozen (up to 30s)
+player 1 (HostA) is between stages: hidden until it is back here (M_NewD2)
+enemy client: not mirroring: this game is not in play
+player 1 (HostA) is in this stage (M_Dai): shown
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy client: mirroring: the host lists 3 enemies in M_Dai room 1
+enemy client: 3 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_Dai room 1

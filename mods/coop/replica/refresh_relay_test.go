@@ -3,6 +3,7 @@ package replica
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -121,7 +122,8 @@ func TestParseRefresh(t *testing.T) {
 		dry   bool
 		err   bool
 	}{
-		{"", nil, false, false},
+		{"", []uint16{mailbox.RefreshProcTbox, mailbox.RefreshProcLeaves, mailbox.RefreshProcSaku, mailbox.RefreshProcKokiie, mailbox.RefreshProcStone2, mailbox.RefreshProcItem}, false, false}, // RefreshDefault
+		{" NONE ", nil, false, false},
 		{"none", nil, false, false},
 		{RefreshTokens, all, false, false},
 		{"stone2,leaves,item,tbox,saku", []uint16{mailbox.RefreshProcStone2, mailbox.RefreshProcLeaves, mailbox.RefreshProcItem, mailbox.RefreshProcTbox, mailbox.RefreshProcSaku}, false, false},
@@ -465,16 +467,27 @@ func TestRefreshRelayNoREL(t *testing.T) {
 // proc's token, asks nothing however the bit landed; its dry token logs
 // one line per candidate and writes nothing.
 func TestRefreshRelayOff(t *testing.T) {
-	for _, tokens := range []string{"", "none", "leaves,item,tbox,saku"} {
+	for _, tokens := range []string{"none", " NONE ", "leaves,item,tbox,saku"} {
 		rr := newRelayRig(t, tokens, -1, true, refreshStone2())
 		rr.landSwitch(refreshSw)
 		rr.ticks(4)
 		if s := rr.request().Seq; s != 0 {
 			t.Fatalf("%q: a request: seq %d", tokens, s)
 		}
-		if st := rr.r.Status(); st.Writes.Refreshes != 0 || (tokens == "" && st.Refresh.Actors.On != "") {
+		if st := rr.r.Status(); st.Writes.Refreshes != 0 || (strings.EqualFold(strings.TrimSpace(tokens), "none") && st.Refresh.Actors.On != "") {
 			t.Fatalf("%q: status %+v", tokens, st.Refresh.Actors)
 		}
+	}
+	// "" is RefreshDefault, which names stone2: the boulder is asked about,
+	// and /status names the default's tokens.
+	rr0 := newRelayRig(t, "", -1, true, refreshStone2())
+	rr0.landSwitch(refreshSw)
+	rr0.ticks(4)
+	if s := rr0.request().Seq; s == 0 {
+		t.Fatalf("\"\" (RefreshDefault) asked nothing:\n%s", rr0.log)
+	}
+	if on := rr0.r.Status().Refresh.Actors.On; on != RefreshDefault {
+		t.Fatalf("\"\": status On %q, want %q", on, RefreshDefault)
 	}
 	rr := newRelayRig(t, "stone2,dry", -1, true, refreshStone2())
 	rr.landSwitch(refreshSw)
@@ -892,5 +905,55 @@ func TestRefreshRowsMatchREL(t *testing.T) {
 	}
 	if len(seen) != 15 {
 		t.Errorf("parsed %d rf_rows entries, want 15", len(seen))
+	}
+}
+
+// TestRefreshRelayLinkReach3D: the relay's Link-reach gate is the REL's,
+// a 3D distance (wwrefresh.h WWRF_LINK_FAR): Link 1550 units straight
+// below the actor (another floor, x-z distance 0) holds nothing and the
+// request goes; Link within 300 units in 3D holds it, and /status says why.
+func TestRefreshRelayLinkReach3D(t *testing.T) {
+	t.Run("another floor", func(t *testing.T) {
+		rr := newRelayRig(t, "stone2", -1, true, refreshStone2())
+		rr.linkAt([3]float32{far[0], far[1] - 1550, far[2]})
+		rr.landSwitch(refreshSw)
+		rr.ticks(3)
+		if s := rr.request().Seq; s == 0 {
+			t.Fatalf("no request with Link 1550 units below: status %+v", rr.r.Status().Refresh.Actors)
+		}
+	})
+	t.Run("within 300 in 3D", func(t *testing.T) {
+		rr := newRelayRig(t, "stone2", -1, true, refreshStone2())
+		rr.linkAt([3]float32{far[0] + 100, far[1] + 200, far[2] + 100})
+		rr.landSwitch(refreshSw)
+		rr.ticks(3)
+		if s := rr.request().Seq; s != 0 {
+			t.Fatalf("a request with Link 245 units away: seq %d", s)
+		}
+		if st := rr.r.Status().Refresh.Actors; st.Held != 1 || !strings.Contains(st.LastHeld, "Link within 300 units (3D") {
+			t.Fatalf("status %+v, want a 3D Link hold", st)
+		}
+	})
+}
+
+// TestFarFrom3D pins the helper against the x-z farFrom the lock writer
+// keeps.
+func TestFarFrom3D(t *testing.T) {
+	nan := float32(math.NaN())
+	for _, c := range []struct {
+		p, q      [3]float32
+		far3D, xz bool
+	}{
+		{[3]float32{0, 0, 0}, [3]float32{0, 1550, 0}, true, false},
+		{[3]float32{0, 0, 0}, [3]float32{200, 200, 0}, false, false},
+		{[3]float32{0, 0, 0}, [3]float32{301, 0, 0}, true, true},
+		{[3]float32{0, 0, 0}, [3]float32{nan, 0, 0}, false, false},
+	} {
+		if got := farFrom3D(c.p, c.q); got != c.far3D {
+			t.Errorf("farFrom3D(%v, %v) = %v, want %v", c.p, c.q, got, c.far3D)
+		}
+		if got := farFrom(c.p, c.q); got != c.xz {
+			t.Errorf("farFrom(%v, %v) = %v, want %v", c.p, c.q, got, c.xz)
+		}
 	}
 }

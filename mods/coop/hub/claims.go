@@ -72,6 +72,12 @@ func (h *Hub) onClaim(p *peer, m *wire.Claim) {
 		h.logf("co-op: chest claim: %s's lease on table %d chest %d expired", h.peerName(l.owner), k.table, k.no)
 		delete(h.leases, k)
 		held = false
+		// Tell the old owner, so its replica holds the chest again
+		// before the new owner's prompt comes back: two prompts at once
+		// is the double loot.
+		if q := h.byID[l.owner]; q != nil && q.bound() && q.features&FeatureChestClaim != 0 {
+			h.send(q, &wire.Claim{Op: wire.ClaimDeny, Table: m.Table, No: m.No, Room: -1})
+		}
 	}
 	switch {
 	case chestOpened(&img, k):

@@ -1,0 +1,32 @@
+Joining 127.0.0.1:25640 as "JoinB".
+Ctrl+C to stop.
+=== Enemy client: JoinB <- 127.0.0.1:25640 ===
+=== Broadcast Link + Pose: JoinB -> 127.0.0.1:25640 ===
+=== Puppet Sync: JoinB <- 127.0.0.1:25640 ===
+Dolphin found.
+enemy client: mirroring the host's enemies (kinds mo2,bk+u,cc+u,ki+u), remote bodies step6; quiet deaths for mo2,bk,cc,ki,am,am2,tn,bb,mt (WW_ENEMY_QUIET_DEATH), selecting by distance (WW_ENEMY_SELECT)
+enemy client: remote-Link block on, flags 0x24FF
+[net] Connected for enemy sync (enemy ID 2)
+enemy client: game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+enemy client: REL module linked (build 1CE30685, frame 18928)
+enemy client: not mirroring: no STATE from the host yet
+[net] Connected as player 3
+[net] Player HostA (ID:2) in game
+[net] Player HostA (ID:1) in game
+Dolphin found.
+game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+Filtering self-echo: remotes named "JoinB" will be ignored.
+[net] Connected as player 4
+puppet-sync session 1 armed (server epoch 1793517657412664000)
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:4) in game
+[net] Player HostA (ID:1) in game
+tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 1 (HostA)
+enemy client: mirroring: the host lists 3 enemies in M_Dai room 1
+enemy client: 3 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_Dai room 1
+enemy client: knob table rewritten: seen G62464 want G4584

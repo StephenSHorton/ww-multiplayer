@@ -20,7 +20,7 @@ WW_SHARED=${WW_SHARED:-$HOME/ww-shared}
 WWDEV=${WWDEV:-$WW_SHARED/bin/wwdev}
 DOLPHIN_APP=${DOLPHIN_APP:-$HOME/Applications/Dolphin.app}
 ISO=${ISO_PATH:-$WW_SHARED/disc/WW-mp.iso}
-SAVE_DEFAULT=$WW_SHARED/fixtures/start-mac-1CE30685.sav
+SAVE_DEFAULT=$WW_SHARED/fixtures/start-mac-A9DE0F1E.sav  # REL 0xA9DE0F1E (main since #267); start-mac-1CE30685.sav stays for older builds
 [ -f "$SAVE_DEFAULT" ] || SAVE_DEFAULT=none
 
 die() { echo "mac-rig: $*" >&2; exit 1; }
@@ -101,6 +101,24 @@ mp-local)
 	[ -f "$r/pair.pids" ] || die "no $r/pair.pids: run pair first"
 	# env_for exports USER_DIR_1/2 as this rig's u1/u2: --coop reads, backs up
 	# and binds the cards there, never the default Dolphin folders.
+	# With --coop, the stage tables come from --coop-iso, else from the disc
+	# `patch` last wrote (a per-user record any agent's patch run moves), so
+	# name the rig's disc unless the caller did. The rig's cards are copies
+	# (setup), and nobody is at a TTY to answer the bind prompt: add --yes.
+	coop=0 iso=0 yes=0
+	for a in "$@"; do
+		case "$a" in
+		--) break ;;
+		--coop | --coop=*) coop=1 ;;
+		--coop-iso | --coop-iso=*) iso=1 ;;
+		--yes) yes=1 ;;
+		esac
+	done
+	if [ "$coop" = 1 ]; then
+		# prepended: anything after a "--" goes to the pipelines untouched
+		[ "$yes" = 1 ] || set -- --yes "$@"
+		[ "$iso" = 1 ] || set -- --coop-iso "$ISO" "$@"
+	fi
 	cd "$r" && MP_LOCAL_PIDS=$(cat "$r/pair.pids") WW_DEV_LOGS=$r/logs exec "$WWDEV" mp-local "$@"
 	;;
 stop)

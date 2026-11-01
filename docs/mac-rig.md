@@ -33,7 +33,7 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
 ```
 ~/ww-shared/disc/ww-vanilla.ciso, WW-mp.iso      the disc and the patched disc
 ~/ww-shared/fixtures/                             dolphin-user-3/-4 (PC user dirs), saves/ (GCIs),
-                                                  start-mac-1CE30685.sav (the Mac start save, below)
+                                                  start-mac-A9DE0F1E.sav (the Mac start save, below; start-mac-1CE30685.sav and WW-mp-1CE30685.iso are kept for builds before #267)
 ~/ww-shared/bin/                                  wwdev, ww-multiplayer (entitled), mac-rig.sh
 ~/ww-shared/rigs/<rig>/u1, u2                     each rig's own Dolphin user dirs
 ```
@@ -57,7 +57,7 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
   silently ignored and the game sits on the title screen. Macs use their own start save, made
   unattended by the macOS `wwdev auto-recapture` (`scripts/mac-rig.sh recapture <rig>`): cold
   boot, menus through the pad override, then a held Shift+F1. The shared one is
-  `~/ww-shared/fixtures/start-mac-1CE30685.sav` (file 1 of the fixture card, in Hyrule, Link in
+  `~/ww-shared/fixtures/start-mac-A9DE0F1E.sav` (REL 0xA9DE0F1E, main since #267, recaptured 2026-11-01; file 1 of the fixture card, in Hyrule, Link in
   play). A REL/C change invalidates it: recapture under the `ww/rel-blob` lease and replace it.
 
 ## Daily use
@@ -77,8 +77,15 @@ scripts/mac-rig.sh stop <rig>         # end this rig's Dolphins by PID; then rel
   fails on: "bind: address already in use"). `MP_LOCAL_PORT=0` takes a free port on 127.0.0.1 and
   logs it ("Server listening on localhost:<port>"); pass that address to `pose-fake-loop`.
 - **Don't use bare `wwdev dolphin2` on the shared Mac**: it adopts any running Dolphin as Dolphin 1, which is another agent's. `mac-rig.sh pair` launches both itself and finds each by its own `-u` argument.
+- **Pass `--coop-iso ~/ww-shared/disc/WW-mp.iso`** to `mp-local --coop` and every `join --coop`: without it co-op takes its stage tables from "the disc last patched", one setting for the whole Mac user that any agent's `patch` moves (once it named another agent's deleted scratch ISO, and the session ran with room puzzles, memory switches, keys and kills off; `docs/live/wind9-c3-mac.md`).
 - **Always pin `MP_LOCAL_PIDS`** (the script does): other agents' Dolphins run on the same Mac and
   enumeration order would otherwise pick theirs. For one Dolphin use `WW_DOLPHIN_PID=<pid>`.
+- **Co-op on the rig** (`mac-rig.sh mp-local <rig> --coop=new ...`): the script exports the rig's
+  `USER_DIR_1/2` (`u1`, `u2`), so co-op backs up, reads and binds those cards, never the default
+  Dolphin folders. It also adds `--coop-iso ~/ww-shared/disc/WW-mp.iso` unless you name one: without
+  it the stage tables come from the disc `patch` last wrote, a per-user record that any agent's
+  `patch` run moves. And it adds `--yes`, since nobody is at a TTY to answer the bind prompt and the
+  rig's cards are copies of the fixtures. Flags after a `--` are passed through unchanged.
 - **Input**: `wwdev input` / `input-release` work unchanged (they write the mailbox; no OS
   permission needed). Lock-on/guard still need the trigger poke (WW-MAC-RULES).
 - **Screenshots**: `wwdev screenshot` is Win32-only. `mac-rig.sh shot` finds the PID's render

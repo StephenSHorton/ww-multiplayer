@@ -388,8 +388,16 @@ func TestReconcileM6Gates(t *testing.T) {
 			if st := rr.r.Status().Combat; st.Held == 0 && c.name != "pause menu" && c.name != "event" {
 				t.Errorf("nothing held: %+v", st)
 			}
+			// A shut IDLE gate plans no target, so Held stays 0: Waiting
+			// names it instead (docs/08 §8.2 K7).
+			if st := rr.r.Status().Combat; c.name == "pause menu" && (st.Waiting != "the pause menu is open" || st.StoreBits == 0) {
+				t.Errorf("pause menu: Waiting %q, StoreBits %d", st.Waiting, st.StoreBits)
+			}
 			c.open(rr)
 			rr.ticks(5)
+			if st := rr.r.Status().Combat; st.Waiting != "" {
+				t.Errorf("still waiting once the gate opened: %q", st.Waiting)
+			}
 			if rr.timer(c.enemy) <= 0 {
 				t.Fatalf("not shrunk once the gate opened: timer %d\n%s", rr.timer(c.enemy), rr.log)
 			}

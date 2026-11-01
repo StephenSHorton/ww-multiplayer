@@ -140,3 +140,18 @@ const (
 	MtBckCount = MtBckLast - MtBckFirst + 1
 	MtBckWait  = 0x0A
 )
+
+// The Stalfos's archive and BCK range (wind#27, docs/design/
+// enemy-rows-next.md "Enemy mirror row: ST Stalfos" §2 ARC and BCK_*).
+const (
+	// StArc is st_class's archive (dComIfG_resLoad "St", d_a_st.cpp:2829).
+	StArc = "St"
+	// St.arc's BCK indices (assets/GZLE01/res/Object/St.h): ATTACKL1 0x04
+	// through YOKO_START 0x35; WAIT 0x33 is the handback loop (m02CC is
+	// never written, so LWAIT 0x21 never plays). HEADB_* 0x0F..0x13 are in
+	// the range but play only on mpMorf2, the detached head.
+	StBckFirst = 0x04
+	StBckLast  = 0x35
+	StBckCount = StBckLast - StBckFirst + 1
+	StBckWait  = 0x33
+)

@@ -92,6 +92,21 @@ func (w *WriteGuard) judgeChest(c ChestActor, hold bool, a, old, val uint32) (Re
 	return 0, ""
 }
 
+// holdsClosed returns why the guard would refuse a hold now, or "".
+func (w *WriteGuard) holdsClosed() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	switch {
+	case w.brk.Off():
+		return w.brk.Why()
+	case !w.have:
+		return "no tick has opened the gates yet"
+	case w.closed != "":
+		return w.closed
+	}
+	return w.tick.opens(TargetChestHold, 0)
+}
+
 // ApplyChests makes plan right after the next heartbeat:
 //
 //  1. the heartbeat is followed from the snapshot's (waitBeat) and the
@@ -119,6 +134,18 @@ func (w *FrameWriter) ApplyChests(ctx context.Context, plan ChestPlan) (res Ches
 		return res, err
 	}
 	w.wg.SetChests(plan)
+	if len(plan.Hold) > 0 {
+		// The gates closed since the plan (a room entry's settling, an
+		// event): drop the holds rather than have the guard refuse them,
+		// which would count toward the Breaker. The restores still go.
+		if why := w.wg.holdsClosed(); why != "" {
+			res.Skipped = append(res.Skipped, "holds wait: "+why)
+			plan.Hold = nil
+			if len(plan.Restore) == 0 {
+				return res, nil
+			}
+		}
+	}
 	defer func() {
 		if len(res.Wrote) > 0 {
 			w.stats.Batches++

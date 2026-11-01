@@ -311,9 +311,14 @@ func (s *coopSync) command(ctx context.Context, cmd coopCommand) {
 		if cmd.verb == "warp" {
 			kind = replica.EscapeWarp
 		}
-		ch := s.r.Escape(kind)
+		// One escape only: a named warp is WarpTo alone. (Asking Escape
+		// first queued an untargeted warp that refused the named one, and
+		// with two or more partners failed itself: wind#9 live C3-3.)
+		var ch <-chan replica.EscapeResult
 		if cmd.target != "" {
 			ch = s.r.WarpTo(cmd.target)
+		} else {
+			ch = s.r.Escape(kind)
 		}
 		go func() {
 			select {

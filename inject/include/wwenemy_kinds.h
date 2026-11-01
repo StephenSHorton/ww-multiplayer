@@ -45,8 +45,9 @@
 #define EMK_KIND_TN              6            // TN batch B (D1), default off (tn / tn+u); the last id the annex's HKDX bytes hold (0x1FF)
 #define EMK_KIND_BB              7            // batch C, default off (bb / bb+u); hook byte WWENEMY_HKD_HI_OFF + 0
 #define EMK_KIND_MT              8            // batch D (R-D6), default off (mt+u only); hook byte WWENEMY_HKD_HI_OFF + 1; the first cut (cut_order 1: this define stays, the row goes)
-#define EMK_KIND_COUNT           9            // rows MO2, BK, CC, KI, AM, AM2, TN, BB, MT (the Go Kinds table); 8 when EMK_WITH_MT is 0 (set both by hand: the parser takes no expressions)
-#define EMK_WITH_MT              1            // batch D D10: 0 cuts the MT row before the build (no EM_ROW(MT), no em_mt_* code); emk_check_mt_count pins EMK_KIND_COUNT to it
+#define EMK_KIND_ST              9            // wind#27 (enemy-rows-next.md ST), default off (st / st+u); hook byte WWENEMY_HKD_HI_OFF + 2
+#define EMK_KIND_COUNT           10           // rows MO2, BK, CC, KI, AM, AM2, TN, BB, MT, ST (the Go Kinds table), whatever EMK_WITH_MT says: an MT cut leaves a hole row at 8
+#define EMK_WITH_MT              1            // batch D D10: 0 cuts the MT row before the build (EM_KINDS[8] becomes a hole row, no em_mt_* code); EMK_KIND_COUNT stays 10
 #define EMK_KIND_NONE            0xFF
 
 // --- capability bits (row caps) ------------------------------------------
@@ -69,9 +70,11 @@
 #define EMK_COLL_NONE            0
 #define EMK_COLL_STD             1            // Co ahead by co_forward, Tg at cur, head sphere at head_center, defence at def_center (enemy_mirror.c:803-831); A1 (D7): no Tg Set when tg == co, no head/def when 0
 #define EMK_COLL_CC              2            // mCyl only: SetC(cur), R 35, H 30 (HUSE_WALK) or 100, At stripped, Tg/Co from flags2
+#define EMK_COLL_ST              4            // ST: the 7 Tg/Co spheres at their joints (em_st_colliders; 3 is EMK_COLL_MT)
 #define EMK_ATTACH_NONE          0
 #define EMK_ATTACH_BK            1            // boko stick, shield, bouen (d_a_bk.cpp:4104-4136, 4371-4416)
 #define EMK_ATTACH_TN            2            // TN (R-6, R-7): the shield pre-calc before the body calc, then parts, armor calc, sword, pieces AND, def centre after it
+#define EMK_ATTACH_ST            3            // ST: the 23 drawn part models on their joints, the head eye/attention and the mace (em_st_attach)
 #define EMK_EYE_NONE             0
 #define EMK_EYE_CC               1            // eyePos and attention position every frame (d_a_cc.cpp:2108-2122)
 #define EMK_EYE_FIXED            2            // D5: a switch on the kind id after McaMorf_calc, per-kind EMK_<K>_EYE_* / ATTN_UP constants; HKD_EYE skips it
@@ -896,9 +899,11 @@ typedef char emk_check_bb_row[(EMK_BB_ID == EMK_KIND_BB && EMK_KIND_BB == 7 &&
 // 9d7de8625389ef01cb34539efc782f2a0d0aeda1, tww config.yml:1510;
 // research/C1-magtail.md, C1b-magtail-redo.md; "mt.rel 0xNNNN" a .text
 // offset). THE FIRST CUT (cut_order 1): everything MT lives in this
-// section, its em_mt_* functions and typedefs; a cut sets EMK_WITH_MT 0
-// and EMK_KIND_COUNT 8, deletes this section down to EMK_KIND_MT (kept
-// above) and leaves the hook byte WWENEMY_HKD_HI_OFF + 1 unread. Default
+// section, its em_mt_* functions and typedefs; a cut sets EMK_WITH_MT 0,
+// deletes this section down to EMK_KIND_MT (kept above) and leaves the
+// hook byte WWENEMY_HKD_HI_OFF + 1 unread. EMK_KIND_COUNT stays 10 (ST is
+// id 9): EM_KINDS[8] becomes a hole row no proc matches, and the Go
+// Kinds table keeps a zero row at KindMT. Default
 // off, unkeyed only (mt+u: every DRC Magtail is unkeyed). Wire (G-D6):
 // AngleY shape_angle.y, tilt shape_angle.x; slot +0x18 s16 EMK_MT_WIGGLE
 // (WWENEMY_SL_CC_M316Z_OFF's bytes); aux[0] mode | action << 8, aux[1]
@@ -1039,8 +1044,8 @@ typedef char emk_check_bb_row[(EMK_BB_ID == EMK_KIND_BB && EMK_KIND_BB == 7 &&
 #define EMK_MT_HKD_CUSTODY       0x40         // == WWENEMY_HKD_SPECIAL (custody): a BALL stays mirrored and paused (no custody handback)
 #define EMK_MT_HKD_EXTRA         0x80         // == WWENEMY_HKD_EXTRA (extra): skip the colour phase and frames
 
-typedef char emk_check_mt_count[((EMK_WITH_MT == 1 && EMK_KIND_COUNT == EMK_KIND_MT + 1) ||
-                                 (EMK_WITH_MT == 0 && EMK_KIND_COUNT == EMK_KIND_MT)) ? 1 : -1];
+typedef char emk_check_mt_count[((EMK_WITH_MT == 0 || EMK_WITH_MT == 1) && EMK_KIND_ST == EMK_KIND_MT + 1 &&
+                                 EMK_KIND_COUNT == EMK_KIND_ST + 1) ? 1 : -1];
 typedef char emk_check_mt_row[(EMK_MT_ID == EMK_KIND_MT && EMK_KIND_MT == EMK_KIND_BB + 1 &&
                                EMK_KIND_MT < 7 + WWENEMY_HKD_HI_KINDS && EMK_KIND_MT < WWENEMY_KNOB_KINDS &&
                                EMK_MT_HKD_COLL == WWENEMY_HKD_MODEL_EQ && EMK_MT_HKD_CHAIN == WWENEMY_HKD_ATTACH &&
@@ -1068,5 +1073,129 @@ typedef char emk_check_mt_row[(EMK_MT_ID == EMK_KIND_MT && EMK_KIND_MT == EMK_KI
                                EMK_MT_TEXT_BC1 + EMK_MT_BC1_BLR_OFF < EMK_MT_TEXT_EXEC &&
                                EMK_MT_FP_BLR == EMK_BB_FP_BLR &&
                                EMK_MT_BCK_WAIT >= EMK_MT_BCK_FIRST && EMK_MT_BCK_WAIT <= EMK_MT_BCK_LAST) ? 1 : -1];
+
+// --- row ST: Stalfos, fpcNm_ST_e (st_class, d_a_st.h:46-150) ------------------
+// wind#27 (docs/design/enemy-rows-next.md "Enemy mirror row: ST Stalfos",
+// intact phase only; d_a_st.cpp citations as ".cpp:N"). An fopEn_enemy_c
+// with no damagereaction whose mpMorf (ST.bdl) is never drawn: Draw draws
+// the part models (st_part_draw, .cpp:360-392), each placed on its joint
+// of mpMorf's model by part_move (.cpp:2252-2268). Wire: AngleY is
+// shape_angle.y; aux {m0304, 0, 0, 0} (m0304 the KAITEN spin's extra yaw,
+// .cpp:894, 2607; aux[3], the m1DE4 hit shake, is not built: cut_order 1);
+// flags2 EMK_ST_F2_*. Default off (st keyed, st+u unkeyed); BOSS (death
+// switch 1..0x7F, .cpp:2838-2841) and behaviour 14 (the split's upper
+// half, .cpp:1681) are refused on both sides. Collider 1 is sphere 0 (the
+// head, R 45), collider 2 any of spheres 1..6 (R 25, .cpp:2352, 2389-2401).
+// No per-kind hook names: ATTACH skips em_st_attach (parts, eye, mace),
+// MTX_PLAIN the matrix, ATTN and EXTRA as generic.
+#define EMK_ST_ID                9
+#define EMK_ST_PROC              0x00BF       // f_pc_name.h:200; wwapi/addr/remote.go ProcST
+#define EMK_ST_CLASS_SIZE        0x2368       // d_a_st.h:150 (retail: the VERSION > DEMO fields present)
+#define EMK_ST_ARC               "St"
+#define EMK_ST_BCK_FIRST         0x04         // ATTACKL1 (res/Object/St.h)
+#define EMK_ST_BCK_LAST          0x35         // YOKO_START; HEADB_* 0x0F-0x13 play only on mpMorf2
+#define EMK_ST_BCK_WAIT          0x33         // WAIT (m02CC is never written, so LWAIT 0x21 never plays)
+#define EMK_ST_MORF              0x2BC        // mDoExt_McaMorf* mpMorf (d_a_st.h:56)
+#define EMK_ST_GATE              0x2B4        // u8 mBehaviorType = params & 0xF (d_a_st.h:49): 14 refused; the s16 mActionState is read by em_st_gate itself
+#define EMK_ST_DR                0
+#define EMK_ST_DR_MODE           0
+#define EMK_ST_DR_ACTION         0
+#define EMK_ST_TILT              0
+#define EMK_ST_CO_CYL            0x678        // sphere 1 (m054C[1]); the real Co is all 7, Set by EMK_COLL_ST
+#define EMK_ST_TG_CYL            0x678        // sphere 1: hit collider 2 is "any of spheres 1..6"
+#define EMK_ST_HEAD_SPH          0x54C        // sphere 0 m054C[0] (d_a_st.h:88): hit collider 1
+#define EMK_ST_DEF_SPH           0
+#define EMK_ST_HEAD_CENTER       0x260        // eyePos: the host's own part_move writes it every frame (.cpp:2318-2321)
+#define EMK_ST_DEF_CENTER        0
+#define EMK_ST_CO_FORWARD        0
+#define EMK_ST_TG_HIT_UP         100          // a fixed belly height for collider 2 (design R3; knob table st:tg_hit_up)
+#define EMK_ST_INVULN            0x2F6        // s16 m02F6 (d_a_st.h:72): damage_check runs only while 0 (.cpp:1565), a hit sets 5 (:1579)
+#define EMK_ST_INVULN_WAIT       5            // (.cpp:1579); knob table st:invuln
+#define EMK_ST_ICE               0x1FA8       // enemyice mEnemyIce (d_a_st.h:145): shrink 0x1FAE, freeze 0x1FB6
+#define EMK_ST_WEAPON            0            // none: the mace is m1DD0 / mHeldWeaponEntityId (em_carried_boko's ST case)
+#define EMK_ST_BARE              0
+#define EMK_ST_BLUR_ON           0
+#define EMK_ST_BLUR_SHAPE        0
+#define EMK_ST_BLUR_SCALE        0
+#define EMK_ST_ANM_GATE          0
+#define EMK_ST_PLAY_SKIP         0
+#define EMK_ST_SPH_SRC           0x54C        // the head sphere (head_sph_src, .cpp:2737-2763)
+#define EMK_ST_CAPS              0x04         // FOPEN; no MODEL_EQ (actor.model unused), no SPH_COLL (COLL_ST is its own)
+#define EMK_ST_MTX               3            // EMK_MTX_PLAIN with an ST case: T(cur) * Ry(cur_angle + m0304), no Rx/Rz, setBaseScale(scale) (.cpp:2591-2595)
+#define EMK_ST_COLL              4            // EMK_COLL_ST
+#define EMK_ST_ATTACH            3            // EMK_ATTACH_ST
+#define EMK_ST_EYE               0            // EMK_EYE_NONE: em_st_attach writes eyePos and the attention position
+#define EMK_ST_ATTN_F2           0x08         // EMK_ST_F2_ATTN
+#define EMK_ST_QUIET_FRAMES      20           // compiled (EMK_QUIET_FRAMES); knob table st:quiet
+// ST class fields (d_a_st.h)
+#define EMK_ST_DEATH_SWITCH      0x2B8        // u8 mDeathSwitch (d_a_st.h:53): client Go writes it under quiet death; 1..0x7F is BOSS (refused)
+#define EMK_ST_DRAW_GATE         0x2B9        // u8 m02B9 (d_a_st.h:54): Draw returns while != 0 (.cpp:420); the ambush switch + 1 or 0xFF until the rise (.cpp:2861-2879, 1066, 1126)
+#define EMK_ST_M02C4             0x2C4        // s16 m02C4 (d_a_st.h:58): the action's step; the shown handback writes 1
+#define EMK_ST_ACTION            0x2C6        // s16 mActionState (d_a_st.h:59)
+#define EMK_ST_TIMERS            0x2EC        // s16 mTimers[5] (d_a_st.h:70)
+#define EMK_ST_TIMER1            0x2EE        // mTimers[1]: the shown handback writes 0
+#define EMK_ST_HAIR_TIMER        0x2F0        // mTimers[2]: Draw skips ke_disp (the hair) while != 0 (.cpp:433); 1 at adopt, 0 at handback
+#define EMK_ST_M02FA             0x2FA        // s8 m02FA (d_a_st.h:75): != 0 Execute deletes it (.cpp:2513): refused, DYING
+#define EMK_ST_M0304             0x304        // s16 m0304 (d_a_st.h:79): the extra yaw, from aux[0]
+#define EMK_ST_PARTS_LEFT        0xED2        // s8 m0ED2 (d_a_st.h:93): 0x19 while whole (.cpp:2908)
+#define EMK_ST_PARTS_WHOLE       0x19
+#define EMK_ST_PARTS             0xED4        // st_p mParts[26] (d_a_st.h:94; st_p :11-30): J3DModel* +0, s8 mPartState +4, cXyz mPartPos +8
+#define EMK_ST_PART_STRIDE       0x6C
+#define EMK_ST_PART_COUNT        26
+#define EMK_ST_HEAD_STATE        0x152C       // s8 mParts[15].mPartState: 8 the dying head (.cpp:1592, 2195-2226)
+#define EMK_ST_HEAD_POS          0x1530       // cXyz mParts[15].mPartPos: the eye (state 0, .cpp:1896-1898)
+#define EMK_ST_HEAD_DEAD         8
+#define EMK_ST_NUNCHAKU          0x1DC8       // s8 m1DC8 (d_a_st.h:99): the arm pulled off (fight2)
+#define EMK_ST_BOKO_PID          0x1DCC       // fpc_ProcID mHeldWeaponEntityId (d_a_st.h:101): the mace, a BOKO Type_STALFOS_MACE (.cpp:2898)
+#define EMK_ST_MACE              0x1DD0       // s8 m1DD0 (d_a_st.h:102): 1 created, 10 carried (.cpp:2271-2273), 0 dropped, 2 re-grabbed
+#define EMK_ST_MACE_CARRIED      10
+#define EMK_ST_UPPER_PID         0x1DD4       // fpc_ProcID mUpperBodyEntityId (d_a_st.h:104): 0xFFF none (.cpp:2909)
+#define EMK_ST_UPPER_NONE        0xFFF
+#define EMK_ST_HEAD_OFF          0x1DD8       // s8 m1DD8 (d_a_st.h:105): != 0 the head is detached
+#define EMK_ST_SHAKE             0x1DE4       // s8 m1DE4 (d_a_st.h:110): the hit shake; 0 at handback
+#define EMK_ST_DEATH_COUNT       0x1E85       // s8 mCountdownToDeath (d_a_st.h:119): != 0 Execute deletes it (.cpp:2503-2510)
+#define EMK_ST_SPH               0x54C        // dCcD_Sph m054C[7] (d_a_st.h:88)
+#define EMK_ST_SPH_STRIDE        0x12C
+#define EMK_ST_SPHS              7
+#define EMK_ST_HEAD_R            45           // cc_set (.cpp:2397-2401)
+#define EMK_ST_BODY_R            25
+#define EMK_ST_BEHAVIOR_UPPER    14           // BEHAVIOR_UPPER_BODY_ONLY (.cpp:20): the split's upper half, spawned (.cpp:1681)
+#define EMK_ST_ACT_JYUNKAI       0            // mActionState (.cpp:1481-1517): the adoptable four
+#define EMK_ST_ACT_FIGHT         5
+#define EMK_ST_ACT_UNDERGROUND   0xF
+#define EMK_ST_ACT_COFFIN        0x10
+// ST joints (res/Object/St.h ST_JNT) and the mace hand (.cpp:2274-2282,
+// the REG8 terms 0): anmMtx(BUKI) * Ry(16000) * T(0, 0, 65), BK's own
+// EMK_BK_HAND_RY/TZ; hidden (m02B9 != 0) T(20000, 20000, 20000).
+#define EMK_ST_JOINT_HARA        0x01
+#define EMK_ST_JOINT_MUNE        0x02
+#define EMK_ST_JOINT_UDEL        0x04
+#define EMK_ST_JOINT_UDER        0x09
+#define EMK_ST_JOINT_BUKI        0x0B         // its part model is never drawn (.cpp:371-374)
+#define EMK_ST_JOINT_HEAD        0x0F
+#define EMK_ST_JOINT_SUNEL       0x15
+#define EMK_ST_JOINT_SUNER       0x18
+#define EMK_ST_HAND_RY           16000
+#define EMK_ST_HAND_TZ           65
+#define EMK_ST_MACE_PARK         20000
+#define EMK_ST_ATTN_UP           30           // attention = eye + 30 (.cpp:2323-2327)
+#define EMK_ST_F2_HAS_WEAPON     0x01         // flags2 bits: host m1DD0 == 10 (== WWENEMY_SF2_HAS_WEAPON)
+#define EMK_ST_F2_ATTN           0x08         // host attention_info.flags != 0
+
+typedef char emk_check_st_row[(EMK_ST_ID == EMK_KIND_ST && EMK_KIND_ST < 7 + WWENEMY_HKD_HI_KINDS &&
+                               EMK_KIND_ST < WWENEMY_KNOB_KINDS && EMK_ST_CAPS == EMK_CAP_FOPEN &&
+                               EMK_ST_MTX == EMK_MTX_PLAIN && EMK_ST_COLL == EMK_COLL_ST && EMK_ST_ATTACH == EMK_ATTACH_ST &&
+                               EMK_ST_EYE == EMK_EYE_NONE && EMK_ST_ATTN_F2 == EMK_ST_F2_ATTN &&
+                               EMK_ST_HEAD_SPH == EMK_ST_SPH && EMK_ST_TG_CYL == EMK_ST_SPH + EMK_ST_SPH_STRIDE &&
+                               EMK_ST_CO_CYL == EMK_ST_TG_CYL && EMK_ST_SPH_SRC == EMK_ST_HEAD_SPH &&
+                               EMK_ST_HEAD_STATE == EMK_ST_PARTS + EMK_ST_JOINT_HEAD * EMK_ST_PART_STRIDE + 4 &&
+                               EMK_ST_HEAD_POS == EMK_ST_HEAD_STATE + 4 && EMK_ST_TIMER1 == EMK_ST_TIMERS + 2 &&
+                               EMK_ST_HAIR_TIMER == EMK_ST_TIMERS + 4 && EMK_ST_M02C4 + 2 == EMK_ST_ACTION &&
+                               EMK_ST_DRAW_GATE == EMK_ST_DEATH_SWITCH + 1 &&
+                               EMK_ST_PARTS + EMK_ST_PART_COUNT * EMK_ST_PART_STRIDE <= EMK_ST_NUNCHAKU &&
+                               EMK_ST_ICE + 0x3B8 == 0x2360 && EMK_ST_CLASS_SIZE == 0x2368 &&
+                               EMK_ST_QUIET_FRAMES == EMK_QUIET_FRAMES && EMK_ST_INVULN_WAIT < 0xFF &&
+                               EMK_ST_BCK_WAIT >= EMK_ST_BCK_FIRST && EMK_ST_BCK_WAIT <= EMK_ST_BCK_LAST &&
+                               EMK_ST_PLAY_SKIP == 0 && EMK_ST_BLUR_ON == 0 && EMK_ST_WEAPON == 0) ? 1 : -1];
 
 #endif

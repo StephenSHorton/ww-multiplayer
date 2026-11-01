@@ -1,0 +1,222 @@
+Joining 127.0.0.1:25652 as "JoinB".
+co-op: backed up 2 memory-card file(s) to ~/Library/Application Support/ww-multiplayer/backups/20261101T080949Z (`coop-world restore 20261101T080949Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind37/u2/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind37/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op:   slot A GCI folder ~/Library/Application Support/Dolphin 2/GC/USA/Card A (default, in use):
+co-op:     ~/Library/Application Support/Dolphin 2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op: stage tables 07fce914c47490e7, ~/ww-shared/disc/WW-mp.iso from the cache: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
+co-op: shared progression this session: story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic; derived from the stage tables: the small keys of DRC, FW, TotG, ET, WT and max hearts.
+co-op: room puzzles this session: a partner's latching dan switches (103 in 6 save table(s)) sync while both are in the same stage, its zone switches (13) while both are in the same room, and its room switches (410) as it sets them, in 115 room(s); timed and other switches that clear never travel.
+co-op: combat this session: a partner's kills of keyed enemies (333 in 14 stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; 1070 unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.
+co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>.
+Ctrl+C to stop.
+=== Enemy client: JoinB <- 127.0.0.1:25652 ===
+=== Puppet Sync: JoinB <- 127.0.0.1:25652 ===
+=== Broadcast Link + Pose: JoinB -> 127.0.0.1:25652 ===
+Dolphin found.
+enemy client: mirroring the host's enemies (kinds mo2,bk+u,cc+u,ki+u), remote bodies step6; quiet deaths for mo2,bk,cc,ki,am,am2,tn,bb,mt (WW_ENEMY_QUIET_DEATH), selecting by distance (WW_ENEMY_SELECT)
+enemy client: remote-Link block on, flags 0x24FF
+[net] Connected for enemy sync (enemy ID 2)
+enemy client: game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+enemy client: REL module linked (build 1CE30685, frame 413)
+enemy client: not mirroring: no STATE from the host yet
+co-op: max life: keeping 3 quarter heart(s) beyond the 22 its flags give: rewards no save bit records, or duplicates
+[net] Connected for co-op (co-op ID 2)
+Dolphin found.
+game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+Filtering self-echo: remotes named "JoinB" will be ignored.
+[net] Connected as player 3
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+puppet-sync session 1 armed (server epoch 1793520581918038000)
+tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[net] Connected as player 4
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:4) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 2 (HostA)
+co-op: the host says (NOT_BOUND): your file is not bound to co-op world 88a07e3c7c9606c5; nothing is synced until you bind it
+co-op: the host serves world 88a07e3c7c9606c5; this file is not bound to it (NOT_BOUND)
+co-op: preflight: same: the file and the world have the same shared progress
+  the file adds: nothing
+  the world adds: nothing
+enemy client: mirroring: the host lists 2 enemies in Siren room 0
+enemy client: 2 enemies (mo2,bk+u,cc+u,ki+u) of ours in Siren room 0
+Bind this save file to co-op world 88a07e3c7c9606c5?
+  file slot 0, "Abahbob", clear count 0, saved and loaded
+  ww-multiplayer writes a 0x30-byte tag at 0x803C532C (dSv_reserve_c, which the game
+  saves with the file and never reads). It lands on the memory card at your next
+  in-game save. Nothing else in the file is written.
+Bind it?
+  yes (--yes)
+co-op: bound the file to world 88a07e3c7c9606c5 (nonce a669b8ff4187ef26): save in-game so the card keeps it
+co-op: welcome to world 88a07e3c7c9606c5 (seq 1; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic)
+co-op: armed in world 88a07e3c7c9606c5: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (live: in the room you stand in, once idle); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give
+co-op: room puzzles: written to this game when idle: the partner's latching dan switches (same stage and save table) and zone switches (same room), and its room switches as it sets them, while both are in the room
+co-op: combat: written to this game when idle: the partner's kills of keyed enemies (into each loaded room's zone, so they stay dead), and a live one of them light-shrinks; unkeyed enemies stay each player's own
+co-op: wrote 2 bytes of the world after heartbeat 2945
+co-op: set t05 TotG switch 0x0E (0x803C5042, and its live copy |= 0x40)
+co-op: small keys, table 5 (TotG): door 0x0E is counted after your next room change: its switch is written, but the door shows its lock until then, and its key stays
+enemy client: not mirroring: this game is not in play
+co-op: small keys, table 5 (TotG): door 0x0E counted: you left its stage, whose doors are made again reading it
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 2097)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 2137)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 2252)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 2373)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 2496)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 2618)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 2733)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 2855)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 2977)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 3092)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 3214)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 3337)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 3451)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 3573)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 3696)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 3810)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 3933)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 4055)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 4170)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 4292)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 4414)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 4536)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 4651)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 4773)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 4895)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12
+enemy client: not mirroring: this game is not in play
+WARN: enemy client: the REL module's actor is not running (its frame counter is still); the mirror waits.
+enemy client: not mirroring: the REL module's actor is not running (its frame counter is still)
+enemy client: REL module linked (build 1CE30685, frame 5010)
+enemy client: not mirroring: this game is not in play
+enemy client: not mirroring: the host is in Siren room 0, this game in Siren room 12

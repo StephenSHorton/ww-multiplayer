@@ -900,7 +900,12 @@ func TestCoopSessionM3(t *testing.T) {
 		return okA && okB
 	})
 	coRoomLoaded(t, a.coGame, 3)
-	escape(a, hostKeys, "/warp", func() bool { return len(a.beat.warps()) == 1 })
+	// Named, as co-op for three or more asks (/warp to <partner>): the
+	// console must queue only the named warp (wind#9 live C3-3).
+	escape(a, hostKeys, "/warp to Tetra", func() bool { return len(a.beat.warps()) == 1 })
+	if a.rep.has("waits for its tick") {
+		t.Errorf("/warp to Tetra queued a second warp behind an untargeted one:\n%s", a.rep)
+	}
 	if w := a.beat.warps()[0]; w != (replica.Pos{X: posB.PosX, Y: posB.PosY, Z: posB.PosZ}) {
 		t.Errorf("A warped to %+v, want B's %+v", w, posB)
 	}

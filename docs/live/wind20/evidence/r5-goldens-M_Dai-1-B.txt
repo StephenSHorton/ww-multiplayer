@@ -1,0 +1,5 @@
+scope stage=M_Dai room=1 kinds=mo2,bk+u,cc+u,ki+u walk=complete
+ident kind=mo2 proc=0x00BD setID=0x0000 pkey=0x0D192A37 params=0xFF00FF01 home_room=1 home=0xC5ABFFD1,0x39A9DE8B,0x420DB891 verdict=ok pid=429 mo2_mode=1
+ident kind=mo2 proc=0x00BD setID=0x0001 pkey=0xD8143FAC params=0xFF01FF01 home_room=1 home=0xC601BF2C,0x437A0000,0x447FD109 verdict=ok pid=430 mo2_mode=1
+ident kind=mo2 proc=0x00BD setID=0x0002 pkey=0x1C380865 params=0xFF02FF00 home_room=1 home=0xC59F6000,0x399FE868,0x00000000 verdict=ok pid=431 mo2_mode=0
+summary idents=3 taken=3 refused=0

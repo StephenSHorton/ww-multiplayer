@@ -1,0 +1,5 @@
+[enemy-B] enemy client: ACK setID 0x1 handle 26 hit 14 dropped/front frames 0 sets 0 health 2
+[enemy-B] enemy client: ACK setID 0x5 handle 30 hit 15 applied_at/none frames 1 sets 1 health 2
+[enemy-B] enemy client: ACK setID 0x1 handle 26 hit 16 dropped/front frames 0 sets 0 health 2
+[enemy-B] enemy client: ACK setID 0x1 handle 26 hit 17 applied_at/direct frames 0 sets 0 health 0
+[enemy-B] enemy client: ACK setID 0x5 handle 30 hit 18 applied_at/direct frames 0 sets 0 health 0

@@ -1,0 +1,137 @@
+Joining 127.0.0.1:25640 as "JoinB".
+Ctrl+C to stop.
+=== Enemy client: JoinB <- 127.0.0.1:25640 ===
+=== Broadcast Link + Pose: JoinB -> 127.0.0.1:25640 ===
+=== Puppet Sync: JoinB <- 127.0.0.1:25640 ===
+Dolphin found.
+enemy client: mirroring the host's enemies (kinds mo2,bk+u,cc+u,ki+u), remote bodies step6; quiet deaths for mo2,bk,cc,ki,am,am2,tn,bb,mt (WW_ENEMY_QUIET_DEATH), selecting by distance (WW_ENEMY_SELECT)
+enemy client: remote-Link block on, flags 0x24FF
+[net] Connected for enemy sync (enemy ID 2)
+enemy client: game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+enemy client: REL module linked (build 1CE30685, frame 21277)
+enemy client: mirroring: the host lists 2 enemies in M_NewD2 room 0
+enemy client: 2 enemies (mo2,bk+u,cc+u,ki+u) of ours in M_NewD2 room 0
+enemy client: knob table rewritten: seen G4584 want G49150
+Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[net] Connected as player 3
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+Dolphin found.
+game GZLE01, WWMB header ABI 1 layout 3, code hash 04765DD0 (matches this version), strict mode, features avatar,eyefix,face,input,tunic,warp; writes allowed
+Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+Filtering self-echo: remotes named "JoinB" will be ignored.
+[net] Connected as player 4
+puppet-sync session 1 armed (server epoch 1793517735775878000)
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:4) in game
+tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 1 (HostA)
+[net] Disconnected from server
+[net] Disconnected from server
+[net] Disconnected from server
+Disconnected.
+Disconnected.
+[net] Connected as player 5
+[net] Connected as player 6
+puppet-sync session 2 armed (server epoch 1793517735775878000)
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:6) in game
+[net] Player HostA (ID:1) in game
+[net] Player JoinB (ID:4) is no longer in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:5) in game
+[net] Player HostA (ID:1) in game
+[net] Player JoinB (ID:3) is no longer in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:5) in game
+WARN: link slot 0 despawned: player 1 silent (no MsgLeave yet)
+[net] Connected for enemy sync (enemy ID 3)
+[net] Player JoinB (ID:6) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+link slot 0 resumed: player 1 pose fresh again
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+enemy client: the host's STATE is stale (a stall?); holding the copies frozen (up to 2.5s)
+link slot 0 frozen: player 1 pose stalled
+enemy client: not mirroring: the host's STATE is stale
+WARN: link slot 0 despawned: player 1 silent (no MsgLeave yet)
+[net] Disconnected from server
+[net] Disconnected from server
+Disconnected.
+[net] Disconnected from server
+Disconnected.
+[net] Connected as player 7
+[net] Connected as player 8
+[net] Connected for enemy sync (enemy ID 4)
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) is no longer in game
+[net] Player JoinB (ID:6) is no longer in game
+[net] HostA left the game
+[net] Player JoinB (ID:7) in game
+[net] Player JoinB (ID:5) is no longer in game
+[net] Player HostA (ID:2) is no longer in game
+puppet-sync session 3 armed (server epoch 1793517735775878000)
+[net] HostA left the game
+[net] Player JoinB (ID:8) in game
+[net] Player JoinB (ID:8) in game
+[net] Player JoinB (ID:7) in game
+slot 0 freed (player 1 left)
+link slot 0 freed (will be reassigned on next pose)
+[net] Player HostA (ID:9) in game
+[net] Player JoinB (ID:8) in game
+[net] Player HostA (ID:9) in game
+[net] Player JoinB (ID:7) in game
+[net] Player HostA (ID:9) in game
+[net] Player JoinB (ID:7) in game
+[net] Player HostA (ID:10) in game
+[net] Player HostA (ID:9) in game
+[net] Player JoinB (ID:8) in game
+[net] Player HostA (ID:10) in game
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 10 (HostA)
+enemy client: mirroring: the host lists 2 enemies in M_NewD2 room 0
+enemy client: the host's STATE is stale (a stall?); holding the copies frozen (up to 2.5s)
+link slot 0 frozen: player 10 pose stalled
+enemy client: not mirroring: the host's STATE is stale
+WARN: link slot 0 despawned: player 10 silent (no MsgLeave yet)
+link slot 0 reservation expired: freed for reuse (player 10)
+[net] HostA left the game
+[net] HostA left the game
+[net] HostA left the game
+[net] Player JoinB (ID:8) in game
+[net] Player JoinB (ID:8) in game
+[net] Disconnected from server
+[net] HostA left the game
+[net] Player JoinB (ID:7) in game
+[net] Player JoinB (ID:7) in game
+[net] Disconnected from server
+[net] Disconnected from server
+Disconnected.
+Disconnected.
+WARN: Can't reach 127.0.0.1:25640 (connect: dial tcp 127.0.0.1:25640: connect: connection refused). Retrying in the background; check the address and that the host is running.
+WARN: Can't reach 127.0.0.1:25640 (connect: dial tcp 127.0.0.1:25640: connect: connection refused). Retrying in the background; check the address and that the host is running.
+[net] Connected as player 3
+Reached 127.0.0.1:25640; connected.
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+WARN: server restarted (epoch changed): full puppet reset
+puppet-sync session 4 armed (server epoch 1793517997093338000)
+pose-feed slot 0 armed: pose_buf=0x81FF1120
+link slot 0 := player 1 (HostA)
+[net] Connected as player 4
+[net] Player JoinB (ID:4) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Player JoinB (ID:3) in game
+[net] Player HostA (ID:1) in game
+[net] Player HostA (ID:2) in game
+[net] Connected for enemy sync (enemy ID 2)
+Reached 127.0.0.1:25640; connected.
+enemy client: mirroring: the host lists 2 enemies in M_NewD2 room 0
+enemy client: the host's epoch went 59559 -> 59821 (the host restarted); the smoothers re-base

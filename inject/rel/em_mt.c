@@ -4,8 +4,9 @@
 // C1b-magtail-redo.md. THE FIRST CUT (cut_order 1): everything MT lives
 // here, under EMK_WITH_MT, plus one `#if EMK_WITH_MT` dispatch line per
 // call site in enemy_mirror.c, EM_ROW(MT) and wwenemy_kinds.h's MT
-// section; a cut sets EMK_WITH_MT 0 and EMK_KIND_COUNT 8 (emk_check_mt_count)
-// and this unit compiles to nothing. Default off: Go sets kind bit 8 only
+// section; a cut sets EMK_WITH_MT 0 (EMK_KIND_COUNT stays 10 since
+// wind#27's ST row at 9: EM_KINDS[8] becomes a hole row) and this unit
+// compiles to nothing. Default off: Go sets kind bit 8 only
 // for mt+u and a matching REL BuildID (D10).
 //
 // Batch C's cut row (archive/enemy-batch-c/mt-row-restore.patch, its
