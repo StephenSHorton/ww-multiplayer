@@ -1750,7 +1750,10 @@ func bossEndPhase(key string, prev, cur bossObs) (phase string, done bool, fail 
 		if !cur.Gone && cur.C >= 1 && cur.C <= 3 {
 			return phase, false, fmt.Sprintf("mB54 %d: the first fight's intro demo; load a save state", cur.C)
 		}
-		done = cur.Gone && cur.Sw
+		// Live 2026-11-01 (PC, wind#58): last_end sets table 8 switch 0
+		// at mB54 103 -> 0 with the actor still in the queue (mMode 5);
+		// it deletes itself later. The switch is the ending.
+		done = cur.Sw
 	case "puppet":
 		step, _, _ := strings.Cut(rest, "/")
 		switch step {
