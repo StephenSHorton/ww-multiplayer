@@ -10,8 +10,9 @@ import "fmt"
 //
 // Up (c->s) the op is ClaimAsk or ClaimRelease. Down (s->c) it is
 // ClaimGrant, ClaimDeny or ClaimConsumed. A chest is named by its save table
-// (the receiver's mDan.mStageNo, or STAGE_SEA2's for a funcType 4/5 chest,
-// d_a_tbox.cpp:314-320) and its chest number, (params >> 7) & 0x1F
+// (the sender's mDan.mStageNo: the funcType 7/8 chests that keep their bit
+// in STAGE_SEA2, d_a_tbox.cpp:314-320, are never claimed) and its chest
+// number, (params >> 7) & 0x1F
 // (isTbox's bit, dSv_memBit_c::mTbox is one u32). room is the room the
 // sender's Link is in (mStayNo), for the logs and the hub's scope check;
 // -1 at a stage start. Only a peer granted proto.FeatureChestClaim sends or
