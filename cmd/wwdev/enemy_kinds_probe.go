@@ -186,8 +186,18 @@ func liveGateText(e *enemysync.Enemy) string {
 			boss = 1
 		}
 		return fmt.Sprintf("st_behavior=%s st_boss=%d st_live=%s", mode, boss, okText(enemysync.StLiveRefusal(e.Live)))
+	case enemysync.KindOSHIP:
+		return fmt.Sprintf("oship_model=%s oship_live=%s", mode, okText(enemysync.OshipLiveRefusal(e.Live)))
 	}
 	return ""
+}
+
+// oshipExtra is a warship sample's own fields (wind#46, design §3): the
+// mode behind DYING, the hit timer, the aim, switch A and the tilt.
+func oshipExtra(s *enemysync.KindSample) string {
+	o := &s.Oship
+	return fmt.Sprintf("proc %d sub %d swA 0x%02X model 0x%02X hit %d aim %d/%d model_ptr 0x%08X shape %d/%d/%d",
+		o.Proc, o.SubMode, o.SwitchA, o.ModelType, o.HitTimer, o.AimY, o.AimX, o.Model, s.St.ShapeAngle[0], s.St.ShapeAngle[1], s.St.ShapeAngle[2])
 }
 
 // stExtra is a Stalfos sample's own fields (wind#27, design §3): the
@@ -510,6 +520,8 @@ func enemyKindWatch(ctx context.Context, w io.Writer, m mem.Reader, d time.Durat
 					}
 				} else if id == enemysync.KindST {
 					extra = stExtra(&s)
+				} else if id == enemysync.KindOSHIP {
+					extra = oshipExtra(&s)
 				} else if id == enemysync.KindBK {
 					b, err := readBoko(m, byPID, s.BokoPID)
 					if err != nil {
@@ -576,6 +588,8 @@ func kindFlag2Names(id enemysync.KindID, f uint8) string {
 		names = []nb{{1, "PHASE1"}, {2, "PHASE2"}, {enemysync.MtF2Shield, "SHIELD"}, {enemysync.MtF2Dive, "DIVE"}, {enemysync.MtF2Attn, "ATTN"}}
 	case enemysync.KindST:
 		names = []nb{{enemysync.StF2HasWeapon, "WEAPON"}, {enemysync.StF2Attn, "ATTN"}}
+	case enemysync.KindOSHIP:
+		names = []nb{{enemysync.OshipF2Attn, "ATTN"}}
 	}
 	names = append(names, nb{enemysync.KindF2Light, "LIGHT"})
 	return bitNames(f, names)

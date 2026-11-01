@@ -45,6 +45,9 @@ const (
 	KindBB  KindID = 7 // batch C, off by default (bb, bb+u)
 	KindMT  KindID = 8 // batch D (G-D6), off by default (mt+u only); the first cut (cut_order 1: the const stays, the row becomes a zero row)
 	KindST  KindID = 9 // wind#27, off by default (st, st+u), intact phase only
+	// KindOSHIP is wind#46's warship, off by default (oship+u only: every
+	// disc placement is unkeyed).
+	KindOSHIP KindID = 10
 	// KindNone is no row.
 	KindNone KindID = 0xFF
 )
@@ -76,6 +79,11 @@ type Kind struct {
 	// hashes home.pos as zero (a wait-type Keese rewrites its home,
 	// d_a_ki.cpp:675-682). Not hashed either.
 	PKeyNoPos bool
+	// NoAnim is a row with no BCK and no McaMorf (wind#46's warship: its
+	// MorfOff is a bare J3DModel*, the REL's EMK_MTX_MODEL). Its Arc is ""
+	// and its BCK fields 0 (as the C row's); Derive and the host's Resolve
+	// skip it, so its table is never resolved. Not hashed (Arc "" says it).
+	NoAnim bool
 }
 
 // BckCount is how many BCK pointers the kind's table holds.
@@ -123,6 +131,11 @@ var Kinds = [...]Kind{
 	// streamed m0304 to it, aux[0]).
 	KindST: {ID: KindST, Name: "st", Proc: addr.ProcST, Arc: addr.StArc, BckFirst: addr.StBckFirst, BckLast: addr.StBckLast, BckWait: addr.StBckWait,
 		MorfOff: addr.StOffMorf, IceOff: addr.StOffIce, GateOff: addr.StOffBehavior, AngleOff: addr.ActorOffShapeAngleY},
+	// wind#46 (docs/design/enemy-rows-next.md OSHIP §3): no BCK, no morf
+	// (MorfOff is mpModel), no enemyice; the gate byte is mModelType (0xFF
+	// only); AngleY is shape_angle.y.
+	KindOSHIP: {ID: KindOSHIP, Name: "oship", Proc: addr.ProcOship, Arc: "", BckFirst: 0, BckLast: 0, NoAnim: true,
+		MorfOff: addr.OshipOffModel, IceOff: 0, GateOff: addr.OshipOffModelType, AngleOff: addr.ActorOffShapeAngleY},
 }
 
 // KindOf returns the row of proc, KindNone when the table has none.
@@ -388,6 +401,8 @@ func (k *Kind) ParamsOK(params uint32) bool {
 		return true
 	case KindST:
 		return StParamsOK(params)
+	case KindOSHIP:
+		return true // the gold ship is told apart by mModelType (home.angle.x), not params: LiveOK
 	}
 	return false
 }
@@ -520,6 +535,8 @@ func (k *Kind) LiveOK(g LiveGate) bool {
 		return MtLiveRefusal(g) == ""
 	case KindST:
 		return StLiveRefusal(g) == ""
+	case KindOSHIP:
+		return OshipLiveRefusal(g) == ""
 	}
 	return false
 }
@@ -592,7 +609,7 @@ var (
 
 // bckNames is each row's names, by KindID.
 var bckNames = [len(Kinds)][]string{KindMO2: mo2BckNames, KindBK: bkBckNames, KindCC: ccBckNames, KindKI: kiBckNames, KindAM: amBckNames, KindAM2: am2BckNames,
-	KindTN: tnBckNames, KindBB: bbBckNames, KindMT: mtBckNames, KindST: stBckNames}
+	KindTN: tnBckNames, KindBB: bbBckNames, KindMT: mtBckNames, KindST: stBckNames, KindOSHIP: nil}
 
 // BckName is the name of BCK idx in kind id's archive, "-" for none.
 func BckName(id KindID, idx uint8) string {
@@ -985,16 +1002,17 @@ func OverridesFromEnv() (Overrides, error) { return ParseOverrides(os.Getenv("WW
 // collider 2 is any of spheres 1..6, readHit's stHitCollider finds which).
 func ColliderOff(id KindID, code uint8) uint32 {
 	t := [...][3]uint32{
-		KindMO2: {addr.Mo2OffHeadSph, addr.Mo2OffTgCyl, 0},
-		KindBK:  {addr.BkOffHeadSph, addr.BkOffTgCyl, 0},
-		KindCC:  {0, addr.CcOffCyl, 0},
-		KindKI:  {0, addr.KiOffTgSph, 0},
-		KindAM:  {addr.AmOffEyeSph, addr.AmOffBodyCyl, addr.AmOffMouthSph},
-		KindAM2: {addr.Am2OffWeakSph, addr.Am2OffBodyCyl, 0},
-		KindTN:  {addr.TnOffHeadSph, addr.TnOffTgCyl, 0},
-		KindBB:  {addr.BbOffHeadTgSph, addr.BbOffBodyTgSph, 0},
-		KindMT:  {addr.MtOffEyeSph, addr.MtOffBodySph, 0},
-		KindST:  {addr.StOffSph, addr.StOffSph + addr.StSphStride, 0},
+		KindMO2:   {addr.Mo2OffHeadSph, addr.Mo2OffTgCyl, 0},
+		KindBK:    {addr.BkOffHeadSph, addr.BkOffTgCyl, 0},
+		KindCC:    {0, addr.CcOffCyl, 0},
+		KindKI:    {0, addr.KiOffTgSph, 0},
+		KindAM:    {addr.AmOffEyeSph, addr.AmOffBodyCyl, addr.AmOffMouthSph},
+		KindAM2:   {addr.Am2OffWeakSph, addr.Am2OffBodyCyl, 0},
+		KindTN:    {addr.TnOffHeadSph, addr.TnOffTgCyl, 0},
+		KindBB:    {addr.BbOffHeadTgSph, addr.BbOffBodyTgSph, 0},
+		KindMT:    {addr.MtOffEyeSph, addr.MtOffBodySph, 0},
+		KindST:    {addr.StOffSph, addr.StOffSph + addr.StSphStride, 0},
+		KindOSHIP: {0, 0, 0}, // wind#46, option B: never reports a hit
 	}
 	if int(id) >= len(t) || code < HitHead || code > HitSpecial {
 		return 0

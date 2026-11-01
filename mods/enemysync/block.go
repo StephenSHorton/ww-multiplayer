@@ -375,6 +375,9 @@ type KindSample struct {
 	// Stalfos is wind#27's (ReadSampleStalfos, stalfos.go; St carries its
 	// angles and Dormant).
 	Stalfos StalfosFields
+	// Oship is wind#46's warship (ReadSampleOship, oship.go; St carries
+	// its angles).
+	Oship OshipFields
 }
 
 // AllowFields is what ReadSampleKI, ReadSampleAM and ReadSampleAM2 read
@@ -766,6 +769,8 @@ func ReadKindSample(m mem.Reader, e *Enemy) (KindSample, error) {
 		return ReadSampleMT(m, e)
 	case KindST:
 		return ReadSampleStalfos(m, e)
+	case KindOSHIP:
+		return ReadSampleOship(m, e)
 	}
 	return KindSample{}, fmt.Errorf("enemysync: no sampler for kind %s (proc 0x%04X)", e.Kind, e.Ident.Proc)
 }

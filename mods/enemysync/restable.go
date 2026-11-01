@@ -332,7 +332,7 @@ func (t *KindTracker) Derive(m mem.Reader, pid uint32, s *KindSample, now time.T
 	}
 	tr.Update(&s.Sample)
 	s.Bck = addr.Mo2BckNone
-	if !s.MorfOK || s.Kind.Row() == nil {
+	if !s.MorfOK || s.Kind.Row() == nil || s.Kind.Row().NoAnim {
 		return nil
 	}
 	idx, err := t.Res[s.Kind].Lookup(m, s.Anm, now)

@@ -26,7 +26,7 @@ func TestFxHeaderPins(t *testing.T) {
 		"WWFX_EV_GRAVITY": FxEvGravity, "WWFX_EV_ANGLE": FxEvAngle, "WWFX_EV_TIMER": FxEvTimer,
 		"WWFX_KIND_BOMB_THROW": FxKindBombThrow, "WWFX_KIND_BOMB_PICKUP": FxKindBombPickup,
 		"WWFX_KIND_EXPLODE": FxKindExplode, "WWFX_KIND_REMOVE": FxKindRemove, "WWFX_KIND_CANNON": FxKindCannon,
-		"WWFX_KIND_ARROW": FxKindArrow, "WWFX_KIND_MAX": FxKindMax,
+		"WWFX_KIND_ARROW": FxKindArrow, "WWFX_KIND_ECANNON": FxKindECannon, "WWFX_KIND_MAX": FxKindMax,
 		"WWFX_ARROW_MAX":     FxArrowMax,
 		"WWFX_BOMB_PRM_COPY": uint64(FxBombPrmCopy),
 	})
