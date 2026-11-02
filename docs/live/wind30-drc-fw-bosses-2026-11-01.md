@@ -101,3 +101,19 @@ Pair 8 (A 34535, B 34613), mp-local `--coop=new --coop-merge` (the merge also ga
   `set t04 FW switch 0x1C (0x803C501C, and its live copy |= 0x10)`; within 12 s B's Kokiie (0x0064) fell from y 6920 to
   y 1380 and B's Kanat (0x00A5, the solid vine floor over B1) was gone. B then walked to the Kanat spot and dropped
   through it to y 1150 (the floor stood at y 3877), landing in the water beside the fallen Kokiie: **visual PASS**.
+
+## DRC r6 bars (s4, pair 9: A 51306, B 51320, CryZe 4-WindWaker, `--coop-merge`)
+
+- B at the `M_NewD2 9 6` entry facing north, the barred doorway on the balcony in frame (s175: bars down). A cleared its
+  three keyed Bokoblins: setID 1 and 0 by sword input, setID 2 by `enemy-kill` (on a ledge out of reach). B's log:
+  `set the partner's dead setID 1/0 in room 6`, the light-shrink of B's setID 1; all three of B's keyed copies gone.
+- B's own room logic then raised sw63 and played the Zenshut demo: s188 (01:41:45 UTC) the close-up with the bars
+  down, s190/s192 (01:41:48) the same door with the bars gone: **visual PASS** (no separate `DRC switch 0x3F` line on
+  B; the sw came from B's room once its keyed enemies were dead).
+
+## Not run / open
+
+- D4-2 on the rope (no hang after the armor breaks), D4-5 and KD-5 (same-frame kills: real-input last hits land 20 s+
+  apart), KD-2 at m302 3-5, the boss music cut (no audio capture).
+- Logging gap: the boss-dead relay is silent while it waits on IDLE (bossSent drops ErrClosed), so the log stops at
+  "asking the REL" until the gate opens.
