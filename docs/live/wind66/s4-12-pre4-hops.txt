@@ -1,0 +1,70 @@
+=== before (stage: where     stage "Hyrule" room 0, table 9 Hyrule, file 0)
+heap error counters (any increase means an allocation failed):
+  solid 0  game 0  zelda 0  command 0  archive 0  unknown 0  total 0
+arena: JKRHeap::mCodeEnd 0x80414020, 0x20 above the patched __OSArenaLo 0x80414000
+       __OSArenaLo now 0x82FF2120 (initArena moves it to the arena top, JKRHeap.cpp:94)
+JKRExpHeap free lists (free = getTotalFreeSize, largest = getFreeSize):
+  zelda    0x804CAB70  0x804CAC00-0x80AC14E0 (6106 KiB): free 981 KiB in 15 blocks, largest 969 KiB
+  game     0x81923910  0x819239A0-0x81FF2110 (6969 KiB): free 4763 KiB in 3 blocks, largest 3966 KiB
+  archive  0x80AD2500  0x80AD2590-0x81923900 (14660 KiB): free 6491 KiB in 175 blocks, largest 6490 KiB
+  command  0x80AD14F0  0x80AD1580-0x80AD24F0 (3 KiB): free 3 KiB in 1 blocks, largest 3 KiB
+=== hop 1 A_mori 0 0 arrived=1
+heap error counters (any increase means an allocation failed):
+  solid 0  game 0  zelda 0  command 0  archive 0  unknown 0  total 0
+arena: JKRHeap::mCodeEnd 0x80414020, 0x20 above the patched __OSArenaLo 0x80414000
+       __OSArenaLo now 0x82FF2120 (initArena moves it to the arena top, JKRHeap.cpp:94)
+JKRExpHeap free lists (free = getTotalFreeSize, largest = getFreeSize):
+  zelda    0x804CAB70  0x804CAC00-0x80AC14E0 (6106 KiB): free 952 KiB in 17 blocks, largest 922 KiB
+  game     0x81923910  0x819239A0-0x81FF2110 (6969 KiB): free 5193 KiB in 4 blocks, largest 4298 KiB
+  archive  0x80AD2500  0x80AD2590-0x81923900 (14660 KiB): free 8905 KiB in 170 blocks, largest 7892 KiB
+  command  0x80AD14F0  0x80AD1580-0x80AD24F0 (3 KiB): free 3 KiB in 1 blocks, largest 3 KiB
+=== hop 2 sea 0 44 arrived=1
+heap error counters (any increase means an allocation failed):
+  solid 0  game 0  zelda 0  command 0  archive 0  unknown 0  total 0
+arena: JKRHeap::mCodeEnd 0x80414020, 0x20 above the patched __OSArenaLo 0x80414000
+       __OSArenaLo now 0x82FF2120 (initArena moves it to the arena top, JKRHeap.cpp:94)
+JKRExpHeap free lists (free = getTotalFreeSize, largest = getFreeSize):
+  zelda    0x804CAB70  0x804CAC00-0x80AC14E0 (6106 KiB): free 802 KiB in 34 blocks, largest 662 KiB
+  game     0x81923910  0x819239A0-0x81FF2110 (6969 KiB): free 4895 KiB in 3 blocks, largest 4104 KiB
+  archive  0x80AD2500  0x80AD2590-0x81923900 (14660 KiB): free 7158 KiB in 194 blocks, largest 6806 KiB
+  command  0x80AD14F0  0x80AD1580-0x80AD24F0 (3 KiB): free 3 KiB in 1 blocks, largest 3 KiB
+=== hop 3 M_Dai 1 1 arrived=1
+heap error counters (any increase means an allocation failed):
+  solid 1  game 0  zelda 0  command 0  archive 0  unknown 0  total 1
+arena: JKRHeap::mCodeEnd 0x80414020, 0x20 above the patched __OSArenaLo 0x80414000
+       __OSArenaLo now 0x82FF2120 (initArena moves it to the arena top, JKRHeap.cpp:94)
+JKRExpHeap free lists (free = getTotalFreeSize, largest = getFreeSize):
+  zelda    0x804CAB70  0x804CAC00-0x80AC14E0 (6106 KiB): free 1105 KiB in 12 blocks, largest 1099 KiB
+  game     0x81923910  0x819239A0-0x81FF2110 (6969 KiB): free 5003 KiB in 3 blocks, largest 4153 KiB
+  archive  0x80AD2500  0x80AD2590-0x81923900 (14660 KiB): free 5284 KiB in 204 blocks, largest 5201 KiB
+  command  0x80AD14F0  0x80AD1580-0x80AD24F0 (3 KiB): free 3 KiB in 1 blocks, largest 3 KiB
+=== hop 4 A_mori 0 0 arrived=1
+heap error counters (any increase means an allocation failed):
+  solid 1  game 0  zelda 0  command 0  archive 0  unknown 0  total 1
+arena: JKRHeap::mCodeEnd 0x80414020, 0x20 above the patched __OSArenaLo 0x80414000
+       __OSArenaLo now 0x82FF2120 (initArena moves it to the arena top, JKRHeap.cpp:94)
+JKRExpHeap free lists (free = getTotalFreeSize, largest = getFreeSize):
+  zelda    0x804CAB70  0x804CAC00-0x80AC14E0 (6106 KiB): free 952 KiB in 16 blocks, largest 929 KiB
+  game     0x81923910  0x819239A0-0x81FF2110 (6969 KiB): free 5193 KiB in 4 blocks, largest 4298 KiB
+  archive  0x80AD2500  0x80AD2590-0x81923900 (14660 KiB): free 8905 KiB in 170 blocks, largest 7892 KiB
+  command  0x80AD14F0  0x80AD1580-0x80AD24F0 (3 KiB): free 3 KiB in 1 blocks, largest 3 KiB
+=== hop 5 sea 0 44 arrived=1
+heap error counters (any increase means an allocation failed):
+  solid 1  game 0  zelda 0  command 0  archive 0  unknown 0  total 1
+arena: JKRHeap::mCodeEnd 0x80414020, 0x20 above the patched __OSArenaLo 0x80414000
+       __OSArenaLo now 0x82FF2120 (initArena moves it to the arena top, JKRHeap.cpp:94)
+JKRExpHeap free lists (free = getTotalFreeSize, largest = getFreeSize):
+  zelda    0x804CAB70  0x804CAC00-0x80AC14E0 (6106 KiB): free 801 KiB in 31 blocks, largest 662 KiB
+  game     0x81923910  0x819239A0-0x81FF2110 (6969 KiB): free 4891 KiB in 3 blocks, largest 4104 KiB
+  archive  0x80AD2500  0x80AD2590-0x81923900 (14660 KiB): free 7158 KiB in 194 blocks, largest 6806 KiB
+  command  0x80AD14F0  0x80AD1580-0x80AD24F0 (3 KiB): free 3 KiB in 1 blocks, largest 3 KiB
+=== hop 6 M_Dai 1 1 arrived=1
+heap error counters (any increase means an allocation failed):
+  solid 2  game 0  zelda 0  command 0  archive 0  unknown 0  total 2
+arena: JKRHeap::mCodeEnd 0x80414020, 0x20 above the patched __OSArenaLo 0x80414000
+       __OSArenaLo now 0x82FF2120 (initArena moves it to the arena top, JKRHeap.cpp:94)
+JKRExpHeap free lists (free = getTotalFreeSize, largest = getFreeSize):
+  zelda    0x804CAB70  0x804CAC00-0x80AC14E0 (6106 KiB): free 1105 KiB in 12 blocks, largest 1099 KiB
+  game     0x81923910  0x819239A0-0x81FF2110 (6969 KiB): free 5003 KiB in 3 blocks, largest 4153 KiB
+  archive  0x80AD2500  0x80AD2590-0x81923900 (14660 KiB): free 5284 KiB in 203 blocks, largest 5201 KiB
+  command  0x80AD14F0  0x80AD1580-0x80AD24F0 (3 KiB): free 3 KiB in 1 blocks, largest 3 KiB
