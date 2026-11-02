@@ -1,0 +1,34 @@
+enemy-kill writes one byte, 1, into the enemy's light-shrink timer (and clears its weapon's CARRY): the game then runs its own light-arrow death on it, with its item drop and death switch (docs/08 §7.2).
+target: actor 0x80A8DC60 (pid 2895, proc 0x00B6 bb, setID 2, room 3); enemyice ok, mode 1, shrink timer 0; K1 ok
+wrote 1 at 0x80A8E8E6 after heartbeat 62690
+  timer 3
+  timer 7
+  timer 10
+  timer 13
+  timer 16
+  timer 19
+  timer 21
+  timer 24
+  timer 28
+  timer 31
+  timer 34
+  timer 37
+  timer 40
+  timer 43
+  timer 46
+  timer 49
+  timer 52
+  timer 55
+  timer 58
+  timer 61
+  timer 64
+  timer 67
+  timer 70
+  timer 73
+  timer 76
+  timer 79
+  timer 82
+  timer 85
+  timer 88
+  timer 91
+the actor is gone (the shrink ran its course); room 3's zone slot 0 records setID 2 dead: true

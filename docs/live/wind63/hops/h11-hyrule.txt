@@ -1,0 +1,29 @@
+== A
+enemy block at 0x80413100 (0x198 bytes); REL words: magic 0x5757524C linked=true build 0xCAC6980B frames 10855
+Go span: magic 0x5757454E 'WWEN' seq_head 3875 seq_tail 3875 host_beat 0 go_write_ms 2593116585 count 0 flags 0x01 layout 4 epoch 4239 stage "Hyrule" room 0 role 1 kind_mask 0x9F knob_gen 4240 hkd_hi 00 00 00 00 00 00 00 00
+annex at 0x804130C8: annex_seq 3875 aux [[0 0 0 0] [0 0 0 0] [0 0 0 0] [0 0 0 0]] override [{HookDisable:0 QuietFrames:0 TgHitUp:0} {HookDisable:0 QuietFrames:0 TgHitUp:60} {HookDisable:0 QuietFrames:0 TgHitUp:0}] invuln_wait [0 0 0] hkdx 00 00 00 00 tn_tg_hit_up 0
+knob table at 0x80413750: gen_head 4240 gen_tail 4240 layout 4 count 16: valid for knob_gen; hook [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] quiet [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] tg_hit_up [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] invuln [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  hit_apply: seq 277807107 setID 0 collider 1 flags 0x08 atType 0x00000002 atp 2 se 1 hit_mark 13 spl 0 pos -1066.2 77.8 5360.9 pid 513
+REL span: ack_seq 3875 ack_frame 10850 adopted 0000 epoch_seen 4239 hit_apply_ack 277807107 result 2 detail 0 frames 0 sets 0 canaries pause_reasserts 0 anm_unresolved 0 revalidate_failures 0 watchdog_releases 1 canaries2 {0 0 0 0} knob_gen_seen 4240 fp_miss 0
+  status 0: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 1884 anm_state 0 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 1: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 1884 anm_state 0 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 2: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 1884 anm_state 0 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 3: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 1884 anm_state 0 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+== B
+enemy block at 0x80413100 (0x198 bytes); REL words: magic 0x5757524C linked=true build 0xCAC6980B frames 11009
+Go span: magic 0x5757454E 'WWEN' seq_head 25723 seq_tail 25723 host_beat 11960 go_write_ms 991448 count 4 flags 0x07 layout 4 epoch 4 stage "Hyrule" room 0 role 2 kind_mask 0x9F knob_gen 9561 hkd_hi 00 00 00 00 00 00 00 00
+  slot 0: pid 712 proc 0x00BD pkey 0x00BC3295 pos 6935.4 -2347.9 -16251.1 angle -32577 tilt -1813 attack 0/0 health 10 flags 0x00 frame 21.06 rate 1.00 sample 25723 bck 0x75 attr 2 anm_seq 0 morf 0 flags2 0x81 blur 0/0.00
+  slot 1: pid 711 proc 0x00BD pkey 0x746D6B82 pos 6674.3 -2248.8 -15574.7 angle 572 tilt -1901 attack 0/0 health 10 flags 0x00 frame 21.06 rate 1.00 sample 25723 bck 0x75 attr 2 anm_seq 0 morf 0 flags2 0x81 blur 0/0.00
+  slot 2: pid 720 proc 0x00CF pkey 0xF8F8E57A pos 4920.8 -2793.3 -18145.4 angle -14017 tilt 0 attack 0/0 health 1 flags 0x04 frame 0.00 rate 0.00 sample 25723 bck 0x21 attr 0 anm_seq 0 morf 0 flags2 0x94 blur 0/0.00
+  slot 3: pid 719 proc 0x00CF pkey 0xAE9A87A4 pos 4894.4 -2814.8 -18372.6 angle -14017 tilt 0 attack 0/0 health 1 flags 0x04 frame 0.00 rate 0.00 sample 25723 bck 0x21 attr 0 anm_seq 0 morf 0 flags2 0x94 blur 0/0.00
+annex at 0x804130C8: annex_seq 25723 aux [[0 0 0 0] [0 0 0 0] [0 0 0 0] [0 0 0 0]] override [{HookDisable:0 QuietFrames:0 TgHitUp:0} {HookDisable:0 QuietFrames:0 TgHitUp:60} {HookDisable:0 QuietFrames:0 TgHitUp:0}] invuln_wait [0 0 0] hkdx 00 00 00 00 tn_tg_hit_up 0
+knob table at 0x80413750: gen_head 9561 gen_tail 9561 layout 4 count 16: valid for knob_gen; hook [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] quiet [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] tg_hit_up [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] invuln [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  hit_apply: seq 0 setID 0 collider 0 flags 0x00 atType 0x00000000 atp 0 se 0 hit_mark 0 spl 0 pos 0.0 0.0 0.0 pid 0
+REL span: ack_seq 25722 ack_frame 11009 adopted 1111 epoch_seen 4 hit_apply_ack 0 result 0 detail 0 frames 0 sets 0 canaries pause_reasserts 0 anm_unresolved 0 revalidate_failures 0 watchdog_releases 3 canaries2 {0 0 0 0} knob_gen_seen 9561 fp_miss 0
+  status 0: actor 0x80AA166C pid 712 state 1 pause_prev 0x00 last_err 0 frames 543 anm_state 1 bck 0x75 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 1: actor 0x80AA46B4 pid 711 state 1 pause_prev 0x00 last_err 0 frames 543 anm_state 1 bck 0x75 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 2: actor 0x80A93370 pid 720 state 1 pause_prev 0x00 last_err 0 frames 543 anm_state 1 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 3: actor 0x80A9EA30 pid 719 state 1 pause_prev 0x00 last_err 0 frames 543 anm_state 1 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+== B log tail
+[enemy-A] enemy remote: seq 61973 ack 61972 bodies [0:s2 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=604178 swaps=0 switches=0 attacker_overrides=0 denied=8550 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 6 packs 6
+[enemy-B] enemy client: seq 25721 write_ms 991411 ack 25720 frame 11008 beat 11958 adopted 1111 slots [0:mo2 u00BC3295Q][1:mo2 u746D6B82Q][2:cc uF8F8E57AQ][3:cc uAE9A87A4Q] status [0:s1 e0 a1 bck75 n1][1:s1 e0 a1 bck75 n1][2:s1 e0 a1 bck21 n1][3:s1 e0 a1 bck21 n1] canaries {PauseReasserts:0 AnmUnresolved:0 RevalidateFailures:0 WatchdogReleases:3} canaries2 {AnmResNull:0 AnmRange:0 HitNoCross:0 HitAborted:0}

@@ -1,0 +1,15 @@
+== poke A 0x2F2=E6
+Wrote 0x0001E600 to 0x80A912E0
+  slot 1: pid 2496 proc 0x00B6 pkey 0xA878DA3A pos -5231.2 2096.5 -1433.2 angle -21299 tilt 0 attack 0/0 health 2 flags 0x40 frame 14.06 rate 1.00 sample 17137 bck 0x21 attr 2 anm_seq 0 morf 0 flags2 0x81 blur 0/0.00
+  status 0: actor 0x80AA1EC4 pid 2505 state 1 pause_prev 0x00 last_err 0 frames 1811 anm_state 1 bck 0x51 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 1: actor 0x80A91084 pid 2496 state 1 pause_prev 0x00 last_err 0 frames 1811 anm_state 1 bck 0x21 anm_changes 1; hit: seq 1 collider 0 pending 0
+  status 2: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 823 anm_state 0 bck 0x21 anm_changes 2; hit: seq 0 collider 0 pending 0
+  status 3: actor 0x00000000 pid 0 state 2 pause_prev 0x00 last_err 0 frames 319 anm_state 0 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+B copy 0x2F0: 0x00010000
+== poke B copy 0x2F2=E6 while A's is hidden
+Wrote 0x0001E600 to 0x80A91374
+B copy 0x2F0 after 2 s: 0x0001E600 (the REL leaves it)
+== poke A 0x2F2=0
+Wrote 0x00010000 to 0x80A912E0
+B slot: flags 0x00
+B copy 0x2F0 after A's reveal: 0x00010000

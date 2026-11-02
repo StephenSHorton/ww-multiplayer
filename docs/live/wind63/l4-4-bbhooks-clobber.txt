@@ -1,0 +1,7 @@
+== L4-4: bb:hooks=tail (mirroring in M_Dra09 r9), block byte 0x80413128 on B, then the knob table clobbered
+  0x80413128: 0x02000000  (f32: 0.0000)
+Wrote 0xDEADBEEF to 0x80413750
+  0x80413128: 0x02000000  (f32: 0.0000)
+  0x80413128: 0x02000000  (f32: 0.0000)
+  0x80413750: 0x000096FC  (f32: 0.0000)
+[enemy-B] enemy client: knob table rewritten: seen G0 want G38652
