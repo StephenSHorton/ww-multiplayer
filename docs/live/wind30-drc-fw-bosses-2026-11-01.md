@@ -82,3 +82,22 @@ Pair 6 (A 75334, B 75344), B's life refill on throughout, B idle at the entrance
   m302 1, m304 0)`, `boss_kill 4: applied (mMode 0x3, m302 2, m304 1)` at 00:57:42. Then by input on B: the death demo
   (mMode 0xB), Makar (0x0150) drops and talks, the heart container taken (max life 0x15 -> 0x19, +4 once), the Warpf
   (0x006A) at the body: B landed in Omori (point 214, layer 9). B's FW dungeonItem 0x00 held in kinBOSS, 0x38 after.
+
+Pair 7: void. B's card (6-StartFW + `wwfixture di+=4:5`, FW STAGE_BOSS_DEMO) was "ahead" of the world founded from A's
+file, so B never bound (NOT_BOUND) and no co-op ran on B.
+
+Pair 8 (A 34535, B 34613), mp-local `--coop=new --coop-merge` (the merge also gave A the demo bit, line 171):
+- **KD-3 PASS**: B bound and armed (lines 152, 156), FW dungeonItem 0x20 before the hop; `kinBOSS 1 0` played no
+  intro (Kalle fight mode 0 at once, never 0xA). After A's kill (01:21:20, 26 hits): `boss_kill 1: waiting (mMode 0x2,
+  m302 1, m304 0)`, one flower drop at 01:21:45, `boss_kill 3: waiting (mMode 0x3, m302 1, m304 0)`, `boss_kill 4:
+  applied (mMode 0x3, m302 2, m304 1)` at 01:21:47. Then by input: the death demo, Makar drops and talks with no intro
+  seen (the inferred m2DC path holds), the heart (0x15 -> 0x19), the Warpf to Omori (point 214, layer 9) and the Deku
+  Tree scene. FW dungeonItem 0x20 in kinBOSS, 0x38 after.
+- KD-5: not run by input (same timing problem as D4-5).
+
+## FW r5 Kanat floor (s4, pair 8)
+
+- POKE (as wind#21): A's sw28 (Kokiie fallen), A in kindan room 5. B in room 5 with the room in camera logged
+  `set t04 FW switch 0x1C (0x803C501C, and its live copy |= 0x10)`; within 12 s B's Kokiie (0x0064) fell from y 6920 to
+  y 1380 and B's Kanat (0x00A5, the solid vine floor over B1) was gone. B then walked to the Kanat spot and dropped
+  through it to y 1150 (the floor stood at y 3877), landing in the water beside the fallen Kokiie: **visual PASS**.
