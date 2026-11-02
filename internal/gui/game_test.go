@@ -2,6 +2,7 @@ package gui
 
 import (
 	"errors"
+	"github.com/StephenSHorton/ww-multiplayer/internal/seachart"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,10 +71,10 @@ func TestStateViewInGame(t *testing.T) {
 		t.Fatalf("Dolphin %+v", d)
 	}
 	m := v.Map
-	if m == nil || !m.SelfOK || len(m.Players) != 2 || m.Units != sameAreaUnits || m.Color != v.Color {
+	if m == nil || !m.SelfOK || len(m.Players) != 2 || m.Color != v.Color || m.Self.X != 100 || m.Self.Square != "D4" {
 		t.Fatalf("map %+v", m)
 	}
-	if p := m.Players[0]; p.DX != 300 || p.DZ != -400 || strings.Contains(p.Name, "192.168") || p.Color == "" {
+	if p := m.Players[0]; p.X != 400 || p.Z != -300 || !p.Drawn || strings.Contains(p.Name, "192.168") || p.Color == "" {
 		t.Fatalf("map dot %+v", p)
 	}
 	if v.Dialog != nil || v.Banner != nil {
@@ -83,11 +84,48 @@ func TestStateViewInGame(t *testing.T) {
 	if v := stateView(st, true, "v1", time.Now(), masker{show: true}); !strings.Contains(v.Map.Players[0].Name, "192.168.1.9") {
 		t.Fatalf("switch on: %+v", v.Map.Players[0])
 	}
-	// No position yet: no area, an empty map.
+	// No position of our own yet: no area, no self dot; the others are
+	// still on the chart (their positions are absolute).
 	st.LocalOK = false
 	v = stateView(st, true, "v1", time.Now(), hideIPs)
-	if v.Lobby.Members[1].Area != "" || v.Map.SelfOK || len(v.Map.Players) != 0 {
+	if v.Lobby.Members[1].Area != "" || v.Map.SelfOK || len(v.Map.Players) != 2 {
 		t.Fatalf("no position: %+v %+v", v.Lobby.Members[1], v.Map)
+	}
+}
+
+// TestMapPlaces: a Link on the sea is drawn where it is; one in a known
+// dungeon or a stage the disc places is pinned to its island's centre with
+// the place's name; one in a stage nobody knows is listed, not drawn.
+func TestMapPlaces(t *testing.T) {
+	ch := &seachart.Chart{Islands: []seachart.Island{{Square: seachart.Square{GX: 2, GZ: -2}, CX: 212300, CZ: -195500}},
+		Stages: map[string]seachart.Square{"Omasao": {GX: -2, GZ: 3}}}
+	st := session.State{Live: session.Live{LocalOK: true, LocalX: -200000, LocalZ: 320000,
+		LocalPlace: session.Place{Stage: "sea", Room: 44, InPlay: true}, LocalHasPlace: true,
+		Players: []session.Player{
+			{Name: "Komali", X: 10, Y: 1, Z: 20, Place: session.Place{Stage: "M_NewD2", Room: 3}, HasPlace: true},
+			{Name: "Aryll", X: 10, Y: 1, Z: 20, Place: session.Place{Stage: "Omasao"}, HasPlace: true},
+			{Name: "Zill", X: 10, Y: 1, Z: 20, Place: session.Place{Stage: "Xyzzy"}, HasPlace: true},
+			{Name: "Old", X: 5000, Y: 1, Z: -7000},
+		}}}
+	m := mapView(st, "#3c9e2e", hideIPs, ch)
+	if s := m.Self; !m.SelfOK || s.X != -200000 || s.Z != 320000 || s.Square != "G2" || s.Island != "Outset Island" || s.Pinned {
+		t.Fatalf("self %+v", s)
+	}
+	if p := m.Players[0]; !p.Drawn || !p.Pinned || p.X != 212300 || p.Z != -195500 || p.Square != "B6" || p.Where != "Dragon Roost Cavern" {
+		t.Errorf("dungeon %+v", p)
+	}
+	if p := m.Players[1]; !p.Drawn || p.X != -200000 || p.Z != 300000 || p.Square != "G2" || p.Where != "Outset Island" {
+		t.Errorf("disc-placed interior (no tile: the square's centre) %+v", p)
+	}
+	if p := m.Players[2]; p.Drawn || p.Where != "Xyzzy" {
+		t.Errorf("unknown stage %+v", p)
+	}
+	if p := m.Players[3]; !p.Drawn || p.X != 5000 || p.Square != "D4" {
+		t.Errorf("no place: taken as the sea %+v", p)
+	}
+	// Without the disc's chart, a known dungeon is still placed.
+	if p := mapView(st, "", hideIPs, nil).Players[0]; !p.Drawn || p.X != 200000 || p.Z != -200000 {
+		t.Errorf("no chart %+v", p)
 	}
 }
 

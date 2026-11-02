@@ -287,7 +287,7 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 		}
 		v.Lobby = lv
 		if !l.Legacy {
-			v.Map = mapView(st, v.Color, mk)
+			v.Map = mapView(st, v.Color, mk, nil)
 		}
 	}
 	v.Dolphin = dolphinView(st.Dolphin, mk)

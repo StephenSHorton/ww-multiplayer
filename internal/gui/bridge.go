@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/StephenSHorton/ww-multiplayer/internal/seachart"
 	"io"
 	"os"
 	"regexp"
@@ -84,6 +85,12 @@ type Bridge struct {
 	dlgMu sync.Mutex
 	dlg   fileDialogs // the window's file dialogs; nil in a browser
 
+	// chart is the sea chart's island art (seachart.go); chartDir and
+	// chartEnsure are its seams (nil chartDir: never read, as in tests).
+	chart       chartState
+	chartDir    func() (string, error)
+	chartEnsure func(dir, disc string) (*seachart.Chart, bool, error)
+
 	jobMu  sync.Mutex // guards job, jobSeq
 	job    *patchJob
 	jobSeq int
@@ -160,6 +167,9 @@ func NewBridge(o Options) *Bridge {
 		b.denv = launch.Host
 	}
 	b.procs = launch.Processes
+	if o.SeaChart {
+		b.chartDir, b.chartEnsure = seachart.Dir, seachart.Ensure
+	}
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 	if b.cfgPath == "" {
 		if p, err := config.Path(); err == nil {
@@ -210,6 +220,11 @@ func (b *Bridge) State() StateView {
 	v := stateView(st, running, b.version, b.now(), mk)
 	v.StartDolphinMyself = b.launchOptions().Manual
 	v.Coop = b.coopView(st, running, mk)
+	if v.Map != nil {
+		ch, rev := b.seaChart()
+		v.Map = mapView(st, v.Map.Color, mk, ch)
+		v.Map.ChartRev = rev
+	}
 	return v
 }
 

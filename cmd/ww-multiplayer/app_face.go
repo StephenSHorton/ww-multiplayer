@@ -382,7 +382,7 @@ func runGUI(mf modFlags) {
 // setup's patch runs the loaded mods' post-patch steps, as `patch` runs
 // the CLI's (the co-op tables). The Mods page reads the runtime.
 func guiOptions(a *app) gui.Options {
-	return gui.Options{Version: version, Controller: a.ctrl, Getenv: os.Getenv, PostPatch: patchSteps(runtimeMods(a.rt)),
+	return gui.Options{Version: version, Controller: a.ctrl, Getenv: os.Getenv, PostPatch: patchSteps(runtimeMods(a.rt)), SeaChart: true,
 		HostIPs: engine.ListHostIPs, Mods: a.rt, ModFlag: a.flags.enabled, DevMods: a.flags.dev, Args: os.Args[1:]}
 }
 

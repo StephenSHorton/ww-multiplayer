@@ -56,6 +56,9 @@ type Options struct {
 	// (stagetables.CacheForPatch) writes the line that becomes the
 	// "Co-op tables built" check row. None skips them.
 	PostPatch []func(w io.Writer, image string)
+	// SeaChart reads the sea chart's island art from the player's patched
+	// disc into the config directory (internal/seachart). Off in tests.
+	SeaChart bool
 	// DolphinEnv is what the setup's Dolphin detection looks at; nil is
 	// launch.Host (this machine).
 	DolphinEnv func() launch.Env
