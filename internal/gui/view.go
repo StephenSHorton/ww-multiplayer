@@ -70,7 +70,7 @@ type MemberView struct {
 	Area string `json:"area"`
 	Dist int    `json:"dist"`
 	// Place is where the member's game is once in game ("Dragon Roost
-	// Cavern, room 3", "Sea, B4 (Windfall Island)"; "" while unknown, and
+	// Cavern, room 3", "Sea, D2 (Windfall Island)"; "" while unknown, and
 	// for this player: View.Where). PlaceState is "in" (a fresh place, in
 	// play), "loading" (its game is between stages), "stale" (no place for
 	// net.PlaceStale: LastSeen is its age in seconds) or "" (unknown: a

@@ -150,7 +150,7 @@ func Island(room int) string {
 	return seachart.IslandName(sq)
 }
 
-// Describe is a place in words: "Sea, B4 (Windfall Island)" for a sea
+// Describe is a place in words: "Sea, D2 (Windfall Island)" for a sea
 // square, "Dragon Roost Cavern, room 3" for a room of another stage, the
 // stage alone while the room isn't known (-1 at a stage's start), "" for
 // no stage.

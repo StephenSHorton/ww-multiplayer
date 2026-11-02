@@ -151,7 +151,7 @@
 		members.push({ id: 4, name: "Quill", color: "#8E44AD", colorName: "purple", ready: true, host: false, self: false, via: "app", away: false, ...dolphinChip, area: "", dist: 0, rttMs: 33, file: "", canKick: host });
 		const PLACES = {
 			Blake: { place: "Dragon Roost Cavern, room 5", placeState: "in", area: "near" },
-			Sam: { place: "Sea, B4 (Windfall Island)", placeState: "stale", lastSeen: 14, area: "" },
+			Sam: { place: "Sea, D2 (Windfall Island)", placeState: "stale", lastSeen: 14, area: "" },
 			Quill: { place: "", placeState: "loading", area: "" },
 		};
 		for (const m of members) Object.assign(m, { coop: "", canWarp: false }, PLACES[m.name] || {});

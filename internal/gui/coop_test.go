@@ -555,7 +555,7 @@ func TestCoopPanelView(t *testing.T) {
 		Live: session.Live{CoopStatus: []session.CoopStatus{off}, CoopHub: &session.CoopHubStatus{World: worldA, Seq: 12, Merge: true,
 			Peers: []session.CoopPeer{{Name: "Aryll", State: "bound", Stage: "sea", Room: 11}}}}}
 	p := coopPanel(st, masker{})
-	if len(p.Pipes) != 1 || p.Hub == nil || p.Hub.Peers[0].Where != "Sea, B4 (Windfall Island)" || !p.Hub.Merge || len(p.Partners) != 1 || strings.Contains(p.Partners[0], "26.9.9.9") {
+	if len(p.Pipes) != 1 || p.Hub == nil || p.Hub.Peers[0].Where != "Sea, D2 (Windfall Island)" || !p.Hub.Merge || len(p.Partners) != 1 || strings.Contains(p.Partners[0], "26.9.9.9") {
 		t.Fatalf("panel %+v", p)
 	}
 	b := coopBanner(st, true)

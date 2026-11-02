@@ -351,7 +351,7 @@ func TestStateViewPlaces(t *testing.T) {
 	if tv.Place != "Dragon Roost Cavern, room 5" || tv.PlaceState != "in" || tv.Area != "near" {
 		t.Fatalf("Tetra %+v", tv)
 	}
-	if mv.Place != "Sea, B4 (Windfall Island)" || mv.PlaceState != "in" || mv.Area != "" {
+	if mv.Place != "Sea, D2 (Windfall Island)" || mv.PlaceState != "in" || mv.Area != "" {
 		t.Fatalf("Medli on another stage %+v", mv)
 	}
 	// The sea chart places everyone (Tetra pinned to her dungeon's island):
