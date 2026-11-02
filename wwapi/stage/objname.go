@@ -52,6 +52,7 @@ const (
 	ProcSwpush    Proc = 0x01D // fpcNm_Obj_Swpush_e, f_pc_name.h:38; floor switches "Kbota_A" etc. (d_stage.cpp:564-566)
 	ProcSwheavy   Proc = 0x01E // fpcNm_Obj_Swheavy_e, f_pc_name.h:39; iron-boots switches "Hhbot1" (d_stage.cpp:567-568)
 	ProcMovebox   Proc = 0x02D // fpcNm_Obj_Movebox_e, f_pc_name.h:54; push blocks "osiBLK0" etc. (d_stage.cpp:541-555)
+	ProcVfan      Proc = 0x038 // fpcNm_Obj_Vfan_e, f_pc_name.h:65; the GanonM door the Phantom Ganon sword breaks (d_a_obj_vfan.cpp)
 	ProcEP        Proc = 0x0BA // fpcNm_EP_e, f_pc_name.h:195; torches "bonbori" (d_stage.cpp:481; d_a_ep.cpp)
 	ProcItem      Proc = 0x101 // fpcNm_ITEM_e, f_pc_name.h:269; "item" (d_stage.cpp:647)
 	ProcBossItem  Proc = 0x102 // fpcNm_BOSSITEM_e, f_pc_name.h:270; "Bitem", the heart container a beaten boss leaves (d_stage.cpp:1189; d_a_boss_item.cpp:24-41)
@@ -82,6 +83,7 @@ const (
 	ProcBL      Proc = 0x0D0 // fpcNm_BL_e, f_pc_name.h:220: Bubble
 	ProcWZ      Proc = 0x0D1 // fpcNm_WZ_e, f_pc_name.h:221: Wizzrobe
 	ProcPH      Proc = 0x0D2 // fpcNm_PH_e, f_pc_name.h:222: Peahat
+	ProcPZ      Proc = 0x0D3 // fpcNm_PZ_e, f_pc_name.h:223: Zelda in Ganondorf's fight (d_a_pz.cpp)
 	ProcBPW     Proc = 0x0D4 // fpcNm_BPW_e, f_pc_name.h:224: Jalhalla
 	ProcPW      Proc = 0x0D5 // fpcNm_PW_e, f_pc_name.h:225: Poe
 	ProcBO      Proc = 0x0D7 // fpcNm_BO_e, f_pc_name.h:227: Boko Baba
@@ -111,13 +113,13 @@ const (
 // procNames names the Proc constants for String.
 var procNames = map[Proc]string{
 	ProcPlayScene: "PLAY_SCENE", ProcAllDie: "ALLDIE", ProcTagEvsw: "TAG_EVSW", ProcSwpush: "Obj_Swpush",
-	ProcSwheavy: "Obj_Swheavy", ProcMovebox: "Obj_Movebox", ProcEP: "EP", ProcItem: "ITEM",
+	ProcSwheavy: "Obj_Swheavy", ProcMovebox: "Obj_Movebox", ProcVfan: "Obj_Vfan", ProcEP: "EP", ProcItem: "ITEM",
 	ProcBossItem: "BOSSITEM", ProcTbox: "TBOX", ProcSwc00: "SWC00", ProcDoor10: "DOOR10",
 	ProcDoor12: "DOOR12", ProcAndsw0: "ANDSW0", ProcAndsw2: "ANDSW2", ProcSwhit0: "SWHIT0",
 	ProcObjTimer: "Obj_Timer",
 	ProcFM:       "FM", ProcBB: "BB", ProcMO2: "MO2", ProcBK: "BK", ProcST: "ST", ProcTN: "TN", ProcNZ: "NZ",
 	ProcAM: "AM", ProcAM2: "AM2", ProcGM: "GM", ProcKS: "KS", ProcCC: "CC", ProcBL: "BL", ProcWZ: "WZ",
-	ProcPH: "PH", ProcBPW: "BPW", ProcPW: "PW", ProcBO: "BO", ProcKI: "KI", ProcMT: "MT", ProcBWD: "BWD",
+	ProcPH: "PH", ProcPZ: "PZ", ProcBPW: "BPW", ProcPW: "PW", ProcBO: "BO", ProcKI: "KI", ProcMT: "MT", ProcBWD: "BWD",
 	ProcRD: "RD", ProcDaiocta: "DAIOCTA", ProcOQ: "OQ", ProcGY: "GY", ProcBTD: "BTD", ProcBMD: "BMD",
 	ProcBDK: "BDK", ProcBST: "BST", ProcFganon: "FGANON", ProcBGN: "BGN", ProcBGN2: "BGN2",
 	ProcBGN3: "BGN3", ProcGND: "GND", ProcPT: "PT",

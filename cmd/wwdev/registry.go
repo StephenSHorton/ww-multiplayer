@@ -87,6 +87,8 @@ func commandTable() []command {
 		{name: "input-release", group: groupDev, run: func(string, []string) { runInputRelease() }},
 		{name: "input-probe", group: groupDev, run: cmdInputProbe},
 		{name: "poke-u32", group: groupDev, run: cmdPokeU32},
+		// End a boss fight from its own actor's fields (boss_end.go, wind#58).
+		{name: "boss-end", group: groupDev, run: runBossEnd},
 		{name: "shadow-mode", group: groupDev, run: cmdShadowMode},
 		{name: "pose-test", group: groupDev, run: cmdPoseTest},
 		{name: "unhide-puppet", group: groupDev, run: func(string, []string) { runUnhidePuppet() }},
