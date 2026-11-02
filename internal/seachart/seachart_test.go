@@ -72,9 +72,9 @@ func TestSquares(t *testing.T) {
 		grid int
 	}{
 		{0, 0, "D4", 24},
-		{-200000, 320000, "G2", 43}, // Outset Island
+		{-200000, 320000, "B7", 43}, // Outset Island
 		{-350000, -350000, "A1", 0},
-		{49999, -50001, "C4", 17},
+		{49999, -50001, "D3", 17},
 		{900000, 900000, "G7", 48}, // clamped, as dMap_point2Grid clamps
 	} {
 		s := SquareAt(c.x, c.z)

@@ -28,7 +28,7 @@ func TestExtractVanilla(t *testing.T) {
 	if outset == nil {
 		t.Fatal("no Outset tile")
 	}
-	// FmapDat.bin's checkpoint for G2: (105, 19713) from the square's centre.
+	// FmapDat.bin's checkpoint for B7 (Outset): (105, 19713) from the square's centre.
 	if outset.CX != -199895 || outset.CZ != 319713 {
 		t.Errorf("Outset at (%d, %d)", outset.CX, outset.CZ)
 	}

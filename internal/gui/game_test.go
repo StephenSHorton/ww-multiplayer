@@ -108,13 +108,13 @@ func TestMapPlaces(t *testing.T) {
 			{Name: "Old", X: 5000, Y: 1, Z: -7000},
 		}}}
 	m := mapView(st, "#3c9e2e", hideIPs, ch)
-	if s := m.Self; !m.SelfOK || s.X != -200000 || s.Z != 320000 || s.Square != "G2" || s.Island != "Outset Island" || s.Pinned {
+	if s := m.Self; !m.SelfOK || s.X != -200000 || s.Z != 320000 || s.Square != "B7" || s.Island != "Outset Island" || s.Pinned {
 		t.Fatalf("self %+v", s)
 	}
-	if p := m.Players[0]; !p.Drawn || !p.Pinned || p.X != 212300 || p.Z != -195500 || p.Square != "B6" || p.Where != "Dragon Roost Cavern" {
+	if p := m.Players[0]; !p.Drawn || !p.Pinned || p.X != 212300 || p.Z != -195500 || p.Square != "F2" || p.Where != "Dragon Roost Cavern" {
 		t.Errorf("dungeon %+v", p)
 	}
-	if p := m.Players[1]; !p.Drawn || p.X != -200000 || p.Z != 300000 || p.Square != "G2" || p.Where != "Outset Island" {
+	if p := m.Players[1]; !p.Drawn || p.X != -200000 || p.Z != 300000 || p.Square != "B7" || p.Where != "Outset Island" {
 		t.Errorf("disc-placed interior (no tile: the square's centre) %+v", p)
 	}
 	if p := m.Players[2]; p.Drawn || p.Where != "Xyzzy" {

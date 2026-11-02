@@ -314,10 +314,10 @@
 			// Lin in a stage the chart doesn't know.
 			map: playing ? {
 				selfOk: true, color: "#2C5CE0", chartRev: 1,
-				self: { name: "You", x: -197800, z: 316200, drawn: true, pinned: false, square: "G2", island: "Outset Island", where: "" },
+				self: { name: "You", x: -197800, z: 316200, drawn: true, pinned: false, square: "B7", island: "Outset Island", where: "" },
 				players: [
-					{ name: "Blake", color: "#F08C1E", x: -191500, z: 309800, drawn: true, pinned: false, square: "G2", island: "Outset Island", where: "" },
-					{ name: "Sam", color: "#3C9A2E", x: 212300, z: -195500, drawn: true, pinned: true, square: "B6", island: "Dragon Roost Island", where: "Dragon Roost Cavern" },
+					{ name: "Blake", color: "#F08C1E", x: -191500, z: 309800, drawn: true, pinned: false, square: "B7", island: "Outset Island", where: "" },
+					{ name: "Sam", color: "#3C9A2E", x: 212300, z: -195500, drawn: true, pinned: true, square: "F2", island: "Dragon Roost Island", where: "Dragon Roost Cavern" },
 					{ name: "Lin", color: "#C03CC0", x: 0, z: 0, drawn: false, pinned: false, square: "", island: "", where: "Xyzzy" },
 				],
 			} : null,
