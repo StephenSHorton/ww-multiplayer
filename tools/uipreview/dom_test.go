@@ -127,6 +127,28 @@ func TestFrontendDOM(t *testing.T) {
 			}
 			return ""
 		}},
+		{"the Activity tab (wind#57)", "s=ingame&click=tab-activity", func(d string) string {
+			switch {
+			case regexp.MustCompile(`id="activity"[^>]*hidden`).MatchString(d) || !regexp.MustCompile(`id="log"[^>]*hidden`).MatchString(d):
+				return "the tab didn't swap the log for the Activity list"
+			case !strings.Contains(d, "Blake got the grappling hook in Dragon Roost Cavern") || !strings.Contains(d, "Blake defeated the boss"):
+				return "the entries aren't in the list"
+			case text(d, "feed-title") != "Activity":
+				return "the title reads " + text(d, "feed-title")
+			case strings.Contains(d, "co-op: set t03 DRC chest 4</span>"):
+				return "a sync log line is in the Activity list"
+			}
+			return ""
+		}},
+		{"the ended screen's recap", "s=ingame-ended", func(d string) string {
+			switch {
+			case regexp.MustCompile(`id="recap"[^>]*hidden`).MatchString(d):
+				return "no recap after a co-op session ended"
+			case !strings.Contains(d, `id="recap-copy"`) || !regexp.MustCompile(`id="recap-list"[^>]*>.*Blake got Din's Pearl`).MatchString(d):
+				return "the recap has no entries or no Copy"
+			}
+			return ""
+		}},
 		{"stage tables", "s=ingame", func(d string) string {
 			if strings.Contains(d, `id="progress-nokeys"`) || !strings.Contains(d, "Dragon Roost Cavern") {
 				return "the key rows are wrong"

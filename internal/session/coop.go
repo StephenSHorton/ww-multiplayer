@@ -234,6 +234,19 @@ type CoopStatus struct {
 	// of it (the app's Room items card); nil before the hub's world came
 	// in.
 	Room *CoopRoom
+	// Activity is the app's Activity tab, oldest first: what partners
+	// got, opened, defeated and entered (mods/coop/replica activity.go).
+	Activity []CoopActivity
+}
+
+// CoopActivity is one Activity entry: ID rises by one per entry of its
+// pipeline; Kind is "item", "chest", "dungeon", "boss" or "place"; Text
+// the entry as a line ("Blake got the hookshot in Dragon Roost Cavern").
+type CoopActivity struct {
+	ID                      uint64
+	At                      time.Time
+	Who, Kind, Label, Where string
+	Text                    string
 }
 
 // CoopRoom is what a co-op world holds (mods/coop/roomitems.Items): the

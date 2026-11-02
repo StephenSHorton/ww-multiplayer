@@ -607,6 +607,14 @@ details.more summary { font-size: 12.5px; }
 .log .chat b { color: var(--orange-hi); }
 .log .chat.own b { color: #9fe28a; }
 .log.short { max-height: 170px; margin-top: 8px; }
+/* the Activity tab and the ended screen's recap (wind#57) */
+.log.activity li { display: flex; gap: 10px; color: var(--log-text); }
+.log.activity time { flex: none; color: #8fcfff; }
+.log.activity li.empty { color: var(--text-dim); font-style: italic; }
+.log.activity li.boss { color: #ffd86a; }
+.log.activity li.place { color: #8fcfff; }
+.recap { margin: 10px 0 12px; }
+.recap .cardhead h3 { margin: 0; font-size: 14px; }
 form.chat { display: flex; gap: 8px; }
 form.chat input { max-width: none; flex: 1; }
 
