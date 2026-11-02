@@ -3,6 +3,7 @@ package gui
 import (
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/placename"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -66,9 +67,18 @@ type MemberView struct {
 	// Area is "near" (same area), "far" or "" (unknown, or this player)
 	// once in game, from the pose positions; Dist is the distance in
 	// world units.
-	Area  string `json:"area"`
-	Dist  int    `json:"dist"`
-	RTTMs int64  `json:"rttMs"`
+	Area string `json:"area"`
+	Dist int    `json:"dist"`
+	// Place is where the member's game is once in game ("Dragon Roost
+	// Cavern, room 3", "Sea, B4 (Windfall Island)"; "" while unknown, and
+	// for this player: View.Where). PlaceState is "in" (a fresh place, in
+	// play), "loading" (its game is between stages), "stale" (no place for
+	// net.PlaceStale: LastSeen is its age in seconds) or "" (unknown: a
+	// build from before the place trailer, no position yet).
+	Place      string `json:"place,omitempty"`
+	PlaceState string `json:"placeState,omitempty"`
+	LastSeen   int    `json:"lastSeen,omitempty"`
+	RTTMs      int64  `json:"rttMs"`
 	// File is the member's save-file hint (co-op): "File 2 “Link”:
 	// bound".
 	File string `json:"file,omitempty"`
@@ -146,6 +156,10 @@ type StateView struct {
 	Dolphin GameDolphinView `json:"dolphin"`
 	// Map is the Session screen's minimap; nil outside a lobby session.
 	Map *MapView `json:"map"`
+	// Where is this player's own place once in game ("Dragon Roost
+	// Cavern, room 3"; "" while unknown), for the Session screen's "You
+	// are in" header.
+	Where string `json:"where,omitempty"`
 	// Color is this player's tunic color ("#RRGGBB", from its lobby row;
 	// "" while unknown).
 	Color string `json:"color"`
@@ -291,6 +305,7 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 				}
 			} else {
 				mv.Area, mv.Dist = area(st, m.Name)
+				mv.Place, mv.PlaceState, mv.LastSeen = memberPlace(st, m.Name)
 			}
 			if running && l.Phase != session.LobbyPhaseLobby {
 				mv.Vitals = memberVitals(st, m.Name, self)
@@ -302,6 +317,9 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 		v.Lobby = lv
 		if !l.Legacy {
 			v.Map = mapView(st, v.Color, mk, nil)
+		}
+		if st.LocalHasPlace && st.LocalPlace.InPlay {
+			v.Where = placename.Describe(st.LocalPlace.Stage, st.LocalPlace.Room)
 		}
 	}
 	v.Dolphin = dolphinView(st.Dolphin, mk)

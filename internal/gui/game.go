@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/placename"
 	"github.com/StephenSHorton/ww-multiplayer/internal/seachart"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
@@ -178,7 +180,7 @@ func mapView(st session.State, self string, mk masker, ch *seachart.Chart) *MapV
 		if p.HasColor {
 			color = p.Color.Hex()
 		}
-		m.Players = append(m.Players, placeDot(ch, mk.text(p.Name), color, float64(p.X), float64(p.Z), p.Place, p.HasPlace))
+		m.Players = append(m.Players, placeDot(ch, mk.text(p.Name), color, float64(p.X), float64(p.Z), p.Place, p.HasPlace && p.Fresh))
 	}
 	return m
 }
@@ -222,6 +224,9 @@ func area(st session.State, name string) (string, int) {
 	for _, p := range st.Players {
 		if p.Name != name || (p.X == 0 && p.Y == 0 && p.Z == 0) {
 			continue
+		}
+		if !sameStage(st, p) {
+			return "", 0
 		}
 		d := math.Hypot(float64(p.X-st.LocalX), float64(p.Z-st.LocalZ))
 		if d <= sameAreaUnits {
@@ -330,4 +335,43 @@ func (b *Bridge) SetStartDolphinMyself(on bool) (err error) {
 func (b *Bridge) LaunchDolphin() (err error) {
 	defer b.maskErr(&err)
 	return b.ctrl.LaunchDolphin()
+}
+
+// sameStage says a remote may be measured against this player: both
+// places are known and name the same stage with both games in play, or
+// either place is unknown (a build from before the place trailer), where
+// the position alone is the hint as before. A partner on another stage,
+// loading one, or gone quiet (a stale place) is never "same area" nor on
+// the minimap: its coordinates are another space's, or old.
+func sameStage(st session.State, p session.Player) bool {
+	if !p.HasPlace {
+		return true
+	}
+	if !p.Fresh || !p.Place.InPlay {
+		return false
+	}
+	if !st.LocalHasPlace {
+		return true
+	}
+	return st.LocalPlace.InPlay && st.LocalPlace.Stage == p.Place.Stage
+}
+
+// memberPlace is a remote member's Players-row place (MemberView.Place):
+// its words, its state ("in", "loading", "stale" or "" while unknown) and,
+// for a stale one, its age in whole seconds.
+func memberPlace(st session.State, name string) (place, state string, lastSeen int) {
+	for _, p := range st.Players {
+		if p.Name != name || !p.HasPlace {
+			continue
+		}
+		place = placename.Describe(p.Place.Stage, p.Place.Room)
+		switch {
+		case !p.Fresh:
+			return place, "stale", int(p.PlaceAge / time.Second)
+		case !p.Place.InPlay:
+			return "", "loading", 0
+		}
+		return place, "in", 0
+	}
+	return "", "", 0
 }

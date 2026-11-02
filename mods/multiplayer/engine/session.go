@@ -188,7 +188,7 @@ func RunJoinSession(ctx context.Context, cancel context.CancelFunc, env Env, add
 // claims (enemy-mirror-general.json D8); the host's game has none.
 // Returns RunPipelines' result: the first real failure, or nil on a normal
 // ctx-cancel shutdown.
-func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), onVitals func(vissync.Vitals, bool), coop Coop, host bool) error {
+func runMultiplayerGoroutines(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, rep log.Reporter, onClient func(*network.Client), onPos feed.OnPos, onVitals func(vissync.Vitals, bool), coop Coop, host bool) error {
 	claims := enemyClaims(host)
 	connLog := feed.NewConnectLog(addr, rep)
 	// A warp to the partner takes its position from pose sync (without

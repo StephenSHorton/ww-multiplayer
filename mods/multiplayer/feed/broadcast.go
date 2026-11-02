@@ -30,7 +30,7 @@ import (
 // magic and rupees each time they are read (about four times a second,
 // wind#55; ok false while they can't be), the same sample the pose
 // trailer carries.
-func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphinPID uint32, rep log.Reporter, connLog *network.ConnectLog, onPos func(x, y, z float32), onVitals func(vissync.Vitals, bool)) error {
+func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphinPID uint32, rep log.Reporter, connLog *network.ConnectLog, onPos OnPos, onVitals func(vissync.Vitals, bool)) error {
 	log.Logf(rep, log.Info, "=== Broadcast Link + Pose: %s -> %s ===", name, serverAddr)
 	d, err := env.Open(dolphinPID)
 	if err != nil {
@@ -114,7 +114,7 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 			// liveState (TUI path only — onPos is nil on every CLI
 			// entry point).
 			if onPos != nil {
-				onPos(pos.PosX, pos.PosY, pos.PosZ)
+				onPos(pos.PosX, pos.PosY, pos.PosZ, s.place, s.placeOK)
 			}
 
 			// Pose. Read from the sender-side publish buffer rather than

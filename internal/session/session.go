@@ -81,9 +81,15 @@ type Player struct {
 	Color    texture.Color
 	HasColor bool
 	// Place is where the player's game is (the place trailer of its
-	// positions, relay scoping's), set when HasPlace is: it is fresh.
+	// positions, mods/multiplayer/net/place.go), set when HasPlace is.
+	// HasPlace is false while none has come (an older build, no position
+	// yet). PlaceAge is how old the last one is, and Fresh says it is still
+	// believed (net.PlaceStale): a stale place is where the player was last
+	// seen, not where they are.
 	Place    Place
 	HasPlace bool
+	Fresh    bool
+	PlaceAge time.Duration
 	// Vitals are the player's hearts, magic and rupees from its pose
 	// trailer (wind#55), set when HasVitals is: a sender before them
 	// sends none.
@@ -120,8 +126,9 @@ type Live struct {
 	// until the first broadcast-pose tick has read it.
 	LocalX, LocalY, LocalZ float32
 	LocalOK                bool
-	// LocalPlace is this player's own place, set when LocalHasPlace is
-	// (it comes back from the server on the player's own positions).
+	// LocalPlace is this player's own place, read with its position
+	// (feed.ReadPlace), set when LocalHasPlace is: false until the first
+	// one, and while the game is between stages.
 	LocalPlace    Place
 	LocalHasPlace bool
 	// LocalVitals is this player's own hearts, magic and rupees;

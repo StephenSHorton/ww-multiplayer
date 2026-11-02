@@ -165,7 +165,7 @@ func TestMemberCoop(t *testing.T) {
 	st := session.State{Coop: session.CoopOptions{On: true}, Live: session.Live{
 		CoopHub:    &session.CoopHubStatus{Peers: []session.CoopPeer{{Name: "Blake", State: "bound", Stage: "M_NewD2", Room: 3}, {Name: "Sam", State: ""}}},
 		CoopStatus: []session.CoopStatus{{PartnerStage: "M_NewD2", PartnerRoom: 3}}}}
-	if chip, warp := memberCoop(st, "Blake", false, 1); chip != "Bound · M_NewD2 room 3" || !warp {
+	if chip, warp := memberCoop(st, "Blake", false, 1); chip != "Bound · Dragon Roost Cavern, room 3" || !warp {
 		t.Errorf("host's Blake: %q, %v", chip, warp)
 	}
 	if chip, warp := memberCoop(st, "Sam", false, 2); chip != "" || warp {
@@ -175,16 +175,16 @@ func TestMemberCoop(t *testing.T) {
 		t.Error("Warp to on your own row")
 	}
 	st.CoopHub = nil
-	if chip, warp := memberCoop(st, "Blake", false, 1); chip != "M_NewD2 room 3" || !warp {
+	if chip, warp := memberCoop(st, "Blake", false, 1); chip != "Dragon Roost Cavern, room 3" || !warp {
 		t.Errorf("joiner's partner: %q, %v", chip, warp)
 	}
 	// At a stage start the room isn't known yet (-1): the stage alone.
 	st.CoopStatus[0].PartnerRoom = -1
-	if chip, _ := memberCoop(st, "Blake", false, 1); chip != "M_NewD2" {
+	if chip, _ := memberCoop(st, "Blake", false, 1); chip != "Dragon Roost Cavern" {
 		t.Errorf("joiner's partner at a stage start: %q", chip)
 	}
 	st.CoopHub = &session.CoopHubStatus{Peers: []session.CoopPeer{{Name: "Blake", State: "bound", Stage: "M_NewD2", Room: -1}}}
-	if chip, _ := memberCoop(st, "Blake", false, 1); chip != "Bound · M_NewD2" {
+	if chip, _ := memberCoop(st, "Blake", false, 1); chip != "Bound · Dragon Roost Cavern" {
 		t.Errorf("host's Blake at a stage start: %q", chip)
 	}
 	// Three or more (a joiner with two partners): each row's chip and
@@ -192,7 +192,7 @@ func TestMemberCoop(t *testing.T) {
 	st.CoopHub = nil
 	st.CoopStatus = []session.CoopStatus{{PartnerRoom: -1, Partners: []session.CoopPartner{
 		{Name: "Blake", Stage: "M_NewD2", Room: 3}, {Name: "Sam", Stage: "sea", Room: 44}, {Name: "Quill", Room: -1}}}}
-	if chip, warp := memberCoop(st, "Sam", false, 3); chip != "sea room 44" || !warp {
+	if chip, warp := memberCoop(st, "Sam", false, 3); chip != "Sea, G2 (Outset Island)" || !warp {
 		t.Errorf("joiner's Sam of three: %q, %v", chip, warp)
 	}
 	if chip, warp := memberCoop(st, "Quill", false, 3); chip != "" || !warp {

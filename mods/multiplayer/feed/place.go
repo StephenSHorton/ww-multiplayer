@@ -45,3 +45,9 @@ func ReadPlace(m mem.Reader) (p network.Place, ok bool) {
 	p.InPlay = addr.InMEM1(link) && !pending && ovlp != addr.OverlapRequest && p.Stage != "" && p.Stage != addr.StageTitle && p.Stage != addr.StageFileSelect
 	return p, true
 }
+
+// OnPos receives this game's own position and place every broadcast-pose
+// tick that reads them (the app's LiveState: the minimap's centre and the
+// "You are in" header). placeOK is false when the place read failed or the
+// game is between stages (ReadPlace).
+type OnPos func(x, y, z float32, place network.Place, placeOK bool)

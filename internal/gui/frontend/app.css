@@ -322,6 +322,8 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
 .chip.dolphin.launching, .chip.dolphin.title { color: var(--blue-ink); background: var(--blue-soft); }
 .chip.dolphin.wrong_game, .chip.dolphin.unpatched, .chip.modstate.failed, .chip.modstate.quarantined { color: #fff; background: var(--red); }
 .chip.area.near { color: var(--orange-ink); background: var(--orange-hi); }
+.chip.place { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--blue-ink); background: var(--blue-soft); }
+.chip.place.loading, .chip.place.stale { color: var(--grey-ink); background: var(--grey-soft); }
 .chip.file { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--yellow-ink); background: var(--yellow-soft); }
 
 /* ---------- item slots: the tunic swatches ---------- */

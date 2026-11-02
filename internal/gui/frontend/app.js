@@ -259,6 +259,23 @@ function vitalsRow(v) {
 	);
 }
 
+// placeChip is where a member's game is (MemberView.place/placeState):
+// the place, "Loading" between stages, or the last place with its age once
+// it went quiet. None while unknown, or when the co-op chip already says it.
+function placeChip(m) {
+	switch (m.placeState) {
+	case "loading":
+		return chip("Loading", "place loading", "Their game is between stages");
+	case "stale":
+		return chip(m.place ? m.place + " · last seen " + m.lastSeen + "s" : "Last seen " + m.lastSeen + "s", "place stale",
+			"Nothing from their game for " + m.lastSeen + " seconds");
+	case "in":
+		if (m.coop && m.coop.includes(m.place)) return null;
+		return chip(m.place, "place", "Where their game is");
+	}
+	return null;
+}
+
 function memberRow(m, lobby) {
 	const playing = lobby.phase !== "lobby";
 	const swatch = el(m.self ? "button" : "span", {
@@ -274,6 +291,7 @@ function memberRow(m, lobby) {
 		chip(m.via === "cli" ? "CLI" : "App", m.via === "cli" ? "cli" : "app", m.via === "cli" ? "Playing from the command line" : "In the app"),
 		m.rttMs > 0 && !m.away ? chip(m.rttMs + " ms", "rtt", "Round trip to the host") : null,
 		m.dolphinLabel ? chip(m.dolphinLabel, "dolphin " + m.dolphin, "Their Dolphin") : null,
+		playing ? placeChip(m) : null,
 		playing && m.area ? chip(AREAS[m.area] || m.area, "area " + m.area, "About " + m.dist + " units from you") : null,
 		// Co-op: the save file they'll play (their card's preview), then,
 		// in game, where their co-op stands.
@@ -425,7 +443,8 @@ function renderWhere(st, playing) {
 		n + (n === 1 ? " player" : " players")];
 	if (st.latencyMs > 0) bits.push(st.latencyMs + " ms");
 	w.replaceChildren("You: ", st.color ? el("i", { class: "me", style: "--c:" + st.color, title: "Your tunic" }) : "",
-		st.name + " · " + bits.join(" · "));
+		st.name + " · " + bits.join(" · "),
+		st.where ? el("span", { class: "here" }, " · You are in " + st.where) : "");
 }
 
 // ---------- the host's share card ----------
