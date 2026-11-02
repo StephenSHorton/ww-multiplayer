@@ -136,6 +136,7 @@ func (e *Engine) Live() session.Live {
 			LocalZ:      z,
 			LocalOK:     ok,
 		}
+		l.LocalPlace, l.LocalHasPlace = e.ls.LocalPlace()
 	}
 	if cs := e.CoopSide(); cs != nil {
 		l.CoopStatus, l.CoopHub = cs.CoopLive()

@@ -101,7 +101,8 @@
 #define WWFX_KIND_REMOVE        4           // it is gone without exploding (sank, fell out of the world)
 #define WWFX_KIND_CANNON        5           // the boat cannon fired this cannonball
 #define WWFX_KIND_ARROW         6           // an arrow left the sender's bow
-#define WWFX_KIND_MAX           6
+#define WWFX_KIND_ECANNON       7           // wind#46: a warship fired this cannonball (enemy-sync host only, with the OSHIP kind on)
+#define WWFX_KIND_MAX           7
 
 #define WWFX_ARROW_MAX          3           // daArrow_c TYPE_NORMAL 0, FIRE 1, ICE 2, LIGHT 3 (d_a_arrow.h:15-20)
 

@@ -1,0 +1,14 @@
+Joining 127.0.0.1:62980 as "v050peer".
+Ctrl+C to stop.
+=== Enemy client: v050peer <- 127.0.0.1:62980 ===
+=== Puppet Sync: v050peer <- 127.0.0.1:62980 ===
+=== Broadcast Link + Pose: v050peer -> 127.0.0.1:62980 ===
+Dolphin found.
+enemy client: mirroring the host's enemies (kinds mo2,bk+u,cc+u), remote bodies step6; quiet deaths for mo2,bk,cc,ki,am,am2,tn (WW_ENEMY_QUIET_DEATH), selecting by distance (WW_ENEMY_SELECT)
+enemy client: remote-Link block on, flags 0x24FF
+ERROR: Can't join 127.0.0.1:62980: host refused the connection: this host runs a newer ww-multiplayer (network protocol 8, yours is 3); please upgrade to the host's version
+WARN: enemy sync off for this session: host refused the connection: this host runs a newer ww-multiplayer (network protocol 8, yours is 3); please upgrade to the host's version; multiplayer is unaffected
+Dolphin found.
+ERROR: This Dolphin's game is not this version's patch: the game's patch is ABI 1 layout 3, this version's is ABI 1 layout 2. Patch your Wind Waker ISO again with this version (`ww-multiplayer patch`, or Setup in the app) and cold-boot it from Dolphin's game list. A save state taken on another version cannot be used: boot the game and recapture it. Remote players are not drawn until it is.
+Filtering self-echo: remotes named "v050peer" will be ignored.
+ERROR: Can't join 127.0.0.1:62980: host refused the connection: this host runs a newer ww-multiplayer (network protocol 8, yours is 3); please upgrade to the host's version

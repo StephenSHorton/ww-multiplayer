@@ -17,6 +17,7 @@ import { renderCoop, dialogExtra, coopAction, initCoop } from "./coop.js";
 import { initMods, refreshMods } from "./mods.js";
 import { initUpdate, startUpdate, onUpdate, render as renderUpdate, renderSettings as renderUpdateSettings } from "./update.js";
 import { initTheme } from "./theme.js";
+import { drawMap } from "./chart.js";
 
 const LOG_MAX = 500;
 
@@ -395,42 +396,6 @@ function renderWhere(st, playing) {
 	if (st.latencyMs > 0) bits.push(st.latencyMs + " ms");
 	w.replaceChildren("You: ", st.color ? el("i", { class: "me", style: "--c:" + st.color, title: "Your tunic" }) : "",
 		st.name + " · " + bits.join(" · "));
-}
-
-// drawMap draws the minimap (the TUI's, as a sea chart): you in the
-// middle, every other Link around you on the ground plane (+X right, +Z
-// down, as the TUI draws it). The scale fits the farthest player; one
-// off the chart sits on its edge. The dashed ring is "same area".
-const SVGNS = "http://www.w3.org/2000/svg";
-function svg(tag, attrs, text) {
-	const n = document.createElementNS(SVGNS, tag);
-	for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-	if (text !== undefined) n.textContent = text;
-	return n;
-}
-function drawMap(m) {
-	const kids = [svg("line", { class: "axis", x1: -100, y1: 0, x2: 100, y2: 0 }), svg("line", { class: "axis", x1: 0, y1: -100, x2: 0, y2: 100 })];
-	let far = 0;
-	for (const p of m.players) far = Math.max(far, Math.hypot(p.dx, p.dz));
-	const range = Math.min(40000, Math.max(400, far * 1.4)); // world units from the center to the edge
-	const k = 95 / range;
-	if (m.units < range) kids.push(svg("circle", { class: "ring", cx: 0, cy: 0, r: m.units * k }));
-	for (const p of m.players) {
-		let x = p.dx * k, y = p.dz * k;
-		const d = Math.hypot(x, y);
-		if (d > 95) { x *= 95 / d; y *= 95 / d; }
-		kids.push(svg("circle", { class: "dot", cx: x, cy: y, r: 7, fill: p.color || "#3c9e2e" }));
-		kids.push(svg("text", { x: x + 10, y: y + 4 }, p.name));
-	}
-	kids.push(svg("circle", { class: "dot self", cx: 0, cy: 0, r: 8, fill: m.color || "#3c9e2e" }));
-	kids.push(svg("text", { x: 0, y: 24, "text-anchor": "middle" }, "You"));
-	$("map").replaceChildren(...kids);
-	$("map-note").textContent = !m.selfOk
-		? "Your position shows once your Link is in the world."
-		: m.players.length
-			? "The chart spans about " + Math.round(range).toLocaleString() + " units from you." +
-				(m.units < range ? " Inside the dashed ring is the same area." : " Everyone on it is in your area.")
-			: "Nobody else is in the world yet.";
 }
 
 // ---------- the host's share card ----------
@@ -902,9 +867,14 @@ function wire() {
 			const which = tab.dataset.tab;
 			$("log").classList.toggle("chatonly", which === "chat");
 			$("log").classList.toggle("synconly", which === "sync");
+			// Activity (wind#57) is its own list: who got what where.
+			$("log").hidden = which === "activity";
+			$("activity").hidden = which !== "activity";
+			$("chat-form").hidden = which === "activity";
 			for (const t of $("feed-tabs").children) t.setAttribute("aria-selected", String(t === tab));
-			$("feed-title").textContent = { chat: "Chat", sync: "Co-op sync", all: "All logs" }[which];
+			$("feed-title").textContent = { chat: "Chat", sync: "Co-op sync", activity: "Activity", all: "All logs" }[which];
 			$("log").scrollTop = $("log").scrollHeight;
+			$("activity").scrollTop = $("activity").scrollHeight;
 		});
 	}
 	initCoop({ copyText });

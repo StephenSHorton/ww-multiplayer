@@ -1,0 +1,31 @@
+10 12:14:25.96 A:hp 2/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+11 12:14:26.55 A:hp 2/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+12 12:14:27.19 A:hp 2/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+13 12:14:27.79 A:hp 2/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+14 12:14:28.29 A:hp 2/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+15 12:14:28.84 A:hp 2/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+16 12:14:29.40 A:hp 2/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+17 12:14:29.92 A:hp 2/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+18 12:14:30.44 A:hp 2/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+19 12:14:30.91 A:hp 0/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+20 12:14:31.38 A:hp 0/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+21 12:14:31.89 A:hp 0/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+22 12:14:32.36 A:hp 0/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+23 12:14:32.81 A:hp 0/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+24 12:14:33.32 A:hp 0/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+25 12:14:33.86 A:hp 0/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+26 12:14:34.41 A:hp 0/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+27 12:14:34.99 A:hp 0/2 mode 1 shrink timer 0  B:hp 2/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+28 12:14:35.56 A: B:hp 0/2 mode 1 shrink timer 0 paused: mirror (mPauseFlag 0x01) 
+29 12:14:36.11 A: B:
+30 12:14:36.63 A: B:
+31 12:14:37.09 A: B:
+32 12:14:37.55 A: B:
+33 12:14:38.02 A: B:
+34 12:14:38.50 A: B:
+35 12:14:38.96 A: B:
+36 12:14:39.42 A: B:
+37 12:14:39.89 A: B:
+38 12:14:40.34 A: B:
+39 12:14:40.82 A: B:
+40 12:14:41.25 A: B:

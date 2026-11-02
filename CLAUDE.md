@@ -51,6 +51,7 @@ ww-multiplayer/
 │   │   ├── ciso.go              # CISO decompressor
 │   │   └── rels/                # RELS.arc patcher: the mod's REL in an actor module's place, the profile list repointed, the 64 KB ARAM growth guard;
 │   │                            #   optional in-place byte patches to vanilla RELs (seaheap.go: BytePatch, SeaHeapFix over rel.PatchBytes, checked by inject.CheckOverlaps)
+│   ├── seachart/                # The app's Great Sea chart: island art read from the player's own disc (Fmap.arc tiles, FmapDat.bin, each stage's 2DMA square), upscaled, cached in the config dir; never in git
 │   ├── netutil/                 # Address parsing shared by host/join/server; join codes (WW-XXXX-XXXX, joincode.go)
 │   ├── dolphintool/             # Dolphin's DolphinTool beside its Dolphin: probe `convert --help`, RVZ/WIA/GCZ -> temporary ISO (patch's Converter), free space
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors; convert.go: an RVZ/WIA/GCZ input converted first)
@@ -150,7 +151,7 @@ go build -o wwdev.exe ./cmd/wwdev
 #   picks the boss-dead relay's rows (default all six, gohdan (SirenB) included since v0.6.1;
 #   docs/TESTING.md "Batch D"), the host's --coop-live-switches[=off] (live switches, on by default
 #   since v0.6.1: the current table's switches apply when idle; =off (false, no, 0) waits for the next
-#   room change; a joiner may not name it), the host's --coop-placed-kill[=on|off] (off by default: placement-matched kills
+#   room change; a joiner may not name it), the host's --coop-placed-kill[=on|off] (on by default since wind#29; =off turns it off: placement-matched kills
 #   of unkeyed enemies, M6.1, docs/08 §7.2a: a partner's kill of an unkeyed placed enemy light-shrinks one live instance in
 #   the other game while both are in the room; needs combat; docs/TESTING.md P1-P8; a joiner may not name it), and
 #   --coop-refresh=stone2,leaves,item,tbox,saku,wall,floor,ice,mjdoor,mkie,mkiek,mknjd,vfan,swhit0,warpt,mflft,kokiie,vmc[,dry]|none
@@ -187,6 +188,13 @@ go build -o wwdev.exe ./cmd/wwdev
 ./wwdev.exe dump                                        # Dump mailbox state (WWMB header + contract verdict, shadow_mode, pose seqs, etc.)
 ./wwdev.exe shadow-mode <0|5>                           # 0=off, 5=pose-feed (the dev modes 1-4 were deleted in Phase E0)
 ./wwdev.exe poke-u32 <addr-hex> <val-hex>               # Direct memory write
+./wwdev.exe boss-end <gohma|kalle|jalhalla|molgera|pg-maze|pg3|puppet|ganondorf> [--step S] [--variant natural|parry] [--arena] [--dry-run] [--watch secs=20]
+                                                        # End a boss from its own actor's fields (cmd/wwdev/boss_end.go, wind#58): refuses the wrong stage, a pending
+                                                        #   change, an event, the menu; writes only inside the boss (Link's flag for ganondorf --variant parry), never the save
+                                                        #   or the REL request; read-back RACE check, then watches bit/NextStage/stage change. Exit 0 seen, 1 refused/ALREADY,
+                                                        #   2 RACE or the game went another way, 3 watch ran out. Steps: kalle flower, pg3 door, puppet form1|form2|form3
+                                                        #   --arena (gohma, kalle): the same plan in the first-visit arena (M_DragB, kinBOSS) for the
+                                                        #   boss-dead relay rows (wind#62); the watch is off there unless --watch is given
 ./wwdev.exe move-puppet <x> <y> <z> [slot]              # Manually drive a puppet actor slot
 ./wwdev.exe unhide-puppet                               # Apply per-proc unhide poke (mSwitchNo / m678)
 
@@ -219,14 +227,17 @@ WW_ENEMY_HIT_V1=1                           # enemy-host applies a client's hit 
 WW_ENEMY_HIT_FALLBACK=shrink                # enemy-host: a v2 hit that crossed nothing after two Sets falls back to the shrink kill
 WW_ENEMY_HIT_DEMO=0                         # enemy-host: no cutscene gate on client hits (default: a hit during the host Link's demo is dropped)
 WW_ENEMY_MIRROR_KINDS=<kinds>               # Enemy kinds mirrored (mods/enemysync/kinds.go): mo2, bk, cc, ki (Keese), am (Armos Knight), am2 (Armos), tn (Darknut),
-                                            #   bb (Kargaroc), mt (Magtail), st (Stalfos) joined by "," (default mo2,bk+u,cc+u,ki+u,am2+u,tn+u: am, bb, mt, st are off until
+                                            #   bb (Kargaroc), mt (Magtail), st (Stalfos), oship (warship) joined by "," (default mo2,bk+u,cc+u,ki+u,am2+u,tn+u: am, bb, mt, st are off until
                                             #   named); a "+u" suffix (bk+u, ki+u, tn+u, bb+u, mt+u, st+u) also takes that kind's unkeyed (setID 0xFFFF) placements (ki+u: fly-type Keese only,
                                             #   never on GanonK; tn+u: the cave Darknuts; BOSS, behaviour 12..15 and caped Darknuts are always refused; bb: the keyed
                                             #   DRC perches, bb+u also the sea birds, a rider carrying a Moblin/Bokoblin (type 5/6) is always refused; mt+u: opt-in,
                                             #   every DRC Magtail is unkeyed, so mt alone takes none; batch D restored the row, kind 8, with the retail body
                                             #   builders behind a fingerprint, and it needs a REL of this build; st: wind#27's kind 9, intact phase only (the
                                             #   copy hides at the break and never shows the loose head; BOSS (the M_DaiMB trio) and the split's upper half refused),
-                                            #   st keyed (ET, WT), st+u the unkeyed ones (GT Earth trial, Savage Labyrinth), docs/TESTING.md "ST Stalfos row"); "none". Host and client each set theirs: a kind is
+                                            #   st keyed (ET, WT), st+u the unkeyed ones (GT Earth trial, Savage Labyrinth), docs/TESTING.md "ST Stalfos row"; oship+u: wind#46's warship,
+                                            #   kind 10, unkeyed only, no hit relay (the client's cannonball reaches the host's ship as its fxsync copy), the copy sinks
+                                            #   itself (own modeDelete: switch A, the salvage light), the gold ship refused; the host's warship cannonballs reach the
+                                            #   client as projectile kind 7 (inject/rel/fx.c ECANNON)); "none". Host and client each set theirs: a kind is
                                             #   mirrored only when both enable it (the STATE's host kind mask AND the client's; u16 since batch C)
 WW_ENEMY_QUIET_DEATH=<kinds>                # enemy-client: kinds whose copies die quietly (stay paused, shrink in the REL, deleted; the client sets the zone bit and
                                             #   death switch), default mo2,bk,cc,ki,am,am2,tn,bb,mt,st; bk,cc brings back the Moblin's legacy em_die (which drops an item

@@ -1,0 +1,7 @@
+== Cave09 0 12 (stage-hop point 0 room 12): a verified Fire Keese hop
+both list 6: 4 ki params 0xFFFF8101 (unkeyed fliers, enemy-watch 'fire 128' on all 4, both games) + 2 mt; goldens equal
+B adopted 1111 [ki uD2EBD0AC][mt uA8C713BC][ki u04600EA8][mt u1CAA22B4] (later by distance: the two ki pids 864/865 mirrored)
+B's own unadopted Fire Keese removed locally (wwdev enemy-kill on B, pids 863 and 862), leaving only the two mirrored copies:
+   6 0x80AB3380 pid 864 ki room 12 K1 held: paused: mirror
+   7 0x80AB16E4 pid 865 ki room 12 K1 held: paused: mirror
+s4-firekeese-copy-B.png: a copy beside B's Link with its flame wings drawn (still frame; the btk's animation not judged)

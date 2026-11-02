@@ -3,6 +3,7 @@ auto-recapture
 auto-recapture-pair
 bdk-probe
 blob-verify-live
+boss-end
 bpw-probe
 broadcast-link
 bst-probe

@@ -47,7 +47,7 @@ var emkRowFields = []string{"ID", "PROC", "CLASS_SIZE", "BCK_FIRST", "BCK_LAST",
 func TestKindTablePins(t *testing.T) {
 	src, defs := kindsHeader(t)
 	prefix := map[KindID]string{KindMO2: "EMK_MO2_", KindBK: "EMK_BK_", KindCC: "EMK_CC_", KindKI: "EMK_KI_", KindAM: "EMK_AM_", KindAM2: "EMK_AM2_", KindTN: "EMK_TN_",
-		KindBB: "EMK_BB_", KindMT: "EMK_MT_", KindST: "EMK_ST_"}
+		KindBB: "EMK_BB_", KindMT: "EMK_MT_", KindST: "EMK_ST_", KindOSHIP: "EMK_OSHIP_"}
 	if len(prefix) != len(Kinds) {
 		t.Fatalf("the pins name %d rows, Kinds has %d", len(prefix), len(Kinds))
 	}
@@ -66,7 +66,7 @@ func TestKindTablePins(t *testing.T) {
 				t.Errorf("%s%s = 0x%X, the Go Kinds row has 0x%X", p, name, got, want)
 			}
 		}
-		m := regexp.MustCompile(`(?m)^#define\s+` + p + `ARC\s+"(\w+)"`).FindSubmatch(src)
+		m := regexp.MustCompile(`(?m)^#define\s+` + p + `ARC\s+"(\w*)"`).FindSubmatch(src)
 		if m == nil || string(m[1]) != k.Arc {
 			t.Errorf("%sARC is %q, the Go row's archive %q", p, m, k.Arc)
 		}
@@ -75,7 +75,7 @@ func TestKindTablePins(t *testing.T) {
 		// kind ids and the masks they make
 		"EMK_KIND_MO2": int64(KindMO2), "EMK_KIND_BK": int64(KindBK), "EMK_KIND_CC": int64(KindCC), "EMK_KIND_NONE": int64(KindNone),
 		"EMK_KIND_KI": int64(KindKI), "EMK_KIND_AM": int64(KindAM), "EMK_KIND_AM2": int64(KindAM2), "EMK_KIND_TN": int64(KindTN),
-		"EMK_KIND_BB": int64(KindBB), "EMK_KIND_MT": int64(KindMT), "EMK_KIND_ST": int64(KindST),
+		"EMK_KIND_BB": int64(KindBB), "EMK_KIND_MT": int64(KindMT), "EMK_KIND_ST": int64(KindST), "EMK_KIND_OSHIP": int64(KindOSHIP),
 		// the hit collider codes
 		"EMK_HIT_HEAD": int64(HitHead), "EMK_HIT_TG": int64(HitTg), "EMK_HIT_SPECIAL": int64(HitSpecial), "EMK_HIT_MT_KILL": int64(HitMtKill),
 		"EMK_KIND_COUNT": int64(len(Kinds)),
@@ -250,6 +250,11 @@ func TestKindTablePins(t *testing.T) {
 		"EMK_ST_BEHAVIOR_UPPER": addr.StBehaviorUpper, "EMK_ST_ACT_JYUNKAI": addr.StActJyunkai, "EMK_ST_ACT_FIGHT": addr.StActFight,
 		"EMK_ST_ACT_UNDERGROUND": addr.StActUnderground, "EMK_ST_ACT_COFFIN": addr.StActCoffin,
 		"EMK_ST_F2_HAS_WEAPON": int64(StF2HasWeapon), "EMK_ST_F2_ATTN": int64(StF2Attn), "EMK_ST_ATTN_F2": int64(StF2Attn),
+		// OSHIP (wind#46; wwapi/addr/oship.go)
+		"EMK_OSHIP_CLASS_SIZE": addr.OshipClassSize, "EMK_OSHIP_PROC_MODE": addr.OshipOffProc, "EMK_OSHIP_MODE_DELETE": addr.OshipProcDelete,
+		"EMK_OSHIP_HIT_TIMER": addr.OshipOffHitTimer, "EMK_OSHIP_INVULN": addr.OshipOffHitTimer + 2, "EMK_OSHIP_AIM_Y": addr.OshipOffAimY,
+		"EMK_OSHIP_AIM_X": addr.OshipOffAimX, "EMK_OSHIP_MODEL_NORMAL": addr.OshipModelNormal, "EMK_OSHIP_HEALTH_MAX": addr.OshipHealthMax,
+		"EMK_OSHIP_F2_ATTN": int64(OshipF2Attn), "EMK_OSHIP_ATTN_F2": int64(OshipF2Attn),
 	}
 	for name, want := range pins {
 		got, ok := defs[name]
@@ -446,7 +451,7 @@ func TestKindsBatchC(t *testing.T) {
 // table change (hosts and clients of different builds refuse each other)
 // and must be deliberate.
 func TestKindHash(t *testing.T) {
-	const want = 0x5B1C4C7C // wind#27: the ST row, kind 9 (batch D shipped 0xB826567A, the MT row restored, kind 8; batch C 0x587E10C2, the BB row with MT cut by R-20 after P0-MT; was 0x0F3064EE, TN batch B1; 0x97EDB0F9, allow batch A1; before it 0x73A3A496). An MT cut (cut_order 1) leaves a zero row at 8 and re-pins.
+	const want = 0xC70D1552 // wind#46: the OSHIP row, kind 10 (wind#27 shipped 0x5B1C4C7C, the ST row, kind 9; batch D shipped 0xB826567A, the MT row restored, kind 8; batch C 0x587E10C2, the BB row with MT cut by R-20 after P0-MT; was 0x0F3064EE, TN batch B1; 0x97EDB0F9, allow batch A1; before it 0x73A3A496). An MT cut (cut_order 1) leaves a zero row at 8 and re-pins.
 	if got := KindHash(); got != want {
 		t.Errorf("KindHash() = 0x%08X, pinned 0x%08X: the Kinds table changed", got, want)
 	}

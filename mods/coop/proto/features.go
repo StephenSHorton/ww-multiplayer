@@ -140,7 +140,9 @@ const SessionFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureLi
 // session): everything but live switches and placed kills. The session
 // adds FeatureLiveSwitches itself unless the host passes
 // --coop-live-switches=off (on by default since v0.6.1; startHub), and
-// FeaturePlacedKill only with --coop-placed-kill (off by default). Chest
+// FeaturePlacedKill unless the host passes --coop-placed-kill=off (on by
+// default since wind#29). Both stay out of this set so an older replica,
+// which never asks for them, keeps every other feature. Chest
 // claims (FeatureChestClaim) are on: they only hold a chest a partner
 // could open too.
 const DefaultFeatures = FeatureImage | FeaturePuzzle | FeatureCombat | FeatureSwitches | M4Features | FeatureChestClaim

@@ -1,0 +1,15 @@
+== kaze 9 9, every kind on; A host, B client
+on entry: both games list 13 (3 am2 statues setIDs C-E params 0xC1010AFF mode 12 action 1, 10 cc setIDs 2-B), goldens equal; B adopted 1111 slots [0:cc 6Q][1:cc 7Q][2:cc BQ][3:cc 2Q] (by distance from B's Link)
+A enemy-kill cc setID 6 (pid 544): gone, room 9 zone slot 0 records setID 6 dead; B: adopted 1111 slots [0:cc 5Q][1:cc 7Q][2:cc BQ][3:cc 2Q]; summary idents=12 on both
+B warped beside the statues (-150,-4295,3700):
+ frame 6632 beat 7742 adopted 1111 slots [0:cc 5Q][1:cc 7Q][2:am2 EQ][3:am2 CQ] status [0:s1 e0 a1 bck1E n1][1:s1 e0 a1 bck1E n1][2:s1 e0 a1 bck0F n1][3:s1 e0 a1 bck0F n1] canaries {PauseReasserts:0 AnmUnresolved:0 RevalidateFailures:0 WatchdogReleases:2} canaries2 {AnmResNull:0 AnmRange:0 HitNoCross:0 HitAborted:0}
+-- a am2 after B's adoption
+scope stage=kaze room=9 kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u,mt+u,st+u,oship+u walk=complete
+ident kind=am2 proc=0x00CC setID=0x000C pkey=0xAA4D279B params=0xC1010AFF home_room=9 home=0xC397C8D2,0xC5863B20,0x456F2F59 verdict=ok am2_action=1 am2_mode=12 am2_abyss=0 am2_carried=0
+ident kind=am2 proc=0x00CC setID=0x000D pkey=0xB55CE7AE params=0xC1010AFF home_room=9 home=0x43972F10,0xC5863B20,0x456F2F5A verdict=ok am2_action=1 am2_mode=12 am2_abyss=0 am2_carried=0
+ident kind=am2 proc=0x00CC setID=0x000E pkey=0xD18DA79A params=0xC1010AFF home_room=9 home=0x40D39D2A,0xC5863B20,0x456620B2 verdict=ok am2_action=1 am2_mode=12 am2_abyss=0 am2_carried=0
+-- b am2 after B's adoption
+scope stage=kaze room=9 kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u,mt+u,st+u,oship+u walk=complete
+ident kind=am2 proc=0x00CC setID=0x000C pkey=0xAA4D279B params=0xC1010AFF home_room=9 home=0xC397C8D2,0xC5863B20,0x456F2F59 verdict=ok am2_action=1 am2_mode=12 am2_abyss=0 am2_carried=0
+ident kind=am2 proc=0x00CC setID=0x000D pkey=0xB55CE7AE params=0xC1010AFF home_room=9 home=0x43972F10,0xC5863B20,0x456F2F5A verdict=ok am2_action=1 am2_mode=12 am2_abyss=0 am2_carried=0
+ident kind=am2 proc=0x00CC setID=0x000E pkey=0xD18DA79A params=0xC1010AFF home_room=9 home=0x40D39D2A,0xC5863B20,0x456620B2 verdict=ok am2_action=1 am2_mode=12 am2_abyss=0 am2_carried=0

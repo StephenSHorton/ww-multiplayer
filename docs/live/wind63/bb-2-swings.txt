@@ -1,0 +1,6 @@
+swing 0 actor -5231 2096 -1433 ang ACD4
+swing 1 actor -5231 2100 -1433 ang ACD4
+swing 2 actor -5415 2367 -1261 ang EED5
+swing 3 actor -5411 2396 -1208 ang D567
+swing 4 actor -5803 2484 -968 ang 64F8
+swing 5 actor -5803 2484 -968 ang 64F8

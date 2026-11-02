@@ -274,7 +274,7 @@ func (h *Host) walk(now time.Time) error {
 		log.Logf(h.rep, log.Info, "enemy host: %d enemies (%s) in %s room %d", len(cache), h.Kinds, h.scope.Stage, h.scope.Room)
 	}
 	for i := range Kinds {
-		if !h.Kinds.On[i] {
+		if !h.Kinds.On[i] || Kinds[i].NoAnim { // wind#46: a row with no BCK has no table to resolve
 			continue
 		}
 		r := h.Tracker.Res[i]
@@ -517,8 +517,8 @@ func vanishTomb(id KindID) bool { return id == KindBB || id == KindST }
 func (h *Host) wireSlot(e *Enemy, ks *KindSample, now time.Time) Slot {
 	s := ks.Slot
 	s.Kind, s.PKey, s.Handle, s.Aux = e.Kind, e.Ident.PKey, h.HandleOf(e.Ident), ks.Aux
-	if e.Kind == KindCC || e.Kind == KindBB || e.Kind == KindMT {
-		s.SetCcM316Z(ks.TiltZ) // CC m316.z; BB current.angle.z (ReadSampleBB); MT the wiggle +0x468 (ReadSampleMT)
+	if e.Kind == KindCC || e.Kind == KindBB || e.Kind == KindMT || e.Kind == KindOSHIP {
+		s.SetCcM316Z(ks.TiltZ) // CC m316.z; BB current.angle.z (ReadSampleBB); MT the wiggle +0x468 (ReadSampleMT); OSHIP shape.z
 	}
 	if e.Kind == KindCC && ks.CcAtSPrm&addr.CcSPrmSet != 0 {
 		h.engaged[e.Ident] = now

@@ -331,6 +331,10 @@ type Status struct {
 	// Combat is how the kill union stands (M6): the partner's kill bits
 	// held, written into zones and light-shrunk.
 	Combat CombatStatus
+	// Activity is the app's Activity tab, oldest first: what partners
+	// got, opened, defeated and entered (activity.go), at most
+	// ActivityCap entries.
+	Activity []Activity
 	// BossKill is how the boss-dead relay stands (bosskill.go).
 	BossKill BossKillStatus
 	// Refresh is how the stale-actor refresh stands (refresh.go): the
@@ -367,6 +371,8 @@ type Replica struct {
 	label  func(off, bit int) string
 	logf   func(format string, args ...any)
 	now    func() time.Time
+	// act is the app's Activity tab: who got what where (activity.go).
+	act    activityRing
 	guard  *Guard
 	writer *FrameWriter
 
@@ -724,6 +730,7 @@ func (r *Replica) Status() Status {
 		Refresh:  r.refreshStatus(),
 		Salvage:  r.salvageStatus(),
 		Chests:   r.chestStatus(),
+		Activity: r.act.snapshot(),
 	}
 	if r.haveView && r.viewWorld == r.sessionWorld {
 		var h *hearts.Result
@@ -1107,8 +1114,10 @@ func (r *Replica) handle(m wire.Msg, out *outbox) {
 			for i, g := range m.Gains {
 				gs[i] = world.Gain(g)
 			}
+			before := r.view
 			world.Apply(&r.view, gs)
 			r.viewSeq = max(r.viewSeq, m.Seq)
+			r.noteGains(m, &before, gs) // the app's Activity tab (activity.go)
 		}
 	case *wire.Scoped:
 		r.onScoped(m)
@@ -1344,6 +1353,7 @@ func (r *Replica) candidateMsg(o *obs) *wire.World {
 
 func (r *Replica) gainsMsg(gs []world.Gain) *wire.GainsUp {
 	r.batch++
+	r.act.noteSent(gs) // the Activity tab tells its own echo (activity.go)
 	m := &wire.GainsUp{Batch: r.batch, Gains: make([]wire.Gain, len(gs))}
 	for i, g := range gs {
 		m.Gains[i] = wire.Gain(g)

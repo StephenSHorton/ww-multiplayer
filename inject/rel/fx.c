@@ -23,6 +23,15 @@
 //     the ship's mStateFlag (+0x358, d_a_ship.h:313) has
 //     daSFLG_SHOOT_CANNON_e (0x20000, :38; set at d_a_ship.cpp:4035,
 //     cleared at its next execute, :3594): CANNON, then EXPLODE / REMOVE;
+//   - wind#46: on the enemy-sync host with the OSHIP kind on (the enemy
+//     block's role and kind_mask, both Go-written), a warship's
+//     cannonball: a BOMB with exactly the warship's params
+//     (prm_make(STATE_4, TRUE, TRUE) = 0x80030004, d_a_oship.cpp:444) and
+//     scale 2 (:461; the platform cannons, d_a_obj_canon.cpp:242, leave it
+//     1): ECANNON, then EXPLODE / REMOVE. The client's mirrored ships
+//     never fire (paused), so without it their balls are invisible there;
+//     the copies are world-only, and the damage to the client's Link stays
+//     on the remote-Link PHIT relay;
 //   - an arrow is the daArrow_c nocked in mActorKeepEquip (+0x317C): the
 //     frame it left the bow with params 1 (the shot, d_a_player_bow.inc:142)
 //     it is reported once, ARROW with its type (mArrowType +0x601), its
@@ -87,6 +96,7 @@
 #include "mailbox_core.h"
 #include "wwfx.h"
 #include "fx.h"
+#include "wwenemy_kinds.h"     // wind#46: the enemy block's role and kind_mask (ECANNON)
 
 #define FX_W(off)           (*(volatile u32*)(MAILBOX_ADDR + WWFX_OFF + (off)))
 #define FX_AF(a, t, off)    (*(volatile t*)((u8*)(a) + (off)))
@@ -174,6 +184,9 @@ typedef void (*fx_rot_t)(void* m, s16 x, s16 y, s16 z);
 #define BOMB_STATE_LIT       1       // STATE_1: a lit bomb in the world
 #define BOMB_STATE_NEW       3       // STATE_3: fresh from the bag (sets field_0x6F0, :1462-1466)
 #define BOMB_SHIP_CANNON_PRM 0x80020004 // prm_make(STATE_4, FALSE, TRUE)
+#define BOMB_ENEMY_CANNON_PRM 0x80030004 // prm_make(STATE_4, TRUE, TRUE): a warship's (and a platform cannon's)
+#define AC_SCALE             0x214   // cXyz scale: 2 on a warship's ball (d_a_oship.cpp:461)
+#define FX_EB(t, off)        (*(volatile t*)(MAILBOX_ADDR + WWENEMY_OFF + (off)))
 #define BOMB2_STATE_EXPLODE  2       // daBomb2 mode_explode_init (d_a_bomb2.cpp:1088)
 #define ARROW_SHOT_PARAM     1       // d_a_player_bow.inc:142, d_a_arrow.cpp:602
 
@@ -289,7 +302,8 @@ static void fx_emit(u8 kind, u32 id, u32 a, const cXyz* at, u8 variant, s8 room)
         FX_AF(ev, s16, WWFX_EV_ANGLE + 2) = FX_AF(a, s16, AC_CUR_ANGLE + 2);
         FX_AF(ev, s16, WWFX_EV_ANGLE + 4) = FX_AF(a, s16, AC_SHAPE_ANGLE + 4);
         if (kind != WWFX_KIND_ARROW)  // (an arrow has no timer; these are daBomb_c fields)
-            FX_AF(ev, s16, WWFX_EV_TIMER) = kind == WWFX_KIND_CANNON ? FX_AF(a, s16, BOMB_NO_GRAVITY) : fx_fuse(a);
+            FX_AF(ev, s16, WWFX_EV_TIMER) =
+                (kind == WWFX_KIND_CANNON || kind == WWFX_KIND_ECANNON) ? FX_AF(a, s16, BOMB_NO_GRAVITY) : fx_fuse(a);
     }
     FX_W(WWFX_OUT_WRITE_OFF) = w + 1;  // the entry first, then the seq
 }
@@ -342,6 +356,24 @@ void* fx_cannon_judge(void* p, void* data) {
     return p;
 }
 
+// wind#46: fopAcIt_Judge callback for a warship's new cannonball (see the
+// top), not tracked yet.
+void* fx_ecannon_judge(void* p, void* data) {
+    u32 a = (u32)p;
+    (void)data;
+    if (!fx_mem1(a) || FX_AF(a, s16, AC_PROC_NAME) != PROC_BOMB || FX_AF(a, u32, AC_PARAMS) != BOMB_ENEMY_CANNON_PRM ||
+        FX_AF(a, f32, AC_SCALE) != 2.0f || FX_AF(a, s8, AC_INIT_STATE) == 3 || FX_AF(a, s16, BOMB_REST_TIME) == 0 ||
+        fx_track_of(FX_AF(a, u32, AC_PROC_ID)))
+        return 0;
+    return p;
+}
+
+// This game is the enemy-sync host and mirrors warships.
+static int fx_enemy_host(void) {
+    return FX_EB(u32, WWENEMY_MAGIC_OFF) == WWENEMY_MAGIC && FX_EB(u8, WWENEMY_ROLE_OFF) == WWENEMY_ROLE_HOST &&
+           (FX_EB(u32, WWENEMY_KIND_MASK_OFF) & (1u << EMK_KIND_OSHIP)) != 0;
+}
+
 static void fx_track_local(u32 link) {
     u32 grab = FX_AF(link, u32, LK_GRAB_ID);
     u32 equip = FX_AF(link, u32, LK_EQUIP_ID);
@@ -375,6 +407,11 @@ static void fx_track_local(u32 link) {
         u32 ball = (u32)fx_IterJudge(fx_cannon_judge, 0);
         if (fx_mem1(ball) && fx_track_add(FX_AF(ball, u32, AC_PROC_ID), PROC_BOMB, FX_TRACK_FLYING))
             fx_emit(WWFX_KIND_CANNON, FX_AF(ball, u32, AC_PROC_ID), ball, 0, 0, 0);
+    }
+    if (fx_enemy_host()) {
+        u32 ball = (u32)fx_IterJudge(fx_ecannon_judge, 0);   // one new ball a frame: another waits a frame
+        if (fx_mem1(ball) && fx_track_add(FX_AF(ball, u32, AC_PROC_ID), PROC_BOMB, FX_TRACK_FLYING))
+            fx_emit(WWFX_KIND_ECANNON, FX_AF(ball, u32, AC_PROC_ID), ball, 0, 0, 0);
     }
 
     for (i = 0; i < FX_TRACK_MAX; i++) {
@@ -594,15 +631,21 @@ static void fx_apply(const u8* ev) {
         return;
 
     case WWFX_KIND_CANNON:
+    case WWFX_KIND_ECANNON:  // wind#46: a host warship's ball, scale 2 as its own (d_a_oship.cpp:461)
         if (c) return;  // a duplicate
         c = fx_copy_alloc(e.slot, e.id);
-        a = c ? fx_spawn(BOMB_SHIP_CANNON_PRM, &e.pos, &e.angle) : 0;
+        a = c ? fx_spawn(e.kind == WWFX_KIND_CANNON ? BOMB_SHIP_CANNON_PRM : BOMB_ENEMY_CANNON_PRM, &e.pos, &e.angle) : 0;
         if (!a) {
             if (c) c->state = FX_COPY_FREE;
             fx_reject();
             return;
         }
         fx_place(a, &e);  // d_a_ship.cpp:4026-4033: no-gravity frames, speeds, gravity
+        if (e.kind == WWFX_KIND_ECANNON) {
+            FX_AF(a, f32, AC_SCALE + 0) = 2.0f;
+            FX_AF(a, f32, AC_SCALE + 4) = 2.0f;
+            FX_AF(a, f32, AC_SCALE + 8) = 2.0f;
+        }
         FX_AF(a, s16, BOMB_NO_GRAVITY) = fx_clamp(e.timer, 0, FX_MAX_NO_GRAVITY);
         c->pid = FX_AF(a, u32, AC_PROC_ID);
         c->cannon = 1;

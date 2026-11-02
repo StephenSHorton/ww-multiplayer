@@ -35,7 +35,7 @@ const (
 	FxStageLen    = 8
 
 	// FxKindMax is the last event kind (wwfx.h WWFX_KIND_MAX); kinds start at 1.
-	FxKindMax = 6
+	FxKindMax = 7
 	// FxArrowMax is the last arrow type (wwfx.h WWFX_ARROW_MAX).
 	FxArrowMax = 3
 	// FxKindArrow is the arrow event (wwfx.h WWFX_KIND_ARROW): the only

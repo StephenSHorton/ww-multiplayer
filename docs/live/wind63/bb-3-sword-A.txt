@@ -1,0 +1,9 @@
+swing 0 actor 175 3699 -5925 ang E888
+swing 1 actor 175 3718 -5925 ang E888
+swing 2 actor 168 3939 -5698 ang FA88
+swing 3 actor 168 3939 -5698 ang FA88
+   0.2 swing 0: actor 80A8D6C4 at 168 3939 -5698 hp 2
+   1.4 swing 1: actor 80A8D6C4 at 232 3987 -5652 hp 2
+   2.7 swing 2: actor 80A8D6C4 at 128 3998 -5647 hp 2
+   4.0 swing 3: actor 80A8D6C4 at 506 3776 -5775 hp 254
+   5.2 swing 4: actor 80A8D6C4 at 1262 3603 -5738 hp 250

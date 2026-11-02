@@ -1,0 +1,286 @@
+== U1 guard=0 19:06:09
+ 0.36 host atk 0.0 hp 10 | B proc 05 life 80 d 90
+ 0.73 host atk 2.0 hp 10 | B proc 05 life 80 d 98
+ 1.11 host atk 2.0 hp 10 | B proc 05 life 80 d 104
+ 1.48 host atk 2.0 hp 10 | B proc 05 life 80 d 104
+ 1.85 host atk 2.1 hp 10 | B proc 04 life 80 d 104
+ 2.22 host atk 2.1 hp 10 | B proc 04 life 80 d 104
+ 2.59 host atk 2.2 hp 10 | B proc 04 life 80 d 104
+ 2.96 host atk 2.2 hp 10 | B proc 04 life 80 d 104
+ 3.32 host atk 2.2 hp 10 | B proc 04 life 80 d 104
+ 3.68 host atk 2.2 hp 10 | B proc 04 life 80 d 149
+ 4.05 host atk 2.2 hp 10 | B proc 04 life 80 d 174
+ 4.60 host atk 2.2 hp 10 | B proc 04 life 80 d 119
+ 4.96 host atk 2.0 hp 10 | B proc 04 life 80 d 119
+ 5.33 host atk 2.0 hp 10 | B proc 04 life 80 d 119
+ 5.69 host atk 2.1 hp 10 | B proc 04 life 80 d 119
+ 6.07 host atk 2.1 hp 10 | B proc 68 life 76 d 225
+ 6.44 host atk 2.2 hp 10 | B proc 69 life 76 d 906
+ 6.81 host atk 2.2 hp 10 | B proc 69 life 76 d 906
+ 7.18 host atk 2.2 hp 10 | B proc 69 life 76 d 906
+ 7.53 host atk 2.2 hp 10 | B proc 69 life 76 d 906
+ 7.89 host atk 2.2 hp 10 | B proc 69 life 76 d 906
+ 8.24 host atk 2.2 hp 10 | B proc 69 life 76 d 906
+ 8.60 host atk 2.2 hp 10 | B proc 04 life 76 d 906
+ 9.18 host atk 2.2 hp 10 | B proc 04 life 76 d 119
+ 9.53 host atk 2.0 hp 10 | B proc 04 life 76 d 119
+ 9.89 host atk 2.0 hp 10 | B proc 04 life 76 d 119
+10.25 host atk 2.0 hp 10 | B proc 04 life 76 d 119
+10.61 host atk 2.1 hp 10 | B proc 68 life 72 d 119
+10.97 host atk 2.2 hp 10 | B proc 69 life 72 d 907
+11.34 host atk 2.2 hp 10 | B proc 69 life 72 d 907
+11.69 host atk 2.2 hp 10 | B proc 69 life 72 d 907
+12.04 host atk 2.2 hp 10 | B proc 69 life 72 d 907
+12.40 host atk 2.2 hp 10 | B proc 69 life 72 d 907
+12.76 host atk 2.2 hp 10 | B proc 69 life 72 d 907
+13.12 host atk 2.2 hp 10 | B proc 04 life 72 d 907
+13.67 host atk 2.2 hp 10 | B proc 04 life 72 d 121
+14.03 host atk 2.2 hp 10 | B proc 04 life 72 d 175
+14.39 host atk 2.2 hp 10 | B proc 04 life 72 d 185
+14.74 host atk 2.2 hp 10 | B proc 04 life 72 d 185
+15.10 host atk 2.0 hp 10 | B proc 04 life 72 d 184
+15.46 host atk 2.0 hp 10 | B proc 04 life 72 d 184
+15.83 host atk 2.0 hp 10 | B proc 04 life 72 d 184
+16.19 host atk 2.1 hp 10 | B proc 68 life 68 d 184
+16.56 host atk 2.2 hp 10 | B proc 6A life 68 d 792
+16.93 host atk 2.2 hp 10 | B proc 69 life 68 d 781
+17.31 host atk 2.2 hp 10 | B proc 69 life 68 d 781
+17.66 host atk 2.2 hp 10 | B proc 69 life 68 d 781
+18.20 host atk 2.2 hp 10 | B proc 69 life 68 d 120
+18.56 host atk 2.2 hp 10 | B proc 69 life 68 d 120
+18.92 host atk 2.0 hp 10 | B proc 04 life 68 d 119
+19.29 host atk 2.0 hp 10 | B proc 04 life 68 d 119
+19.65 host atk 2.0 hp 10 | B proc 04 life 68 d 119
+20.01 host atk 2.1 hp 10 | B proc 04 life 68 d 119
+20.36 host atk 2.1 hp 10 | B proc 68 life 64 d 448
+20.71 host atk 2.2 hp 10 | B proc 69 life 64 d 748
+21.07 host atk 2.2 hp 10 | B proc 69 life 64 d 748
+21.44 host atk 2.2 hp 10 | B proc 69 life 64 d 748
+21.81 host atk 2.2 hp 10 | B proc 69 life 64 d 748
+22.17 host atk 2.2 hp 10 | B proc 69 life 64 d 748
+22.72 host atk 2.2 hp 10 | B proc 04 life 64 d 119
+23.08 host atk 2.0 hp 10 | B proc 04 life 64 d 119
+23.44 host atk 2.0 hp 10 | B proc 04 life 64 d 119
+23.81 host atk 2.0 hp 10 | B proc 04 life 64 d 119
+24.18 host atk 2.1 hp 10 | B proc 68 life 60 d 119
+24.54 host atk 2.2 hp 10 | B proc 68 life 60 d 808
+24.91 host atk 2.2 hp 10 | B proc 69 life 60 d 748
+[enemy-A] enemy remote: PACK client 2 seq 44 applied/none life 80 -4 frame 49778
+[enemy-A] enemy remote: PACK client 2 seq 45 applied/none life 76 -4 frame 49916
+[enemy-A] enemy remote: PACK client 2 seq 46 applied/none life 72 -4 frame 50085
+[enemy-A] enemy remote: PACK client 2 seq 47 applied/none life 68 -4 frame 50204
+[enemy-A] enemy remote: PACK client 2 seq 48 applied/none life 64 -4 frame 50323
+== G1 guard=1 19:06:38
+ 1.76 host atk 2.1 hp 8 | B proc 69 life 76 d 60
+ 2.11 host atk 2.1 hp 8 | B proc 69 life 76 d 109
+ 2.46 host atk 2.1 hp 8 | B proc 69 life 76 d 158
+ 2.82 host atk 2.1 hp 8 | B proc 69 life 76 d 253
+ 3.16 host atk 2.1 hp 8 | B proc 0E life 76 d 253
+ 3.53 host atk 2.1 hp 8 | B proc 0E life 76 d 253
+ 3.89 host atk 5.1 hp 8 | B proc 0E life 76 d 165
+ 4.25 host atk 5.2 hp 8 | B proc 0E life 76 d 89
+ 6.24 host atk 5.2 hp 8 | B proc 25 life 76 d 65
+ 6.59 host atk 5.2 hp 8 | B proc 0C life 76 d 93
+ 6.96 host atk 5.2 hp 8 | B proc 0C life 76 d 96
+ 7.31 host atk 5.2 hp 8 | B proc 0C life 76 d 315
+ 7.67 host atk 5.2 hp 8 | B proc 69 life 74 d 524
+ 8.02 host atk 5.2 hp 8 | B proc 69 life 74 d 533
+ 8.37 host atk 5.2 hp 8 | B proc 69 life 74 d 533
+ 8.73 host atk 2.1 hp 8 | B proc 69 life 74 d 533
+ 9.41 host atk 2.2 hp 8 | B proc 69 life 74 d 120
+ 9.76 host atk 2.2 hp 8 | B proc 0C life 74 d 120
+10.12 host atk 2.2 hp 8 | B proc 0C life 74 d 120
+10.45 host atk 2.0 hp 8 | B proc 0C life 74 d 120
+10.82 host atk 2.0 hp 8 | B proc 0C life 74 d 120
+11.14 host atk 2.0 hp 8 | B proc 0C life 74 d 120
+11.48 host atk 2.1 hp 8 | B proc 0C life 74 d 120
+11.83 host atk 2.1 hp 8 | B proc 68 life 70 d 449
+12.17 host atk 2.0 hp 8 | B proc 69 life 70 d 922
+12.53 host atk 2.0 hp 8 | B proc 69 life 70 d 922
+12.88 host atk 2.0 hp 8 | B proc 69 life 70 d 922
+13.25 host atk 2.0 hp 8 | B proc 69 life 70 d 922
+13.91 host atk 2.0 hp 8 | B proc 0C life 70 d 120
+14.26 host atk 3.0 hp 8 | B proc 0C life 70 d 74
+14.61 host atk 3.1 hp 8 | B proc 0C life 70 d 105
+14.94 host atk 3.2 hp 8 | B proc 0C life 70 d 116
+15.30 host atk 1.0 hp 8 | B proc 0C life 70 d 116
+15.63 host atk 1.0 hp 8 | B proc 0C life 70 d 116
+15.99 host atk 1.1 hp 8 | B proc 0C life 70 d 116
+16.34 host atk 1.0 hp 8 | B proc 0C life 70 d 116
+16.69 host atk 1.0 hp 8 | B proc 0C life 70 d 116
+17.07 host atk 1.0 hp 8 | B proc 0C life 70 d 121
+17.43 host atk 1.0 hp 8 | B proc 0C life 70 d 176
+17.79 host atk 1.0 hp 8 | B proc 0C life 70 d 186
+18.48 host atk 3.1 hp 8 | B proc 0C life 70 d 56
+18.83 host atk 3.2 hp 8 | B proc 0D life 70 d 108
+19.21 host atk 1.0 hp 8 | B proc 0C life 70 d 124
+19.56 host atk 1.0 hp 8 | B proc 0C life 70 d 124
+19.93 host atk 1.0 hp 8 | B proc 0C life 70 d 124
+20.29 host atk 1.0 hp 8 | B proc 68 life 68 d 224
+20.65 host atk 1.0 hp 8 | B proc 69 life 68 d 299
+21.01 host atk 1.0 hp 8 | B proc 69 life 68 d 299
+21.37 host atk 1.0 hp 8 | B proc 69 life 68 d 334
+21.78 host atk 1.0 hp 8 | B proc 0C life 68 d 394
+22.14 host atk 2.0 hp 8 | B proc 0C life 68 d 394
+22.80 host atk 2.0 hp 8 | B proc 0C life 68 d 120
+23.16 host atk 2.1 hp 8 | B proc 68 life 64 d 120
+23.51 host atk 2.1 hp 8 | B proc 69 life 64 d 763
+23.87 host atk 2.0 hp 8 | B proc 69 life 64 d 907
+24.22 host atk 2.0 hp 8 | B proc 69 life 64 d 907
+24.57 host atk 2.0 hp 8 | B proc 69 life 64 d 907
+24.94 host atk 2.0 hp 8 | B proc 69 life 64 d 907
+[enemy-A] enemy remote: PACK client 2 seq 49 applied/none life 80 -4 frame 50491
+[enemy-A] enemy remote: PACK client 2 seq 50 applied/none life 76 -2 frame 50700
+[enemy-A] enemy remote: PACK client 2 seq 51 applied/none life 74 -4 frame 50826
+[enemy-A] enemy remote: PACK client 2 seq 52 no_cross/none life 70 +0 frame 50958
+[enemy-A] enemy remote: PACK client 2 seq 53 guarded/none life 70 +0 frame 51038
+[enemy-A] enemy remote: PACK client 2 seq 54 applied/none life 70 -2 frame 51080
+[enemy-A] enemy remote: PACK client 2 seq 55 applied/none life 68 -4 frame 51171
+== U2 guard=0 19:07:08
+ 0.36 host atk 2.2 hp 8 | B proc 69 life 80 d 120
+ 0.73 host atk 2.2 hp 8 | B proc 69 life 80 d 120
+ 1.09 host atk 2.2 hp 8 | B proc 69 life 80 d 120
+ 1.46 host atk 2.2 hp 8 | B proc 69 life 80 d 165
+ 1.82 host atk 2.2 hp 8 | B proc 69 life 80 d 195
+ 2.19 host atk 2.2 hp 8 | B proc 04 life 80 d 195
+ 2.54 host atk 2.2 hp 8 | B proc 04 life 80 d 216
+ 2.89 host atk 2.2 hp 8 | B proc 04 life 80 d 256
+ 3.25 host atk 2.2 hp 8 | B proc 04 life 80 d 256
+ 3.61 host atk 2.2 hp 8 | B proc 04 life 80 d 267
+ 3.96 host atk 2.2 hp 8 | B proc 04 life 80 d 317
+ 4.32 host atk 2.2 hp 8 | B proc 04 life 80 d 372
+ 4.87 host atk 2.2 hp 8 | B proc 04 life 80 d 75
+ 5.22 host atk 2.2 hp 8 | B proc 04 life 80 d 60
+ 5.58 host atk 2.2 hp 8 | B proc 04 life 80 d 97
+ 5.95 host atk 2.2 hp 8 | B proc 04 life 80 d 107
+ 6.34 host atk 2.2 hp 8 | B proc 04 life 80 d 154
+ 6.70 host atk 2.2 hp 8 | B proc 04 life 80 d 174
+ 7.05 host atk 2.2 hp 8 | B proc 04 life 80 d 174
+ 7.40 host atk 2.2 hp 8 | B proc 04 life 80 d 205
+ 7.76 host atk 2.2 hp 8 | B proc 04 life 80 d 240
+ 8.13 host atk 2.2 hp 8 | B proc 04 life 80 d 240
+ 8.48 host atk 2.2 hp 8 | B proc 04 life 80 d 256
+ 8.83 host atk 2.2 hp 8 | B proc 04 life 80 d 301
+ 9.37 host atk 2.2 hp 8 | B proc 04 life 80 d 120
+ 9.72 host atk 2.2 hp 8 | B proc 04 life 80 d 151
+10.07 host atk 2.2 hp 8 | B proc 04 life 80 d 181
+10.45 host atk 2.2 hp 8 | B proc 04 life 80 d 181
+10.81 host atk 2.2 hp 8 | B proc 04 life 80 d 207
+11.17 host atk 2.2 hp 8 | B proc 04 life 80 d 247
+11.53 host atk 2.2 hp 8 | B proc 66 life 79 d 287
+11.88 host atk 2.2 hp 8 | B proc 66 life 79 d 239
+12.24 host atk 2.2 hp 8 | B proc 04 life 79 d 292
+12.59 host atk 2.2 hp 8 | B proc 04 life 79 d 342
+12.94 host atk 2.2 hp 8 | B proc 04 life 79 d 397
+13.30 host atk 2.2 hp 8 | B proc 04 life 79 d 452
+13.87 host atk 1.0 hp 8 | B proc 04 life 79 d 151
+14.21 host atk 1.0 hp 8 | B proc 04 life 79 d 151
+14.54 host atk 1.0 hp 8 | B proc 04 life 79 d 151
+14.89 host atk 1.2 hp 8 | B proc 04 life 79 d 151
+15.24 host atk 1.2 hp 8 | B proc 04 life 79 d 151
+15.60 host atk 1.2 hp 8 | B proc 04 life 79 d 151
+15.96 host atk 1.2 hp 8 | B proc 04 life 79 d 151
+16.31 host atk 2.0 hp 8 | B proc 04 life 79 d 151
+16.66 host atk 2.0 hp 8 | B proc 04 life 79 d 151
+17.02 host atk 2.0 hp 8 | B proc 04 life 79 d 151
+17.36 host atk 2.1 hp 8 | B proc 04 life 79 d 151
+17.70 host atk 2.1 hp 8 | B proc 68 life 75 d 318
+18.23 host atk 2.2 hp 8 | B proc 69 life 75 d 120
+18.58 host atk 2.2 hp 8 | B proc 69 life 75 d 120
+18.93 host atk 2.2 hp 8 | B proc 69 life 75 d 120
+19.25 host atk 2.2 hp 8 | B proc 69 life 75 d 217
+19.58 host atk 2.2 hp 8 | B proc 69 life 75 d 274
+19.90 host atk 2.2 hp 8 | B proc 69 life 75 d 274
+20.23 host atk 2.2 hp 8 | B proc 04 life 75 d 273
+20.58 host atk 2.0 hp 8 | B proc 04 life 75 d 273
+20.91 host atk 2.0 hp 8 | B proc 04 life 75 d 273
+21.24 host atk 2.0 hp 8 | B proc 04 life 75 d 273
+21.58 host atk 2.1 hp 8 | B proc 68 life 71 d 273
+21.94 host atk 2.1 hp 8 | B proc 69 life 71 d 774
+22.49 host atk 2.2 hp 8 | B proc 69 life 71 d 120
+22.84 host atk 2.2 hp 8 | B proc 69 life 71 d 120
+23.19 host atk 2.2 hp 6 | B proc 69 life 71 d 120
+23.55 host atk 1.0 hp 6 | B proc 69 life 71 d 298
+23.90 host atk 1.0 hp 6 | B proc 69 life 71 d 491
+24.25 host atk 1.0 hp 6 | B proc 04 life 71 d 629
+24.61 host atk 1.0 hp 6 | B proc 04 life 71 d 629
+24.95 host atk 1.0 hp 6 | B proc 04 life 71 d 629
+[enemy-A] enemy remote: PACK client 2 seq 57 applied/none life 80 -1 frame 51701
+[enemy-A] enemy remote: PACK client 2 seq 58 no_cross/none life 79 +0 frame 51799
+[enemy-A] enemy remote: PACK client 2 seq 59 applied/none life 79 -4 frame 51882
+[enemy-A] enemy remote: PACK client 2 seq 60 applied/none life 75 -4 frame 52004
+== G2 guard=1 19:07:37
+ 0.46 host atk 2.0 hp 6 | B proc 0C life 80 d 43
+ 0.83 host atk 2.0 hp 6 | B proc 0C life 80 d 100
+ 1.19 host atk 2.0 hp 6 | B proc 0D life 80 d 134
+ 1.54 host atk 2.0 hp 6 | B proc 0C life 80 d 149
+ 1.89 host atk 2.0 hp 6 | B proc 0C life 80 d 149
+ 2.26 host atk 2.0 hp 6 | B proc 0C life 80 d 149
+ 2.62 host atk 3.0 hp 6 | B proc 0C life 80 d 95
+ 2.98 host atk 3.1 hp 4 | B proc 0C life 80 d 241
+ 3.33 host atk 3.1 hp 4 | B proc 0C life 80 d 413
+ 3.66 host atk 3.1 hp 4 | B proc 0C life 80 d 545
+ 3.98 host atk 3.1 hp 4 | B proc 0C life 80 d 559
+ 4.33 host atk 3.1 hp 4 | B proc 0D life 80 d 532
+ 5.00 host atk 3.1 hp 4 | B proc 0C life 80 d 57
+ 5.35 host atk 3.1 hp 4 | B proc 0C life 80 d 107
+ 5.71 host atk 3.1 hp 4 | B proc 0C life 80 d 109
+ 6.08 host atk 5.1 hp 4 | B proc 0C life 80 d 11
+ 6.43 host atk 5.2 hp 4 | B proc 0C life 80 d 81
+ 6.79 host atk 5.2 hp 4 | B proc 0C life 80 d 102
+ 7.13 host atk 5.2 hp 4 | B proc 0C life 80 d 103
+ 7.49 host atk 4.0 hp 4 | B proc 0C life 80 d 103
+ 7.83 host atk 4.0 hp 4 | B proc 0C life 80 d 128
+ 8.18 host atk 4.0 hp 4 | B proc 0D life 80 d 183
+ 8.52 host atk 4.0 hp 4 | B proc 0C life 80 d 216
+ 8.84 host atk 4.0 hp 4 | B proc 0C life 80 d 226
+ 9.48 host atk 4.0 hp 4 | B proc 0C life 80 d 120
+ 9.80 host atk 4.0 hp 4 | B proc 0C life 80 d 120
+10.14 host atk 4.0 hp 4 | B proc 0C life 80 d 170
+10.47 host atk 4.0 hp 4 | B proc 0C life 80 d 190
+10.80 host atk 4.0 hp 4 | B proc 0C life 80 d 190
+11.12 host atk 4.0 hp 4 | B proc 0C life 80 d 234
+11.46 host atk 4.0 hp 4 | B proc 0C life 80 d 234
+11.82 host atk 4.0 hp 4 | B proc 0C life 80 d 234
+12.18 host atk 2.1 hp 4 | B proc 0C life 80 d 234
+12.54 host atk 2.1 hp 4 | B proc 0D life 80 d 325
+12.88 host atk 2.0 hp 4 | B proc 0C life 80 d 411
+13.25 host atk 2.0 hp 4 | B proc 0C life 80 d 411
+13.92 host atk 2.0 hp 4 | B proc 0C life 80 d 140
+14.26 host atk 2.0 hp 2 | B proc 68 life 76 d 42
+14.61 host atk 2.0 hp 2 | B proc 69 life 76 d 173
+14.97 host atk 2.0 hp 2 | B proc 69 life 76 d 173
+15.31 host atk 2.0 hp 2 | B proc 69 life 76 d 173
+15.66 host atk 2.0 hp 2 | B proc 69 life 76 d 173
+16.02 host atk 2.0 hp 2 | B proc 69 life 76 d 173
+16.38 host atk 2.0 hp 2 | B proc 0C life 76 d 102
+16.74 host atk 2.0 hp 2 | B proc 0C life 76 d 102
+17.09 host atk 2.0 hp 2 | B proc 0C life 76 d 102
+17.45 host atk 5.1 hp 2 | B proc 0C life 76 d 75
+17.84 host atk 5.2 hp 2 | B proc 0C life 76 d 65
+18.63 host atk 5.2 hp 2 | B proc 0C life 76 d 110
+18.99 host atk 4.0 hp 2 | B proc 0C life 76 d 110
+19.34 host atk 4.0 hp 2 | B proc 0C life 76 d 110
+19.70 host atk 4.0 hp 2 | B proc 0C life 76 d 110
+20.06 host atk 4.0 hp 2 | B proc 66 life 75 d 104
+20.42 host atk 4.0 hp 2 | B proc 0C life 75 d 111
+20.79 host atk 4.0 hp 2 | B proc 0C life 75 d 111
+21.15 host atk 2.1 hp 2 | B proc 0C life 75 d 111
+21.51 host atk 2.1 hp 2 | B proc 0C life 75 d 111
+21.87 host atk 2.2 hp 2 | B proc 0C life 75 d 111
+22.24 host atk 2.2 hp 2 | B proc 0C life 75 d 111
+22.86 host atk 2.2 hp 2 | B proc 0C life 75 d 118
+23.21 host atk 2.2 hp 2 | B proc 0C life 75 d 118
+23.58 host atk 2.2 hp 2 | B proc 0C life 75 d 124
+23.93 host atk 2.2 hp 2 | B proc 0C life 75 d 174
+24.29 host atk 2.2 hp 2 | B proc 0C life 75 d 174
+24.63 host atk 2.2 hp 2 | B proc 0C life 75 d 158
+24.98 host atk 3.1 hp 2 | B proc 0D life 75 d 110
+[enemy-A] enemy remote: PACK client 2 seq 62 guarded/none life 80 +0 frame 52269
+[enemy-A] enemy remote: PACK client 2 seq 63 no_cross/none life 80 +0 frame 52316
+[enemy-A] enemy remote: PACK client 2 seq 64 guarded/none life 80 +0 frame 52358
+[enemy-A] enemy remote: PACK client 2 seq 65 guarded/none life 80 +0 frame 52478
+[enemy-A] enemy remote: PACK client 2 seq 66 guarded/none life 80 +0 frame 52604
+[enemy-A] enemy remote: PACK client 2 seq 67 applied/none life 80 -4 frame 52654
+[enemy-A] enemy remote: PACK client 2 seq 68 applied/none life 76 -1 frame 52829
+[enemy-A] enemy remote: PACK client 2 seq 69 guarded/none life 75 +0 frame 52982

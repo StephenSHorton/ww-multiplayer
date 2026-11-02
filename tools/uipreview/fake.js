@@ -4,7 +4,8 @@
 // lobby.go, setup.go, mods.go, update.go, lan.go); the values are made up.
 // Scenarios: home, home-update, home-empty, setup, setup-game,
 // setup-dolphin, mods, lobby-host, lobby-join, ingame, ingame-host,
-// reconnecting, dialog, ended. ?theme=dark|light sets the theme.
+// reconnecting, dialog, ended, ingame-ended (in game with co-op, then
+// ended: the recap). ?theme=dark|light sets the theme.
 // Variants (main_test.go's DOM checks use them):
 //
 //	&legacy=1        a pre-lobby host: a legacy lobby, no members, players
@@ -110,6 +111,7 @@
 		{ id: "0b88e1f05a7c3d29", seq: 37, created: "2026-10-12 18:40", inUse: false, stale: true, text: "" },
 	];
 
+	const t0 = Date.now(); // the Activity entries' clock
 	const host = S === "lobby-host" || S === "ingame-host";
 	const playing = S.startsWith("ingame") || S === "reconnecting";
 	const phase = playing ? "in game" : "lobby";
@@ -219,6 +221,16 @@
 					{ dungeon: "TotG", name: "Tower of the Gods", on: false, why: "no key table for it", seen: false, have: 0, taken: 0, sources: 0, open: 0, doors: 0, target: 0, pending: false },
 				],
 				life: true, lifeWhy: "", room: noRoom ? null : room,
+				// The Activity tab (wind#57): what partners got, opened,
+				// defeated and entered, oldest first.
+				activity: [
+					{ id: 1, at: t0 - 540000, who: "Blake", kind: "place", text: "Blake entered Dragon Roost Cavern" },
+					{ id: 2, at: t0 - 420000, who: "Blake", kind: "chest", text: "Blake opened a chest in Dragon Roost Cavern" },
+					{ id: 3, at: t0 - 300000, who: "Blake", kind: "dungeon", text: "Blake got the Dungeon Map in Dragon Roost Cavern" },
+					{ id: 4, at: t0 - 180000, who: "Blake", kind: "item", text: "Blake got the grappling hook in Dragon Roost Cavern" },
+					{ id: 5, at: t0 - 60000, who: "Blake", kind: "boss", text: "Blake defeated the boss in Dragon Roost Cavern" },
+					{ id: 6, at: t0 - 30000, who: "Blake", kind: "item", text: "Blake got Din's Pearl in Dragon Roost Cavern" },
+				],
 			}],
 			hub: S === "ingame-host" ? {
 				world: "7f3a91c2", seq: 412, features: "image|puzzle|combat|switches|story|inventory|keys|life|magic", merge: false,
@@ -246,6 +258,16 @@
 		coop.panel.rules.rows.find((r) => r.id === "merge").on = merge;
 	}
 
+	const SEA_NAMES = [
+		["Forsaken Fortress", "Star Island", "Northern Fairy Island", "Gale Isle", "Crescent Moon Island", "Seven-Star Isles", "Overlook Island"],
+		["Four-Eye Reef", "Mother and Child Isles", "Spectacle Island", "Windfall Island", "Pawprint Isle", "Dragon Roost Island", "Flight Control Platform"],
+		["Western Fairy Island", "Rock Spire Isle", "Tingle Island", "Northern Triangle Island", "Eastern Fairy Island", "Fire Mountain", "Star Belt Archipelago"],
+		["Three-Eye Reef", "Greatfish Isle", "Cyclops Reef", "Six-Eye Reef", "Tower of the Gods", "Eastern Triangle Island", "Thorned Fairy Island"],
+		["Needle Rock Isle", "Islet of Steel", "Stone Watcher Island", "Southern Triangle Island", "Private Oasis", "Bomb Island", "Bird's Peak Rock"],
+		["Diamond Steppe Island", "Five-Eye Reef", "Shark Island", "Southern Fairy Island", "Ice Ring Isle", "Forest Haven", "Cliff Plateau Isles"],
+		["Horseshoe Island", "Outset Island", "Headstone Island", "Two-Eye Reef", "Angular Isles", "Boating Course", "Five-Star Isles"],
+	];
+
 	function state() {
 		if (S.startsWith("home") || S.startsWith("setup") || S === "mods" || S === "settings") {
 			return { session: 0, phase: "idle", running: false, role: "", name: "", addr: "", addrMasked: "", endReason: "", failed: false, lobby: null, players: [], playerCount: 0, hostAddrs: [], latencyMs: 0, dialog: null, banner: null, showIPs: false, dolphin: { state: "" }, map: null, color: "", startDolphinMyself: false, coop: null };
@@ -265,7 +287,18 @@
 			banner: S === "reconnecting" ? { kind: "reconnecting", title: "Reconnecting to the host…", text: "Your game keeps running; the others come back once the link does.", attempts: 3 } : null,
 			showIPs: false,
 			dolphin: playing ? { state: "in_game", label: "In game", pid: 4120, launched: true, manual: false, pipelines: true } : { state: "" },
-			map: playing ? { selfOk: true, color: "#2C5CE0", units: 1500, players: [{ name: host ? "Blake" : "Blake", color: "#F08C1E", dx: 120, dz: -60 }, { name: "Sam", color: "#3C9A2E", dx: -2600, dz: 4100 }] } : null,
+			// The sea chart (game.go mapView): you sailing off Outset, Blake
+			// beside you, Sam in Dragon Roost Cavern (pinned to the island),
+			// Lin in a stage the chart doesn't know.
+			map: playing ? {
+				selfOk: true, color: "#2C5CE0", chartRev: 1,
+				self: { name: "You", x: -197800, z: 316200, drawn: true, pinned: false, square: "G2", island: "Outset Island", where: "" },
+				players: [
+					{ name: "Blake", color: "#F08C1E", x: -191500, z: 309800, drawn: true, pinned: false, square: "G2", island: "Outset Island", where: "" },
+					{ name: "Sam", color: "#3C9A2E", x: 212300, z: -195500, drawn: true, pinned: true, square: "B6", island: "Dragon Roost Island", where: "Dragon Roost Cavern" },
+					{ name: "Lin", color: "#C03CC0", x: 0, z: 0, drawn: false, pinned: false, square: "", island: "", where: "Xyzzy" },
+				],
+			} : null,
 			color: "#2C5CE0", startDolphinMyself: false, coop,
 		};
 	}
@@ -276,7 +309,16 @@
 		DetectDolphin: () => dolphinView, UserDirFor: () => dolphinView.userDir,
 		Mods: () => mods, UpdateStatus: () => update, CheckUpdate: () => update,
 		LanSessions: () => lan, ShareAddrs: () => share, CoopWorlds: () => worlds,
-		CoopStatusText: () => "co-op: Stephen: bound", SendChat: (t) => ({ kind: "chat", from: "Stephen", text: t }),
+		CoopStatusText: () => "co-op: Stephen: bound",
+		// The sea chart's island art: none in the repo (it is the player's
+		// disc's); uipreview -chart serves a local cache at /__seachart.json.
+		SeaChart: async () => {
+			try {
+				const r = await fetch("/__seachart.json");
+				if (r.ok) return await r.json();
+			} catch { /* no local chart */ }
+			return { rev: 1, islands: [], tileUnits: 20000, squareUnits: 100000, names: SEA_NAMES };
+		}, SendChat: (t) => ({ kind: "chat", from: "Stephen", text: t }),
 		CheckColor: (t) => ({ hex: t.toUpperCase(), name: "" }),
 		// The hub applies each call as it lands: with &slow=1 the first one
 		// lands last, as two bridge calls on their way at once may.
@@ -311,7 +353,7 @@
 	// "ended": the session ends a moment after the page first reads it.
 	let endArmed = false;
 	const armEnd = () => {
-		if (S !== "ended" || endArmed) return;
+		if ((S !== "ended" && S !== "ingame-ended") || endArmed) return;
 		endArmed = true;
 		setTimeout(() => { isOver = true; for (const fn of listeners) fn({ kind: "ended", session: 1 }); }, 600);
 	};

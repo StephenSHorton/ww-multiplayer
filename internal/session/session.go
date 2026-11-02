@@ -80,6 +80,18 @@ type Player struct {
 	// when HasColor is. A UI shows it as a swatch by the name.
 	Color    texture.Color
 	HasColor bool
+	// Place is where the player's game is (the place trailer of its
+	// positions, relay scoping's), set when HasPlace is: it is fresh.
+	Place    Place
+	HasPlace bool
+}
+
+// Place is where a game is: its stage (mCurStage.mName: "sea",
+// "M_NewD2"), its room and whether it is in play.
+type Place struct {
+	Stage  string
+	Room   int
+	InPlay bool
 }
 
 // Live is the engine's view of the running session: the values the status
@@ -95,6 +107,10 @@ type Live struct {
 	// until the first broadcast-pose tick has read it.
 	LocalX, LocalY, LocalZ float32
 	LocalOK                bool
+	// LocalPlace is this player's own place, set when LocalHasPlace is
+	// (it comes back from the server on the player's own positions).
+	LocalPlace    Place
+	LocalHasPlace bool
 
 	// CoopStatus is each co-op pipeline's status, as /status reports it; nil
 	// without co-op.

@@ -18,7 +18,7 @@ import (
 // and death switch are the design's.
 func TestKindsST(t *testing.T) {
 	st := KindST.Row()
-	if st == nil || KindOf(addr.ProcST) != KindST || KindST.String() != "st" || int(KindST) != len(Kinds)-1 {
+	if st == nil || KindOf(addr.ProcST) != KindST || KindST.String() != "st" || int(KindST) != len(Kinds)-2 {
 		t.Fatalf("row %+v", st)
 	}
 	if st.Arc != "St" || st.BckFirst != 0x04 || st.BckLast != 0x35 || st.BckWait != 0x33 || st.MorfOff != 0x2BC || st.IceOff != 0x1FA8 ||

@@ -40,6 +40,8 @@ const maxCallBody = 64 << 10
 var browserMethods = map[string]bool{
 	"Info": true, "State": true, "Host": true, "Join": true, "Leave": true,
 	"SetColor": true, "SetReady": true, "SendChat": true,
+	// The Session screen's sea chart: the island art (wind#51).
+	"SeaChart": true,
 	// The first-run setup (App PR 6).
 	"Setup": true, "SaveProfile": true, "CheckColor": true,
 	"StartPatch": true, "CancelPatch": true, "PatchStatus": true,

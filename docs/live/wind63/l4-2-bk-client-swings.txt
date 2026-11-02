@@ -1,0 +1,6 @@
+   0.2 swing 0: actor 80A9B530 at -1275 -0 5300 hp 5
+   1.8 swing 1: actor 80A9B530 at -1275 -0 5300 hp 5
+   3.0 swing 2: actor 80A9B530 at -1293 -0 5180 hp 5
+   4.2 swing 3: actor 80A9B530 at -1292 0 5174 hp 5
+   5.5 swing 4: actor 80A9B530 at -1187 94 5361 hp 5
+   6.7 swing 5: actor 80A9B530 at -1166 -4 5460 hp 5

@@ -167,6 +167,7 @@ func remoteViews(c *network.Client, selfName string) []session.Player {
 		return nil
 	}
 	remotes := c.GetRemotePlayers() // deep copy under the client's RLock
+	now := time.Now()
 	out := make([]session.Player, 0, len(remotes))
 	for _, rp := range remotes {
 		if selfName != "" && rp.Name == selfName {
@@ -176,6 +177,7 @@ func remoteViews(c *network.Client, selfName string) []session.Player {
 		if rp.Position != nil {
 			pv.X, pv.Y, pv.Z = rp.Position.PosX, rp.Position.PosY, rp.Position.PosZ
 		}
+		pv.Place, pv.HasPlace = freshPlace(rp, now)
 		out = append(out, pv)
 	}
 	return out
@@ -190,6 +192,37 @@ func remoteViews(c *network.Client, selfName string) []session.Player {
 // broadcast connection carries the real pose, which PR-C's minimap needs — else
 // the first seen is kept. Input order is otherwise preserved. Pure: no shared
 // state, safe to unit-test with canned input.
+// freshPlace is rp's place when its positions carry one (relay scoping's
+// trailer) and the last came within network.PlaceStale.
+func freshPlace(rp network.RemotePlayer, now time.Time) (session.Place, bool) {
+	if !rp.HasPlace || now.Sub(rp.PlaceAt) > network.PlaceStale {
+		return session.Place{}, false
+	}
+	return session.Place{Stage: rp.Place.Stage, Room: int(rp.Place.Room), InPlay: rp.Place.InPlay}, true
+}
+
+// LocalPlace is this player's own place: the server relays every position
+// to every other connection, so the puppet-sync client hears its own
+// broadcaster's (the self-named twin remoteViews leaves out). ok is false
+// without a fresh one.
+func (ls *LiveState) LocalPlace() (session.Place, bool) {
+	ls.mu.Lock()
+	c, self := ls.client, ls.selfName
+	ls.mu.Unlock()
+	if c == nil || self == "" {
+		return session.Place{}, false
+	}
+	now := time.Now()
+	for _, rp := range c.GetRemotePlayers() {
+		if rp.Name == self {
+			if p, ok := freshPlace(rp, now); ok {
+				return p, true
+			}
+		}
+	}
+	return session.Place{}, false
+}
+
 func dedupePlayersByName(in []session.Player) []session.Player {
 	if len(in) == 0 {
 		return nil

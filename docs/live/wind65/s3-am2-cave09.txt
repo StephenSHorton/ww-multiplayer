@@ -1,0 +1,10 @@
+== Cave09 0 7 (unkeyed am2, params 0xFFFF14FF), every kind on
+both list 4 am2, goldens equal (pkeys 0x3BB8E67A 0x58897131 0x6D62302A 0xD7EDB557); B adopted 1111 (u6D62302A u58897131 u3BB8E67A uD7EDB557)
+host am2 awake (mode 4/5, chasing); B's copies paused mirror (B reads its own mode 2/1)
+B behind.py on copies 0x80AB5268 (55 u) and 0x80AB17A4 (60 u): the first put Link into the wall, the second was knocked away; no hit crossed. The host's Armos hit B's remote body:
+[enemy-A] enemy remote: PACK client 2 seq 16 applied/none life 41 -1 frame 12871
+[enemy-A] enemy remote: PACK client 2 seq 17 applied/none life 40 -1 frame 12985
+[enemy-A] enemy remote: PACK client 2 seq 18 applied/none life 39 -1 frame 13100
+[enemy-A] enemy remote: PACK client 2 seq 19 applied/none life 38 -1 frame 13201
+[enemy-A] enemy remote: PACK client 2 seq 20 applied/none life 37 -1 frame 13294
+[enemy-A] enemy remote: PACK client 2 seq 21 applied/none life 36 -1 frame 13387

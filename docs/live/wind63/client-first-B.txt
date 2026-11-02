@@ -1,0 +1,36 @@
+t+1s B copy m02B8 0xE1000000 scale 0x3F800000 action/mode 0x00010000 | not mirroring: the host is not in play
+t+2s B copy m02B8 0xE1000000 scale 0x3F800000 action/mode 0x00010000 | not mirroring: the host is not in play
+t+3s B copy m02B8 0xE1000000 scale 0x3F800000 action/mode 0x00010000 | not mirroring: the host is not in play
+t+4s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0000 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+5s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+6s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+7s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+8s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+9s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+10s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+11s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+12s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+13s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+14s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+15s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+16s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+17s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+18s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+19s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+20s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+21s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+22s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+23s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+24s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+25s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+26s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+27s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+28s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+29s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+30s B copy m02B8 0xE100FF00 scale 0x3F800000 action/mode 0x00010000 | adopted 0111 slots [0:ki 0Q][1:ki 1Q][2:bk u51134892Q][3:-]
+t+1 B copy m02B8 0xE1000000 scale 0x3F800000 | A: (   2685.0    5457.0     100.0)  hp 5/5  params 0xFFFF3203  enemyice ok, mode 1, shrink timer 0, weapon pid 2355 (holding record 1)
+t+2 B copy m02B8 0xE1000000 scale 0x3F800000 | A: (   2829.7    5400.0      98.8)  hp 5/5  params 0xFFFF3203  enemyice ok, mode 1, shrink timer 0, weapon pid 2355 (holding record 1)
+t+3 B copy m02B8 0xE1000000 scale 0x3F800000 | A: (   2831.8    5400.0     100.3)  hp 5/5  params 0xFFFF3203  enemyice ok, mode 1, shrink timer 0, weapon pid 2355 (holding record 1)
+t+4 B copy m02B8 0xE1000000 scale 0x3F800000 | A: (   2830.4    5400.0     101.0)  hp 5/5  params 0xFFFF3203  enemyice ok, mode 1, shrink timer 0, weapon pid 2355 (holding record 1)
+t+5 B copy m02B8 0xE1000000 scale 0x3F800000 | A: (   2887.1    5400.0      84.8)  hp 4/5  params 0xFFFF3203  enemyice ok, mode 1, shrink timer 0, weapon pid 2355 (holding record 1)
+t+6 B copy m02B8 0xE1000000 scale 0x3F800000 | A: (   2868.2    5421.2      97.1)  hp 4/5  params 0xFFFF3203  enemyice ok, mode 1, shrink timer 0, weapon pid 2355 (holding record 1)

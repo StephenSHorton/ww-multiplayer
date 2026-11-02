@@ -29,11 +29,13 @@ type CoopOptions struct {
 	// by default since v0.6.1, so the zero value (the TUI's choices, a
 	// CLI host without the flag) has them on.
 	LiveSwitchesOff bool
-	// PlacedKill is --coop-placed-kill (docs/08 §7.2a, M6.1): the host
-	// allows placement-matched kills of unkeyed enemies. Off by default.
-	PlacedKill bool
-	DryRun     bool   // --coop-dry-run
-	ISO        string // --coop-iso; "" for the disc patch last wrote
+	// PlacedKillOff is --coop-placed-kill=off (docs/08 §7.2a, M6.1):
+	// placement-matched kills of unkeyed enemies are on by default (wind#29,
+	// Stephen 2026-11-01), so the zero value (the app's and the TUI's
+	// choices, a CLI host without the flag) has them on.
+	PlacedKillOff bool
+	DryRun        bool   // --coop-dry-run
+	ISO           string // --coop-iso; "" for the disc patch last wrote
 	// Yes answers every question yes at once (--yes).
 	Yes bool
 	// BossKill is --coop-boss-kill, the boss-dead relay's row set; "" is
@@ -232,6 +234,19 @@ type CoopStatus struct {
 	// of it (the app's Room items card); nil before the hub's world came
 	// in.
 	Room *CoopRoom
+	// Activity is the app's Activity tab, oldest first: what partners
+	// got, opened, defeated and entered (mods/coop/replica activity.go).
+	Activity []CoopActivity
+}
+
+// CoopActivity is one Activity entry: ID rises by one per entry of its
+// pipeline; Kind is "item", "chest", "dungeon", "boss" or "place"; Text
+// the entry as a line ("Blake got the hookshot in Dragon Roost Cavern").
+type CoopActivity struct {
+	ID                      uint64
+	At                      time.Time
+	Who, Kind, Label, Where string
+	Text                    string
 }
 
 // CoopRoom is what a co-op world holds (mods/coop/roomitems.Items): the

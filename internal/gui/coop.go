@@ -143,6 +143,20 @@ type CoopPipeView struct {
 	// Room is what the world holds, the Room items card (room.go); nil
 	// before the hub's world came in.
 	Room *CoopRoomView `json:"room"`
+	// Activity is the Activity tab's entries, oldest first (never null).
+	Activity []CoopActivityView `json:"activity"`
+}
+
+// CoopActivityView is one Activity entry: ID rises per entry of its
+// pipeline, At is Unix milliseconds, Kind "item", "chest", "dungeon",
+// "boss" or "place", Text the line ("Blake got the hookshot in Dragon
+// Roost Cavern").
+type CoopActivityView struct {
+	ID   uint64 `json:"id"`
+	At   int64  `json:"at"`
+	Who  string `json:"who"`
+	Kind string `json:"kind"`
+	Text string `json:"text"`
 }
 
 // CoopKeyView is one dungeon's small keys on the progress card.
@@ -600,7 +614,10 @@ func pipeView(cs session.CoopStatus) CoopPipeView {
 		Escapes: cs.Escapes, Failed: cs.Failed, DryRun: cs.DryRun, Paused: cs.WritesOff != "" && !cs.DryRun,
 		Progression: append([]string{}, cs.Progression...), Puzzle: cs.Puzzle, Combat: cs.Combat, Tuner: cs.Tuner,
 		Shares: append([]string{}, cs.Shares...), Held: append([]string{}, cs.HeldStory...), Keys: []CoopKeyView{},
-		NoKeyTable: cs.NoKeyTable, Life: cs.Life, LifeWhy: cs.LifeWhy, Room: roomView(cs.Room, partnersHere(cs))}
+		NoKeyTable: cs.NoKeyTable, Life: cs.Life, LifeWhy: cs.LifeWhy, Room: roomView(cs.Room, partnersHere(cs)), Activity: []CoopActivityView{}}
+	for _, a := range cs.Activity {
+		v.Activity = append(v.Activity, CoopActivityView{ID: a.ID, At: a.At.UnixMilli(), Who: a.Who, Kind: a.Kind, Text: a.Text})
+	}
 	for _, k := range cs.Keys {
 		v.Keys = append(v.Keys, CoopKeyView{Dungeon: k.Dungeon, Name: dungeonName(k.Table, k.Dungeon), On: k.On, Seen: k.Seen, Why: k.Why,
 			Have: k.Have, Taken: k.Taken, Sources: k.Sources, Open: k.Open, Doors: k.Doors, Held: k.Held, Target: k.Target, Pending: k.Pending})
