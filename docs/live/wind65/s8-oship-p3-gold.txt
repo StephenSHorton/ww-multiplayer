@@ -1,0 +1,22 @@
+== OSHIP P3 gold ship refusal, sea 0 29, kinds ...,oship+u on both
+The start save has sea switch 0x17 set (memBit table 0 switch word 0x168C6F11), so only 2 of room 29's 3 OSHIP entries load (disc: entries 26-28, params 0x1612FF01, 0x1510FF01, 0x1711FF02 = switch A 0x17, model 00). Cleared 0x17 on both games (live 0x803C5384 and saved 0x803C4F8C -> 0x160C6F11, the state of a fixture <= 20) and re-hopped:
+-- a
+  83  0x80AA608C  pid 2799   proc 0x00B4 oship  set -     enemy  room  29  (-310900.0       0.0   91400.0)  hp 3/3  params 0x1612FF01
+  84  0x80AA527C  pid 2800   proc 0x00B4 oship  set -     enemy  room  29  (-309500.0       0.0   97400.0)  hp 3/3  params 0x1510FF01
+  85  0x80AA446C  pid 2801   proc 0x00B4 oship  set -     enemy  room  29  (-315567.5       0.0   95767.3)  hp 3/3  params 0x1711FF02
+scope stage=sea room=29 kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u,mt+u,st+u,oship+u walk=complete
+ident kind=oship proc=0x00B4 setID=0xFFFF pkey=0x26581BB6 params=0x1510FF01 home_room=29 verdict=ok oship_model=255 oship_live=ok
+ident kind=oship proc=0x00B4 setID=0xFFFF pkey=0x2969A37D params=0x1711FF02 home_room=29 verdict=live-gate oship_model=0 oship_live=gold
+ident kind=oship proc=0x00B4 setID=0xFFFF pkey=0x4E693D6C params=0x1612FF01 home_room=29 verdict=ok oship_model=255 oship_live=ok
+summary idents=9 taken=8 refused=1
+-- b
+  83  0x80AA608C  pid 2554   proc 0x00B4 oship  set -     enemy  room  29  (-310900.0       0.0   91400.0)  hp 3/3  params 0x1612FF01
+  84  0x80AA527C  pid 2555   proc 0x00B4 oship  set -     enemy  room  29  (-309500.0       0.0   97400.0)  hp 3/3  params 0x1510FF01
+  85  0x80AA446C  pid 2556   proc 0x00B4 oship  set -     enemy  room  29  (-315414.0       0.0   96396.3)  hp 3/3  params 0x1711FF02
+scope stage=sea room=29 kinds=mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u,mt+u,st+u,oship+u walk=complete
+ident kind=oship proc=0x00B4 setID=0xFFFF pkey=0x26581BB6 params=0x1510FF01 home_room=29 verdict=ok oship_model=255 oship_live=ok
+ident kind=oship proc=0x00B4 setID=0xFFFF pkey=0x2969A37D params=0x1711FF02 home_room=29 verdict=live-gate oship_model=0 oship_live=gold
+ident kind=oship proc=0x00B4 setID=0xFFFF pkey=0x4E693D6C params=0x1612FF01 home_room=29 verdict=ok oship_model=255 oship_live=ok
+summary idents=9 taken=8 refused=1
+adopted 0111 slots [0:cc u170D08B3Q][1:oship u26581BB6][2:oship u4E693D6C][3:-]
+The gold ship (model 0) is refused at the live gate on both games (verdict live-gate, oship_live=gold); B mirrors the other two.

@@ -1,0 +1,26 @@
+== OSHIP: a real boat-cannon shot from the client (P2 end to end) and the salvage light at night, sea 0 29
+Setup: both games' time poked to 0.0 (midnight, status_b mTime 0x803C4C2C; it runs on, 51-55 at the end); B's X button given the bombs slot (0x803C4C10 -> 0x000D0103, 98 bombs); both seated on their boats (drown-and-return), boats moved by poke in 800-unit steps (moveboat.py) to about 1100 units from the host's ship params 0x1612FF01 (switch A 0x16); B faced the copy by angle poke and fired with X, X (cannon.py: raise, fire).
+-- First tries with A's Link about 19000 units away: B's cannonballs were dropped on A ('too far on the sea'); the host ship still went 3 -> 2 -> 1 meanwhile from fire that was not B's (the other ships' or the gold ship's cannonballs; not isolated).
+-- The run with both boats beside the ship (host ship had reloaded at 2/3):
+22:16:47 A:hp 2/3 B:hp 3/3 Bboat:-311886.4     -85.9   90600.0
+22:16:48 A:hp 2/3 B:hp 3/3 Bboat:-311886.4     -49.8   90600.0
+22:16:49 A:hp 1/3 B:hp 3/3 Bboat:-311891.1       6.7   90611.4
+22:16:49 A:hp 1/3 B:hp 3/3 Bboat:-311891.1      65.0   90611.4
+22:16:50 A:hp 0/3 B:hp 0/3 Bboat:-311891.1      96.4   90611.4
+22:16:51 A:hp 0/3 B:hp 0/3 Bboat:-311891.1      81.7   90611.4
+22:16:52 A: B: Bboat:-311891.1      32.6   90611.4
+22:16:52 A: B: Bboat:-311891.1     -30.4   90611.4
+[puppet-A] projectiles: 12 spawned here, dropped map[self:159 too far on the sea:10]
+[puppet-B] projectiles: 98 spawned here, dropped map[not ready:2 self:22 too far on the sea:59]
+[puppet-A] projectiles: 12 spawned here, dropped map[self:163 too far on the sea:10]
+[puppet-B] projectiles: 102 spawned here, dropped map[not ready:2 self:22 too far on the sea:59]
+B's bombs 98 -> 87 over the session. A pressed nothing. Both games deleted the ship at the same moment; enemy-A 'the actor changed since the walk ... pkey 0x4E693D6C', 3 -> 2 enemies on both.
+-- Afterwards: switch A 0x16 set on both (memBit table 0 word 0x160C6F11 -> 0x164C6F11); the salvage table (salv.py, base *0x803F6B44) on both:
+== 15349
+i 131 room 29 pos -309500 -5000 97400 save 0 b2E 0x01 kind 2 b30 0x05 flag 0x01 b32 0x0000
+i 132 room 29 pos -312668 49 89736 save 1 b2E 0x01 kind 2 b30 0x06 flag 0x00 b32 0x0000
+== 15359
+i 131 room 29 pos -309500 -5000 97400 save 0 b2E 0x01 kind 2 b30 0x05 flag 0x01 b32 0x0000
+i 132 room 29 pos -312668 118 89736 save 1 b2E 0x01 kind 2 b30 0x06 flag 0x00 b32 0x0000
+Entry 132 (kind 2, the r29 point) moved to the sink spot with the same x/z on both games and is usable (flag 0): the copy's own modeDelete ran onSalvageForOship on B. Entry 131 (the other ship's point) is still hidden at y -5000.
+The light itself: not seen in s8-salvage-a.png, -a2.png, -b2.png (night sky, the boats about 840-1100 units from the point; the camera was not aimed at it; the thin column on A's horizon stays put between frames, a fixed structure).

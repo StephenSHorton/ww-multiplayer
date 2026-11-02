@@ -1,0 +1,23 @@
+== ST Q8 hidden copy's Co: kaze 10 10, mp-local kinds mo2,bk+u,cc+u,ki+u,am2+u,tn+u,st+u,oship+u; B adopted 0011 [st 2][st 1]
+q8.py (B): sword hits from B on copy setID 1 (B 0x80A9E558) until the host's break hides it (m02b9 at +0x2B9 = 1), then B warped onto the copy's centre 10 times; sphere 1 (+0x678) Co SPrm/RPrm/HitObj at +0x2C/+0x30/+0x34
+hidden after 42.9 s: m02b9=1
+43.29 m02b9 1->1 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3859.3 -922.1 link 3859.3 -922.1 d 0.0
+43.72 m02b9 1->1 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3859.3 -922.1 link 3935.6 -946.0 d 80.0
+44.15 m02b9 1->1 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3859.3 -922.1 link 3859.3 -922.1 d 0.0
+44.58 m02b9 1->1 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3859.3 -922.1 link 3861.8 -922.3 d 2.5
+44.99 m02b9 1->1 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3859.3 -922.1 link 3859.3 -922.1 d 0.0
+45.39 m02b9 1->1 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3859.3 -922.1 link 3859.9 -916.7 d 5.5
+45.79 m02b9 1->1 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3859.3 -922.1 link 3859.2 -921.8 d 0.3
+46.19 m02b9 1->1 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3859.3 -922.1 link 3859.3 -922.1 d 0.1
+46.59 m02b9 1->1 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3859.3 -922.1 link 3864.9 -915.3 d 8.8
+47.02 m02b9 1->1 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3859.3 -922.1 link 3861.6 -920.0 d 3.1
+-- control, the same copy intact (m02b9 0):
+control m02b9 0 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3448.7 -601.4 link 3569.2 -494.5 d 161.1
+control m02b9 0 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3330.6 -593.1 link 3330.6 -593.1 d 0.0
+control m02b9 0 co sprm 0x75 rprm 0x1 hitobj 0x80A9C858 copy 3247.4 -511.1 link 3255.4 -517.4 d 10.2
+control m02b9 0 co sprm 0x75 rprm 0x1 hitobj 0x80A9CBDC copy 3251.6 -394.6 link 3233.5 -390.5 d 18.6
+control m02b9 0 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3319.4 -295.8 link 3315.8 -300.0 d 5.5
+control m02b9 0 co sprm 0x75 rprm 0x1 hitobj 0x80A9CBDC copy 3385.0 -195.5 link 3382.8 -194.4 d 2.5
+control m02b9 0 co sprm 0x75 rprm 0x1 hitobj 0x80ABE8A8 copy 3414.6 -80.5 link 3408.1 -81.2 d 6.6
+control m02b9 0 co sprm 0x75 rprm 0x0 hitobj 0x00000000 copy 3373.3 29.3 link 3369.5 26.3 d 4.8
+Result: hidden, RPrm 0 and HitObj null in all 10 samples, Link stays on the copy's centre (d 0-9; one sample at 80); intact, RPrm hit bit set in 4 of 8. A first try (run b) only caught 1.4 s of the hidden window and Link did not move under stick input; not counted.
