@@ -59,6 +59,14 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
   boot, menus through the pad override, then a held Shift+F1. The shared one is
   `~/ww-shared/fixtures/start-mac-CAC6980B.sav` (REL 0xCAC6980B, main since #289, recaptured 2026-11-01; file 1 of the fixture card, in Hyrule, Link in
   play). A REL/C change invalidates it: recapture under the `ww/rel-blob` lease and replace it.
+- **Pre-Dragon Roost start save (wind#70):** `~/ww-shared/fixtures/start-mac-CAC6980B-4ww.sav`, recaptured
+  2026-11-02 from CryZe `saves/100pct-E/4-WindWaker.gci` (REL 0xCAC6980B; at sea, Link in play). Event 0x1101
+  (Medli's M_Dra09 line, which turns off the room-9 rider: d_a_bb.cpp:2701, d_a_mo2.cpp:4103) is clear, and DRC
+  has no switches set. The start save and 5-BombsEarly onward have 0x1101 set, so no rider is created there.
+  `stage-hop M_Dra09 1 9 --yes` shows the type-5 Kargaroc (proc 0x00B6, params 0xE000FF05) and its mode-5
+  Moblin (proc 0x00BD, params 0xE0FFFF05, BOSS) on both games, plus the two BKs. Use it for BB-5:
+  `scripts/mac-rig.sh pair <rig> ~/ww-shared/fixtures/start-mac-CAC6980B-4ww.sav`. To redo it after a REL change, copy the GCI to
+  both cards as `01-GZLE-gczelda.gci` and run `scripts/mac-rig.sh recapture <rig> <out>`.
 
 ## Daily use
 

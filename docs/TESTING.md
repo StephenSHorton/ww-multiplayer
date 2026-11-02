@@ -384,7 +384,7 @@ BB (`M_NewD2 6 3`, `M_Dra09 1 9`):
   - On A, poke u8 0x2F2 = 0xE6 (an unset zone switch + 1). A's bird stops drawing and the slot shows HIDDEN in `enemy-block-dump`. B's copy, adopted shown in BB-1, keeps drawing, frozen: R-15 only clears the copy's 0x2F2 while the host is shown and never sets it (0x2F2 is not streamed), so only a copy that is hidden on B too stays hidden. To see both hidden, also poke u8 0x2F2 = 0xE6 on B's copy while A's is hidden (the REL leaves it alone then): both birds stop drawing (screenshot pair).
   - Poke 0 on A. The REL clears B's 0x2F2 on that edge: both birds reveal at the same spot with no tail whip (the hidden->shown edge re-seeds the tail after the first calc).
   - Then A runs `stage-hop M_NewD2 0 0 --yes`. B's copy gets 0x2DD 3 and 0x31A set, and attacks B's Link after the timer. Perch type 7 does not snap (watch 0x2DD, d_a_bb.cpp:1594-1621).
-- [ ] **BB-5 rider refusal**: `bb+u,bk+u,mo2+u` on both sides, `stage-hop M_Dra09 1 9 --yes`. A kills the two unkeyed BKs with `enemy-kill`. sw224@r9 is equal via swdiff. Pass:
+- [ ] **BB-5 rider refusal** (run on the pre-DRC start save `start-mac-CAC6980B-4ww.sav`, wind#70, docs/mac-rig.md; the default start save has event 0x1101 set, so no rider is created): `bb+u,bk+u,mo2+u` on both sides, `stage-hop M_Dra09 1 9 --yes`. A kills the two unkeyed BKs with `enemy-kill`. sw224@r9 is equal via swdiff. Pass:
   - the type-5 BB and its mode-5 Moblin appear on both games;
   - `enemy-match` shows the BB `verdict=params-gate` (`bb_live=rider`) and the Moblin's mode refused;
   - neither log shows ERR churn.
