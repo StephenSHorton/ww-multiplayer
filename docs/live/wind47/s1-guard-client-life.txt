@@ -1,0 +1,32 @@
+BG3   4.0 actor -7003 -147 -310 ang 28388 Link d 3400 warped guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG3   7.3 actor -7003 -147 -310 ang 28388 Link d 120  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG3  10.5 actor -7003 -147 -310 ang 28388 Link d 120  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG3  13.7 actor -7003 -147 -310 ang 28388 Link d 120  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG3  16.9 actor -7003 -147 -310 ang 28388 Link d 120  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG3  20.1 actor -7003 -147 -310 ang 28388 Link d 120  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG3  23.3 actor -7003 -147 -310 ang 28388 Link d 120  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG3  26.6 actor -7003 -147 -310 ang 28388 Link d 120  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BU3   3.2 actor -7003 -147 -310 ang 28388 Link d 120  guard 0 proc 04/80,04/80,04/80,04/80,04/80,04/78,68/78,69/78,69/78,69/78,69/78,69/78
+BU3   6.3 actor -7003 -147 -310 ang 28388 Link d 245 warped guard 0 proc 69/78,04/78,04/78,04/78,04/78,04/78,04/78,04/78,04/78,04/78,04/78,04/78
+BU3   9.3 actor -7003 -147 -310 ang 28388 Link d 120  guard 0 proc 04/78,04/78,04/78,04/78,04/78,04/78,04/78,04/78,04/78,04/78,04/78,04/78
+BU3  12.4 actor -7003 -147 -310 ang 28388 Link d 120  guard 0 proc 04/78,04/78,04/78,68/74,68/74,69/74,69/74,69/74,69/74,69/74,69/74,69/74
+BU3  15.5 actor -7003 -147 -310 ang 28388 Link d 740 warped guard 0 proc 04/74,04/74,04/74,04/74,04/74,04/74,04/74,04/74,04/74,04/74,04/74,04/74
+BU3  18.5 actor -7003 -147 -310 ang 28388 Link d 120  guard 0 proc 68/72,69/72,69/72,69/72,69/72,69/72,69/72,69/72,04/72,04/72,04/72,04/72
+BU3  21.5 actor -7003 -147 -310 ang 28388 Link d 244 warped guard 0 proc 66/71,66/71,04/71,04/71,04/71,04/71,04/71,04/71,04/71,04/71,04/71,04/71
+BU3  24.5 actor -7003 -147 -310 ang 28388 Link d 200  guard 0 proc 04/71,04/71,04/71,66/70,66/70,66/70,04/70,04/70,04/70,04/70,04/70,04/70
+BU3  27.7 actor -7003 -147 -310 ang 28388 Link d 252 warped guard 0 proc 04/70,04/70,04/70,04/70,04/70,04/70,04/70,04/70,04/70,04/70,04/70,04/70
+BU3 [enemy-A] enemy remote: PACK client 2 seq 36 applied/none life 80 -2 frame 39130
+BU3 [enemy-A] enemy remote: PACK client 2 seq 37 applied/none life 78 -4 frame 39389
+BU3 [enemy-A] enemy remote: PACK client 2 seq 38 applied/none life 74 -2 frame 39547
+BU3 [enemy-A] enemy remote: PACK client 2 seq 39 applied/none life 72 -1 frame 39642
+BU3 [enemy-A] enemy remote: PACK client 2 seq 40 no_cross/none life 71 +0 frame 39692
+BU3 [enemy-A] enemy remote: PACK client 2 seq 41 applied/none life 71 -1 frame 39753
+BU3 [enemy-A] enemy remote: PACK client 2 seq 42 no_cross/none life 70 +0 frame 39812
+BG4   4.2 actor -7003 -147 -310 ang 28388 Link d 244 warped guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG4   7.4 actor -7003 -147 -310 ang 28388 Link d 124  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG4  10.7 actor -7003 -147 -310 ang 28388 Link d 124  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG4  14.0 actor -7003 -147 -310 ang 28388 Link d 124  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG4  17.5 actor -7003 -147 -310 ang 28388 Link d 124  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG4  21.1 actor -7003 -147 -310 ang 28388 Link d 124  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG4  24.7 actor -7003 -147 -310 ang 28388 Link d 124  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80
+BG4  28.2 actor -7003 -147 -310 ang 28388 Link d 124  guard 1 proc 0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80,0C/80

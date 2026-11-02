@@ -1,0 +1,92 @@
+AG1   3.7 actor -5096 0 -374 ang -32618 Link d 3955 warped guard 1 proc 0C,68,68,69,69,69,69,69,69,69
+AG1   7.2 actor -5097 0 -389 ang -32557 Link d 923 warped guard 1 proc 0C,0C,0C,68,68,69,69,69,69,69
+AG1  10.7 actor -5098 0 -331 ang 32374 Link d 938 warped guard 1 proc 0C,0C,0C,0C,0C,68,68,69,69,69
+AG1  14.4 actor -5098 0 -327 ang 32333 Link d 932 warped guard 1 proc 0C,0C,0C,0C,0C,0C,0C,68,68,69
+AG1  18.1 actor -5109 0 -233 ang 29705 Link d 1038 warped guard 1 proc 69,0C,0C,0C,0C,0C,0C,0C,0C,0C
+AG1  21.1 actor -5109 0 -228 ang 30133 Link d 179  guard 1 proc 0C,0C,0C,0C,0C,0C,68,69,69,69
+AG1  24.9 actor -5095 0 -283 ang 30344 Link d 381 warped guard 1 proc 0C,0C,0C,0C,0C,0C,0C,0C,0C,0C
+AG1  28.8 actor -5113 0 -210 ang 30272 Link d 338 warped guard 1 proc 0C,0C,0C,68,69,69,69,69,69,69
+AG1  32.7 actor -5112 0 -175 ang -27018 Link d 1140 warped guard 1 proc 0C,0C,0C,68,68,69,69,69,69,69
+AU1   3.1 actor -6374 -150 -306 ang -21681 Link d 644 warped guard 0 proc 69,04,04,04,04,04,04,04,04,68
+AU1   6.0 actor -6485 -150 -282 ang 27465 Link d 1034 warped guard 0 proc 69,69,69,69,69,69,69,04,04,04
+AU1   8.9 actor -6484 -150 -282 ang 27953 Link d 154  guard 0 proc 04,04,04,04,04,04,04,04,04,04
+AU1  11.9 actor -6811 -150 -446 ang 13189 Link d 397 warped guard 0 proc 04,04,04,04,04,68,69,69,69,69
+AU1  14.9 actor -7206 -262 -522 ang 14099 Link d 487 warped guard 0 proc 25,04,04,04,04,04,04,04,04,04
+AU1  17.8 actor -6937 -150 -460 ang 13213 Link d 156  guard 0 proc 04,04,04,04,04,04,04,04,04,04
+AU1  20.8 actor -6791 -150 -289 ang 25854 Link d 151  guard 0 proc 68,68,69,69,69,69,69,69,69,04
+AU1  23.9 actor -6788 -150 -308 ang 25990 Link d 902 warped guard 0 proc 04,04,04,04,04,04,04,04,04,04
+AU1  26.9 actor -7273 -262 -301 ang 16751 Link d 592 warped guard 0 proc 25,04,04,04,04,04,04,04,04,04
+AU1  29.9 actor -7273 -262 -301 ang 16751 Link d 120  guard 0 proc 04,04,04,04,04,04,04,04,04,04
+AU1  32.8 actor -7273 -262 -301 ang 16751 Link d 35 warped guard 0 proc 69,69,69,69,69,69,69,04,04,04
+BG1   3.7 actor -7003 -147 -310 ang 28388 Link d 3400 warped guard 1 proc 0C,0C,0C,68,69,69,69,69,69,69
+BG1   7.4 actor -7003 -147 -310 ang 28388 Link d 790 warped guard 1 proc 0C,0C,0C,0C,0C,68,69,69,69,69
+BG1  11.2 actor -7003 -147 -310 ang 28388 Link d 790 warped guard 1 proc 0C,0C,0C,0C,0C,68,69,69,69,69
+BG1  15.0 actor -7003 -147 -310 ang 28388 Link d 790 warped guard 1 proc 0C,0C,0C,0C,0C,68,68,69,69,69
+BG1  18.8 actor -7003 -147 -310 ang 28388 Link d 790 warped guard 1 proc 0C,0C,0C,0C,0C,0C,0C,0C,68,69
+BG1  22.7 actor -7003 -147 -310 ang 28388 Link d 338 warped guard 1 proc 0C,0C,0C,0C,0C,0C,0C,0C,0C,0C
+BG1  25.7 actor -7003 -147 -310 ang 28388 Link d 120  guard 1 proc 66,0C,0C,0C,0C,0C,68,69,69,69
+BG1  28.7 actor -7003 -147 -310 ang 28388 Link d 91  guard 1 proc 69,0C,0C,0C,0C,0C,0C,0C,68,68
+BG1  32.6 actor -7003 -147 -310 ang 28388 Link d 940 warped guard 1 proc 69,69,0C,0C,0C,0C,0C,0C,0C,0C
+BG1 [enemy-A] enemy remote: PACK client 2 seq 1 applied/none life 80 -4 frame 28954
+BG1 [enemy-A] enemy remote: PACK client 2 seq 2 applied/none life 80 -4 frame 29079
+BG1 [enemy-A] enemy remote: PACK client 2 seq 3 applied/none life 80 -4 frame 29195
+BG1 [enemy-A] enemy remote: PACK client 2 seq 4 applied/none life 80 -4 frame 29311
+BG1 [enemy-A] enemy remote: PACK client 2 seq 5 applied/none life 80 -2 frame 29444
+BG1 [enemy-A] enemy remote: PACK client 2 seq 6 applied/none life 80 -1 frame 29585
+BG1 [enemy-A] enemy remote: PACK client 2 seq 7 applied/none life 80 -2 frame 29636
+BG1 [enemy-A] enemy remote: PACK client 2 seq 8 applied/none life 80 -4 frame 29748
+BU1   3.0 actor -7003 -147 -310 ang 28388 Link d 715 warped guard 0 proc 04,04,04,04,04,04,04,04,04,04
+BU1   5.8 actor -7003 -147 -310 ang 28388 Link d 227 warped guard 0 proc 69,69,69,69,69,69,69,04,04,04
+BU1   8.5 actor -7003 -147 -310 ang 28388 Link d 163  guard 0 proc 04,04,04,04,04,04,04,04,04,04
+BU1  11.3 actor -7003 -147 -310 ang 28388 Link d 163  guard 0 proc 68,68,69,69,69,69,69,69,69,69
+BU1  14.2 actor -7003 -147 -310 ang 28388 Link d 685 warped guard 0 proc 04,04,04,04,04,68,68,69,69,69
+BU1  17.2 actor -7003 -147 -310 ang 28388 Link d 884 warped guard 0 proc 69,69,69,04,04,04,04,04,04,68
+BU1  20.0 actor -7003 -147 -310 ang 28388 Link d 765 warped guard 0 proc 69,69,69,69,69,69,69,04,04,04
+BU1  22.7 actor -7003 -147 -310 ang 28388 Link d 120  guard 0 proc 04,04,04,04,04,04,04,04,04,04
+BU1  25.4 actor -7003 -147 -310 ang 28388 Link d 120  guard 0 proc 68,69,69,69,69,69,69,69,69,04
+BU1  28.1 actor -7003 -147 -310 ang 28388 Link d 884 warped guard 0 proc 04,04,04,04,04,04,68,69,69,69
+BU1  30.8 actor -7003 -147 -310 ang 28388 Link d 884 warped guard 0 proc 69,69,69,69,04,04,04,04,04,04
+BU1 [enemy-A] enemy remote: PACK client 2 seq 10 applied/none life 80 -4 frame 30120
+BU1 [enemy-A] enemy remote: PACK client 2 seq 11 applied/none life 80 -4 frame 30294
+BU1 [enemy-A] enemy remote: PACK client 2 seq 12 applied/none life 80 -4 frame 30421
+BU1 [enemy-A] enemy remote: PACK client 2 seq 13 applied/none life 80 -4 frame 30539
+BU1 [enemy-A] enemy remote: PACK client 2 seq 14 applied/none life 80 -4 frame 30713
+BU1 [enemy-A] enemy remote: PACK client 2 seq 15 applied/none life 80 -4 frame 30842
+BU1 [enemy-A] enemy remote: PACK client 2 seq 16 applied/none life 80 -4 frame 30968
+BG2   3.5 actor -7003 -147 -310 ang 28388 Link d 904 warped guard 1 proc 0C,0C,0C,0C,0C,0C,0C,0C,0C,0C
+BG2   6.3 actor -7003 -147 -310 ang 28388 Link d 148  guard 1 proc 0C,0C,0C,0C,0C,66,66,66,0C,0C
+BG2   9.8 actor -7003 -147 -310 ang 28388 Link d 263 warped guard 1 proc 69,69,69,69,69,0C,0C,0C,0C,0C
+BG2  13.3 actor -7003 -147 -310 ang 28388 Link d 432 warped guard 1 proc 69,69,69,69,0C,0C,0C,0C,0C,0C
+BG2  16.0 actor -7003 -147 -310 ang 28388 Link d 194  guard 1 proc 0C,0C,0C,0C,66,66,66,0C,0C,0C
+BG2  19.5 actor -7003 -147 -310 ang 28388 Link d 315 warped guard 1 proc 0C,0C,0C,0C,0C,0C,0C,0C,0C,0C
+BG2  23.0 actor -7003 -147 -310 ang 28388 Link d 296 warped guard 1 proc 0C,0C,0C,0C,0C,0C,0C,0C,0C,66
+BG2  25.7 actor -7003 -147 -310 ang 28388 Link d 214  guard 1 proc 0C,0C,0C,0C,0C,68,69,69,69,69
+BG2  29.2 actor -7003 -147 -310 ang 28388 Link d 277 warped guard 1 proc 0C,0C,0C,0C,0C,0C,68,69,69,69
+BG2  32.8 actor -7003 -147 -310 ang 28388 Link d 908 warped guard 1 proc 69,0C,0C,0C,0C,0C,0C,0C,0C,0C
+BG2 [enemy-A] enemy remote: PACK client 2 seq 17 applied/none life 80 -1 frame 31261
+BG2 [enemy-A] enemy remote: PACK client 2 seq 18 applied/none life 80 -2 frame 31312
+BG2 [enemy-A] enemy remote: PACK client 2 seq 19 applied/none life 80 -4 frame 31399
+BG2 [enemy-A] enemy remote: PACK client 2 seq 20 applied/none life 80 -1 frame 31544
+BG2 [enemy-A] enemy remote: PACK client 2 seq 21 guarded/none life 80 +0 frame 31593
+BG2 [enemy-A] enemy remote: PACK client 2 seq 22 applied/none life 80 -1 frame 31787
+BG2 [enemy-A] enemy remote: PACK client 2 seq 23 applied/none life 80 -2 frame 31838
+BG2 [enemy-A] enemy remote: PACK client 2 seq 24 applied/none life 80 -4 frame 31952
+BG2 [enemy-A] enemy remote: PACK client 2 seq 25 applied/none life 80 -1 frame 32091
+BU2   2.7 actor -7003 -147 -310 ang 28388 Link d 266 warped guard 0 proc 04,04,04,04,04,04,04,04,04,04
+BU2   5.4 actor -7003 -147 -310 ang 28388 Link d 120  guard 0 proc 04,04,68,68,69,69,69,69,69,69
+BU2   8.1 actor -7003 -147 -310 ang 28388 Link d 938 warped guard 0 proc 69,04,04,04,04,04,04,68,68,69
+BU2  10.8 actor -7003 -147 -310 ang 28388 Link d 940 warped guard 0 proc 69,69,69,69,69,69,04,04,04,04
+BU2  13.4 actor -7003 -147 -310 ang 28388 Link d 120  guard 0 proc 04,04,04,04,04,04,04,04,04,68
+BU2  16.2 actor -7003 -147 -310 ang 28388 Link d 660 warped guard 0 proc 69,69,69,69,69,69,69,69,04,04
+BU2  18.8 actor -7003 -147 -310 ang 28388 Link d 190  guard 0 proc 04,04,04,04,04,04,04,04,04,04
+BU2  21.5 actor -7003 -147 -310 ang 28388 Link d 190  guard 0 proc 68,69,69,69,69,69,69,69,69,69
+BU2  24.2 actor -7003 -147 -310 ang 28388 Link d 1045 warped guard 0 proc 04,04,04,04,04,04,68,68,69,69
+BU2  26.9 actor -7003 -147 -310 ang 28388 Link d 946 warped guard 0 proc 69,69,69,69,69,04,04,04,04,04
+BU2  29.6 actor -7003 -147 -310 ang 28388 Link d 120  guard 0 proc 04,04,04,04,04,04,04,04,04,68
+BU2  32.4 actor -7003 -147 -310 ang 28388 Link d 738 warped guard 0 proc 69,69,69,69,69,69,69,69,04,04
+BU2 [enemy-A] enemy remote: PACK client 2 seq 27 applied/none life 80 -4 frame 32345
+BU2 [enemy-A] enemy remote: PACK client 2 seq 28 applied/none life 80 -4 frame 32463
+BU2 [enemy-A] enemy remote: PACK client 2 seq 29 applied/none life 80 -4 frame 32638
+BU2 [enemy-A] enemy remote: PACK client 2 seq 30 applied/none life 80 -4 frame 32812
+BU2 [enemy-A] enemy remote: PACK client 2 seq 31 applied/none life 80 -4 frame 32939
+BU2 [enemy-A] enemy remote: PACK client 2 seq 32 applied/none life 80 -4 frame 33121
