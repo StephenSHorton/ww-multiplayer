@@ -1263,6 +1263,13 @@ func (c *Mirror) writeBlock(now time.Time, st *State, slots []mailbox.EnemySlot,
 	return nil
 }
 
+// baseAnnex is the annex every block carries: the WW_ENEMY_ANNEX
+// overrides (c.Annex) without the per-slot aux, which each write fills
+// for its own slots. The count-0 release block carries it too.
+func (c *Mirror) baseAnnex() mailbox.EnemyAnnex {
+	return mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait, HookDisableX: c.Annex.HookDisableX, TnTgHitUp: c.Annex.TnTgHitUp}
+}
+
 // disarm writes a count-0 block once (the REL releases its slots) when
 // the mirror was armed, and claims nothing.
 func (c *Mirror) disarm(now time.Time, why string) error {
@@ -1276,7 +1283,12 @@ func (c *Mirror) disarm(now time.Time, why string) error {
 	if !c.armed {
 		return nil
 	}
-	err := c.writeBlock(now, nil, nil, mailbox.EnemyAnnex{}, 0)
+	// The release block keeps the WW_ENEMY_ANNEX overrides (wind#69): the
+	// REL releases its slots on this very block, and em_handback reads
+	// em_hkd from its annex, so a zeroed annex dropped every hook that
+	// acts at handback (bk:hooks=ambush, bb:hooks=handback). HkdHi rides
+	// in writeBlock as on every write.
+	err := c.writeBlock(now, nil, nil, c.baseAnnex(), 0)
 	c.armed = false
 	c.knob.reset() // the next arm writes a new gen
 	return err
@@ -1319,7 +1331,7 @@ func (c *Mirror) hold(now time.Time, why string, upTo time.Duration) (bool, erro
 	}
 	c.gateWhy = "" // a release after the hold logs its reason again
 	slots := make([]mailbox.EnemySlot, n)
-	annex := mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait, HookDisableX: c.Annex.HookDisableX, TnTgHitUp: c.Annex.TnTgHitUp}
+	annex := c.baseAnnex()
 	for j := range n {
 		b := &c.blk[j]
 		if !b.Used || !b.haveLst {
@@ -1611,7 +1623,7 @@ func (c *Mirror) Tick(now time.Time) (hits []*Hit, sleep time.Duration, err erro
 		}
 	}
 	on := c.Kinds.And(MaskSet(uint32(st.HostKindMask)))
-	annex := mailbox.EnemyAnnex{Override: c.Annex.Override, InvulnWait: c.Annex.InvulnWait, HookDisableX: c.Annex.HookDisableX, TnTgHitUp: c.Annex.TnTgHitUp}
+	annex := c.baseAnnex()
 	n := 0
 	for j := range c.blk {
 		if c.blk[j].Used {

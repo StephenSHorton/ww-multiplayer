@@ -1100,3 +1100,64 @@ func TestMirrorAmbusherReoffer(t *testing.T) {
 		}
 	}
 }
+
+// TestDisarmKeepsAnnex (wind#69): the count-0 block disarm writes is the
+// one the REL releases its slots on, and em_handback reads the hook bytes
+// from it, so it carries the WW_ENEMY_ANNEX overrides (annex rows,
+// HookDisableX) and HkdHi exactly as the armed writes do.
+func TestDisarmKeepsAnnex(t *testing.T) {
+	_, m, _, tick := clientRoom(t)
+	start := time.Unix(2000, 0)
+	c := NewMirror(m, log.Discard{}, nil, false, start)
+	c.Kinds, _ = ParseKinds("mo2,bk+u,ki+u,bb")
+	o, err := ParseOverrides("bk:hooks=ambush,mo2:quiet=40,ki:hooks=extra,bb:hooks=handback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Annex, c.HkdHi, c.Knobs = o.Annex, o.HkdHi, o.Knobs
+	c.Claims = NewClaimSet()
+	m.Record(true)
+	now := start
+	pushState(t, c, hostState(1, 0), now)
+	tick()
+	if _, _, err := c.Tick(now); err != nil {
+		t.Fatal(err)
+	}
+	armed := blockWrites(t, m)
+	if len(armed) != 1 || len(armed[0].Slots) == 0 {
+		t.Fatalf("not armed: %+v", armed)
+	}
+	// Another build's kind table: the mirror disarms with one count-0 block.
+	now = now.Add(16 * time.Millisecond)
+	st := hostState(2, 16)
+	st.KindHash ^= 1
+	pushState(t, c, st, now)
+	tick()
+	m.ResetWrites()
+	if _, sleep, _ := c.Tick(now); sleep != GateSleep {
+		t.Fatalf("not disarmed (sleep %v)", sleep)
+	}
+	b := blockWrites(t, m)
+	if len(b) != 1 || len(b[0].Slots) != 0 {
+		t.Fatalf("disarm: %+v", b)
+	}
+	got := b[0].Annex
+	if got.Override != armed[0].Annex.Override || got.HookDisableX != armed[0].Annex.HookDisableX ||
+		got.InvulnWait != armed[0].Annex.InvulnWait || got.TnTgHitUp != armed[0].Annex.TnTgHitUp {
+		t.Errorf("disarm annex %+v, armed %+v", got, armed[0].Annex)
+	}
+	if got.Override[KindBK].HookDisable != mailbox.EnemyHKDSpecial {
+		t.Errorf("bk:hooks=ambush lost on the release block: %#x", got.Override[KindBK].HookDisable)
+	}
+	if got.Override[KindMO2].QuietFrames != 40 || got.HookDisableX[KindKI-mailbox.EnemyAnnexKinds] != mailbox.EnemyHKDExtra {
+		t.Errorf("annex rows lost: %+v", got)
+	}
+	if b[0].HkdHi != o.HkdHi || b[0].HkdHi[KindBB-KindBB] != mailbox.EnemyHKDSpecial {
+		t.Errorf("HkdHi %v, want %v", b[0].HkdHi, o.HkdHi)
+	}
+	for i := range got.Aux {
+		if got.Aux[i] != ([4]int16{}) {
+			t.Errorf("aux %d carried into the release block: %v", i, got.Aux[i])
+		}
+	}
+}
