@@ -43,7 +43,7 @@ Pair 2 (A 79681, B 79770), both in M_DragB at the entry, both Btd in the fight, 
   REL` (256-257); the request was never written on either game (seq 0 throughout: each game's death demo keeps the idle
   gate shut), so there is no `already`, no `applied`, nothing twice. A logged no hold: its own kill had set its bit.
 - Both heart containers (ITEM 0x0101, params 0x17FFFF08, at (-1508, 3, 590)) taken: POKE `ww-multiplayer warp -1508 3
-  590` onto them, "You got a Heart Container!" (`run2/A-heart.png`), A pressed on both: max life 0x14 -> 0x18 on both.
+  590` onto them, "You got a Heart Container!" (`run2/A-heart.png`), the A button pressed on both: max life 0x14 -> 0x18 on both.
 
 Pair 3 (A 9476, B 9486), `start-gohma-intro.sav`: the pre-Gohma GCI with DRC's STAGE_BOSS_DEMO cleared
 (`wwfixture -craft ... di-=3:5`, built from `fixtures/saves-new/src`; the prebuilt binary predates `di-=`). Both
@@ -61,3 +61,47 @@ Btd was at 0x80AACC38 on A and 0x80AACC6C on B (read it per game).
   Slip: a first armor poke at 04:38:18.846 wrote the half-word (byte +0x2E1 = 1, +0x2E0 still 0); the REL kept
   answering `waiting` (m02E0 0) and +0x2E1 was put back to 0 with the correct write 80 s later.
   After both hopped to `M_NewD2 0 0`: 0x18 on both, DRC dungeonItem 0x38 on both, no further line. One container each.
+
+## Kalle Demos
+
+Kills by `wwdev boss-end kalle --arena --step flower` (new in this PR: `--arena` runs the Xboss1 plan, unchanged, in
+kinBOSS; it opens the flower and writes the head death, 10 words, then mMode 0xB). Both Links walked in from
+`kinBOSS 0 0` by stick input (forward 2.5 s) to start the intros. Life refilled on both by a background loop
+(`0x803C4C08 = 00150015`, as wind#30), stopped before any heart was taken.
+
+Pair 4 (A 44366, B 44376), Bmd at 0x80AB4BD8 (A) and 0x80AB4C48 (B):
+- B left in the arena for 4 min first, watching for a swallow: Kalle only went between mMode 0 and 1 (the vine
+  attacks), never 5.
+- 04:49:40.372 A's `boss-end kalle --arena --step flower`: read-back mMode 0xB. B (mp-local.out 735-737): the hold,
+  `asking the REL ... once its flower is down and open`, `boss_kill 1: waiting (mMode 0x1, m302 0, m304 0)`: KD-1(b)
+  again, with the Go relay on two Dolphins.
+- **KD-1(c) PASS**: POKE (setup) B `warp -106 0 63` (under the bulb); 04:50:13.702 POKE the wind#30 stand-in for the
+  vine step on B: Bmd +0x331 m331 0x14 -> 0, +0x312 m312 = 3. The game's own damage_check dropped the flower: mMode 3
+  m302 1 -> `boss_kill 20: waiting (mMode 0x3, m302 1, m304 0)` (753), once; then m302 2 -> `boss_kill 22: applied
+  (mMode 0x3, m302 2, m304 1)` (755), and B's Kalle died (mMode 0xB, m306 0x65..). mMode, m306 and mB74 were not
+  written by the relay while waiting (the apply came only at m302 2).
+- KD-1(d) swallowed: not run. The bulb landed open around B and was applied at once; no swallow (mMode 5) was reached,
+  with or without the stand-in.
+- **KD-7 PASS**: after B's death and Makar's talk (the A button pressed on B), B `stage-hop Xboss1 0 0`: the refight Bmd is
+  there, seq at 0x80413410 stays 0x16 for 40 s, no `boss_kill` line.
+
+Pair 5 (A 11037, B 11094), both Bmd at 0x80AB4BD8, both fights at mMode 1:
+- **KD-5 PASS**: both `boss-end kalle --arena --step flower` started together at 04:56:02.9631. B's last write (mMode
+  0xB) done by 03.0009, A's by 03.0245: the two kills landed within one 30 fps frame of each other. Neither log has a
+  hold, a request or any `boss_kill` line (seq 0 on both): each game's own kill set its bit before the partner's
+  arrived. Hearts (ITEM 0x0101, params 0x17FFFF08) on both, taken by POKE `warp` onto them after Makar's talk (the A button pressed
+  on both): max life 0x15 -> 0x19 on each, once (the save starts at 0x15, as on wind#30). After both hopped to `kindan
+  0 16`: 0x19 on both, FW dungeonItem 0x38 on both, no further line. One container per file (as D4-8 has it for
+  Gohma); the row's "one heart container between the two files" reads as one each.
+
+## Result
+
+| row | result |
+|---|---|
+| D4-3 during the intro | pass (armor break poked) |
+| D4-5 same frame | pass (kills about 2 frames apart, inside the demo) |
+| D4-6 never in a refight | pass |
+| D4-7 hop and recreate | in part: no `none`, the seq rises, the hop's request is answered `gated`; the held bit lands on leaving, so re-entry has no Btd and no request (the row's last clause can't happen on this design) |
+| KD-1 waiting | in part: (a) wind#21, (b) and (c) here with the Go relay; (d) swallowed not run |
+| KD-5 same frame | pass (within one frame) |
+| KD-7 never in a refight | pass |
