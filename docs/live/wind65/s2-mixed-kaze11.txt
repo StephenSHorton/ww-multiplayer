@@ -1,0 +1,18 @@
+== kaze 11 11, every kind on; A host, B client
+on entry: both list 6 (4 bk setIDs 7-A params 0xFFFF64E0 with their Boko sticks, 2 am setIDs 0-1 params 0xFFFF0F01, action 0 mode 1), goldens equal; B adopted 1111 slots [0:bk 7Q][1:bk 8Q][2:bk 9Q][3:bk AQ]
+A enemy-kill bk setID 7 (pid 623): gone, room 11 zone slot 0 records setID 7 dead
+ frame 8739 beat 9851 adopted 1111 slots [0:am 1Q][1:bk 8Q][2:bk 9Q][3:bk AQ] status [0:s1 e0 a1 bck1F n1][1:s1 e0 a1 bck52 n15][2:s1 e0 a1 bck52 n15][3:s1 e0 a1 bck52 n17] canaries {PauseReasserts:0 AnmUnresolved:0 RevalidateFailures:0 WatchdogReleases:3} canaries2 {AnmResNull:0 AnmRange:0 HitNoCross:0 HitAborted:0}
+-- a after
+ident kind=bk proc=0x00BE setID=0x0008 pkey=0x1343D019 params=0xFFFF64E0 home_room=11 verdict=ok bk_type=0
+ident kind=bk proc=0x00BE setID=0x0009 pkey=0x71F9DA72 params=0xFFFF64E0 home_room=11 verdict=ok bk_type=0
+ident kind=bk proc=0x00BE setID=0x000A pkey=0x0E81B477 params=0xFFFF64E0 home_room=11 verdict=ok bk_type=0
+ident kind=am proc=0x00CB setID=0x0000 pkey=0x696AC91F params=0xFFFF0F01 home_room=11 verdict=ok am_action=0 am_mode=1
+ident kind=am proc=0x00CB setID=0x0001 pkey=0x7D7D37BC params=0xFFFF0F01 home_room=11 verdict=ok am_action=0 am_mode=1
+summary idents=5 taken=5 refused=0
+-- b after
+ident kind=bk proc=0x00BE setID=0x0008 pkey=0x1343D019 params=0xFFFF64E0 home_room=11 verdict=ok bk_type=0
+ident kind=bk proc=0x00BE setID=0x0009 pkey=0x71F9DA72 params=0xFFFF64E0 home_room=11 verdict=ok bk_type=0
+ident kind=bk proc=0x00BE setID=0x000A pkey=0x0E81B477 params=0xFFFF64E0 home_room=11 verdict=ok bk_type=0
+ident kind=am proc=0x00CB setID=0x0000 pkey=0x696AC91F params=0xFFFF0F01 home_room=11 verdict=ok am_action=0 am_mode=1
+ident kind=am proc=0x00CB setID=0x0001 pkey=0x7D7D37BC params=0xFFFF0F01 home_room=11 verdict=ok am_action=0 am_mode=1
+summary idents=5 taken=5 refused=0

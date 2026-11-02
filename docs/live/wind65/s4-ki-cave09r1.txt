@@ -1,0 +1,27 @@
+-- a
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x03172F1E params=0xFFFF0101 home_room=1 verdict=ok ki_action=1 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x075EFB45 params=0xFFFF0101 home_room=1 verdict=ok ki_action=1 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x158B9546 params=0xFFFF0101 home_room=1 verdict=ok ki_action=1 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x31D626A2 params=0xFFFF0101 home_room=1 verdict=ok ki_action=10 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x3FD6E594 params=0xFFFF0101 home_room=1 verdict=ok ki_action=1 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x56C2397E params=0xFFFF0101 home_room=1 verdict=ok ki_action=10 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x63652B1F params=0xFFFF0101 home_room=1 verdict=ok ki_action=10 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x8A870BDF params=0xFFFF0101 home_room=1 verdict=ok ki_action=10 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0xAA63D89D params=0xFFFF0101 home_room=1 verdict=ok ki_action=1 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0xABBB35CB params=0xFFFF0101 home_room=1 verdict=ok ki_action=10 ki_m2dc=0
+summary idents=10 taken=10 refused=0
+-- b
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x03172F1E params=0xFFFF0101 home_room=1 verdict=ok ki_action=10 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x075EFB45 params=0xFFFF0101 home_room=1 verdict=ok ki_action=10 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x158B9546 params=0xFFFF0101 home_room=1 verdict=ok ki_action=1 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x31D626A2 params=0xFFFF0101 home_room=1 verdict=ok ki_action=10 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x3FD6E594 params=0xFFFF0101 home_room=1 verdict=ok ki_action=10 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x56C2397E params=0xFFFF0101 home_room=1 verdict=ok ki_action=1 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x63652B1F params=0xFFFF0101 home_room=1 verdict=ok ki_action=10 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0x8A870BDF params=0xFFFF0101 home_room=1 verdict=ok ki_action=1 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0xAA63D89D params=0xFFFF0101 home_room=1 verdict=ok ki_action=1 ki_m2dc=0
+ident kind=ki proc=0x00D8 setID=0xFFFF pkey=0xABBB35CB params=0xFFFF0101 home_room=1 verdict=ok ki_action=1 ki_m2dc=0
+summary idents=10 taken=10 refused=0
+B's own unadopted Keese (6 of its 10; not mirrored, no co-op so no placed-kill relay) swarmed B during the swings: B's walk went 9 -> 5 -> 4, the 4 left are the adopted copies; A kept 9 (only the mirrored kill crossed). Expected outside co-op.
+[enemy-B] enemy client: ACK setID 0xFFFF handle 48 hit 1 applied_at/none frames 1 sets 1 health -3
+[enemy-A] enemy host: actors: the actor changed since the walk: proc 0x00D8 setID 0xFFFF pkey 0x3FD6E594 pid 847 at 0x80AADA94; walking again

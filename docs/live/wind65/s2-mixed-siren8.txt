@@ -1,0 +1,21 @@
+== Siren 0 8, every kind on (mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u,mt+u), A=host B=client
+-- A enemy-match --dry (before)
+(goldens equal before: 4 am2 + 2 ki, B adopted 1111 = the 4 am2)
+-- A enemy-kill 410 (am2 pkey 0x328CB2C6) --yes: the actor is gone (the shrink ran its course)
+[enemy-A] enemy host: actors: the actor changed since the walk: proc 0x00CC setID 0xFFFF pkey 0x328CB2C6 pid 410 at 0x80AA05C8; walking again
+[enemy-A] enemy host: 5 enemies (mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u,mt+u) in Siren room 8
+[enemy-B] enemy client: seq 5581 write_ms 98978 ack 5579 frame 4108 beat 5218 adopted 1111 slots [0:am2 uB6AEBC29Q][1:am2 u35EF15CDQ][2:am2 uE1A75CCCQ][3:ki 1Q] status [0:s1 e0 a1 bck0F n1][1:s1 e0 a1 bck0F n1][2:s1 e0 a1 bck0F n1][3:s1 e0 a1 bck12 n1] canaries {PauseReasserts:0 AnmUnresolved:0 RevalidateFailures:0 WatchdogReleases:1} canaries2 {AnmResNull:0 AnmRange:0 HitNoCross:0 HitAborted:0}
+-- a enemy-match --dry (after)
+ident kind=am2 proc=0x00CC setID=0xFFFF pkey=0x35EF15CD params=0x8001FFFF home_room=8 home=0xC417D8F9,0x43656B83,0xC632CF88 verdict=ok
+ident kind=am2 proc=0x00CC setID=0xFFFF pkey=0xB6AEBC29 params=0x8001FFFF home_room=8 home=0x4417936D,0x43648267,0xC632DE08 verdict=ok
+ident kind=am2 proc=0x00CC setID=0xFFFF pkey=0xE1A75CCC params=0x8001FFFF home_room=8 home=0x4417DF49,0x43638FC2,0xC63A7BD9 verdict=ok
+ident kind=ki proc=0x00D8 setID=0x0000 pkey=0x5B7E2208 params=0xFFFF0001 home_room=8 home=0x43A2D236,0x442BFEB2,0xC650CD3C verdict=ok
+ident kind=ki proc=0x00D8 setID=0x0001 pkey=0xFB401F91 params=0xFFFF0001 home_room=8 home=0xC39D0E9D,0x446F1D6C,0xC64FFAE7 verdict=ok
+summary idents=5 taken=5 refused=0
+-- b enemy-match --dry (after)
+ident kind=am2 proc=0x00CC setID=0xFFFF pkey=0x35EF15CD params=0x8001FFFF home_room=8 home=0xC417D8F9,0x43656B83,0xC632CF88 verdict=ok
+ident kind=am2 proc=0x00CC setID=0xFFFF pkey=0xB6AEBC29 params=0x8001FFFF home_room=8 home=0x4417936D,0x43648267,0xC632DE08 verdict=ok
+ident kind=am2 proc=0x00CC setID=0xFFFF pkey=0xE1A75CCC params=0x8001FFFF home_room=8 home=0x4417DF49,0x43638FC2,0xC63A7BD9 verdict=ok
+ident kind=ki proc=0x00D8 setID=0x0000 pkey=0x5B7E2208 params=0xFFFF0001 home_room=8 home=0x43A2D236,0x442BFEB2,0xC650CD3C verdict=ok
+ident kind=ki proc=0x00D8 setID=0x0001 pkey=0xFB401F91 params=0xFFFF0001 home_room=8 home=0xC39D0E9D,0x446F1D6C,0xC64FFAE7 verdict=ok
+summary idents=5 taken=5 refused=0

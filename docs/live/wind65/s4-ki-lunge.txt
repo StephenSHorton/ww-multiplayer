@@ -1,0 +1,16 @@
+== M_Dai 15 14 (6 keyed Keese + 1 Stalfos), every kind on; B adopted 1111 [ki 5][ki 2][ki 6][ki 3]
+A walked back and forth (stick 1.5 s each way, 8 times) under the Keese; enemy-watch --kind ki 45 on both
+-- A: samples with the Tg at 20, by setID
+ 105 setID 0x0002
+ 158 setID 0x0005
+-- A: LUNGE flag samples
+265
+-- A: first such sample, colliders
+setID 0x0002 action 10 flags2 0x05 [ATTN LUNGE] bck 0x0F ATTACK1 | at+0x580 at/tg/co 0x5/0x0/0x0 c 2945.2 -1123.5 9781.8 r 30.0 | co+0x6AC at/tg/co 0x0/0x0/0x25 c 2945.2 -1123.5 9781.8 r 0.0 | tg+0x7D8 at/tg/co 0x0/0x3/0x0 c 2945.2 -1123.5 9781.8 r 20.0 
+-- B: samples with the Tg at 20, by setID
+ 109 setID 0x0002
+ 154 setID 0x0005
+-- B: LUNGE flag samples
+0
+-- B: first such sample, colliders
+setID 0x0002 action 1 flags2 0x01 [ATTN] bck 0x0F ATTACK1 | at+0x580 at/tg/co 0x5/0x0/0x0 c 2852.7 -953.4 9041.1 r 0.0 | co+0x6AC at/tg/co 0x0/0x0/0x25 c 2948.1 -1120.9 9780.1 r 0.0 | tg+0x7D8 at/tg/co 0x0/0x3/0x0 c 2948.1 -1120.9 9780.1 r 20.0 
