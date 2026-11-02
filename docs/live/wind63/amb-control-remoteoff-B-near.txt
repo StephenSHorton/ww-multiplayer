@@ -1,0 +1,7 @@
+remote bodies off, B's Link 300 from pot #6:
+  56  0x80AA1A70  pid 973    proc 0x00BE bk     set -     enemy  room   7  (   2495.0    5400.0     100.0)  hp 5/5  params 0xFFFF3203  enemyice ok, mode 1, shrink timer 0, weapon pid 991 (holding record 1); K1 ok
+  66  0x80A90C9C  pid 990    proc 0x01D5 boko   set -     actor  room   7  (   3998.1    3900.0    -464.5)
+  67  0x80A903D4  pid 991    proc 0x01D5 boko   set -     actor  room   7  ( -10000.0  -10000.0       0.0)  CARRY
+  56  0x80AA1A70  pid 1219   proc 0x00BE bk     set -     enemy  room   7  (   2495.0    5400.0     100.0)  hp 5/5  params 0xFFFF3203  enemyice ok, mode 1, shrink timer 0, weapon pid 1237 (holding record 1); K1 held: paused: mirror (mPauseFlag 0x01)
+  66  0x80A90C9C  pid 1236   proc 0x01D5 boko   set -     actor  room   7  (   3787.1    5268.2      62.7)
+  67  0x80A903D4  pid 1237   proc 0x01D5 boko   set -     actor  room   7  ( -10000.0  -10000.0       0.0)  CARRY

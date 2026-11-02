@@ -1,0 +1,4 @@
+scope stage=M_NewD2 room=3 kinds=bb walk=complete
+ident kind=bb proc=0x00B6 setID=0x0000 pkey=0xA878DA3A params=0xFFFFFF04 home_room=3 home=0xC5A37960,0x450307CD,0xC4B32706 verdict=ok pid=2270 bb_type=4 bb_m2df=0 bb_knock=0.00 bb_live=ok
+ident kind=bb proc=0x00B6 setID=0x0002 pkey=0x780F5DD2 params=0xFFFF0507 home_room=3 home=0x432EFE0C,0x45672B80,0xC5B92800 verdict=ok pid=2280 bb_type=7 bb_m2df=0 bb_knock=0.00 bb_live=ok
+summary idents=2 taken=2 refused=0

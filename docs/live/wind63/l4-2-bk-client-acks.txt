@@ -1,0 +1,3 @@
+[enemy-B] enemy client: ACK setID 0x1 handle 4 hit 1 applied_at/none frames 1 sets 1 health 3
+[enemy-B] enemy client: ACK setID 0x0 handle 3 hit 2 applied_at/none frames 1 sets 1 health 3
+[enemy-B] enemy client: ACK setID 0x0 handle 3 hit 3 applied_at/none frames 1 sets 1 health 1

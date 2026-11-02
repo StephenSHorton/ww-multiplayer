@@ -1,0 +1,5 @@
+  timer 91
+the actor is gone (the shrink ran its course)
+A:
+B:
+adopted 1111 slots [0:cc 0Q][1:cc 1Q][2:cc 2Q][3:cc 3Q]

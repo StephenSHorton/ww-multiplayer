@@ -1,0 +1,5 @@
+[enemy-B] enemy client: ACK setID 0x0 handle 4 hit 1 applied_at/none frames 1 sets 1 health -2
+A:
+  77  0x80A8D6C4  pid 2659   proc 0x00B6 bb     set 2     enemy  room   3  (    175.0    3698.7   -5925.0)  hp 2/2  params 0xFFFF0507  enemyice ok, mode 1, shrink timer 0; K1 ok
+B:
+  77  0x80A8DCF4  pid 2393   proc 0x00B6 bb     set 2     enemy  room   3  (    175.0    3698.7   -5925.0)  hp 2/2  params 0xFFFF0507  enemyice ok, mode 1, shrink timer 0; K1 held: paused: mirror (mPauseFlag 0x01)

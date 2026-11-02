@@ -1,0 +1,16 @@
+bk:hooks=ambush (client), remote bodies off, copy hidden:
+  56  0x80AA1A70  pid 1302   proc 0x00BE bk     set -     enemy  room   7  (   2495.0    5400.0     100.0)  hp 5/5  params 0xFFFF3203  enemyice ok, mode 1, shrink timer 0, weapon pid 1320 (holding record 1); K1 held: paused: mirror (mPauseFlag 0x01)
+  66  0x80A90C9C  pid 1319   proc 0x01D5 boko   set -     actor  room   7  (   3091.4    5400.0     144.6)
+  67  0x80A903D4  pid 1320   proc 0x01D5 boko   set -     actor  room   7  (   2505.9    5499.9     124.2)  CARRY
+  0x81B06614: 0xBF530FEB  (f32: -0.8245)
+  0x81B06618: 0x3D980343  (f32: 0.0742)
+  0x81B0661C: 0xBF0F9FA2  (f32: -0.5610)
+  0x81B06620: 0x451C9E26  (f32: 2505.8843)
+  0x81B06624: 0xBF0B7979  (f32: -0.5448)
+  0x81B06628: 0x3E27FC7E  (f32: 0.1640)
+  0x81B0662C: 0x3F52856B  (f32: 0.8223)
+  0x81B06630: 0x45ABDF30  (f32: 5499.8984)
+  0x81B06634: 0x3E1CBFBC  (f32: 0.1531)
+  0x81B06638: 0x3F7BD0DA  (f32: 0.9837)
+  0x81B0663C: 0xBDC22D3D  (f32: -0.0948)
+  0x81B06640: 0x42F87FCD  (f32: 124.2496)

@@ -1,0 +1,25 @@
+== A
+enemy block at 0x80413100 (0x198 bytes); REL words: magic 0x5757524C linked=true build 0xCAC6980B frames 20677
+Go span: magic 0x5757454E 'WWEN' seq_head 135 seq_tail 135 host_beat 0 go_write_ms 2593452810 count 0 flags 0x01 layout 4 epoch 5532 stage "M_NewD2" room 7 role 1 kind_mask 0xF knob_gen 5533 hkd_hi 00 00 00 00 00 00 00 00
+annex at 0x804130C8: annex_seq 135 aux [[0 0 0 0] [0 0 0 0] [0 0 0 0] [0 0 0 0]] override [{HookDisable:0 QuietFrames:0 TgHitUp:0} {HookDisable:0 QuietFrames:0 TgHitUp:0} {HookDisable:0 QuietFrames:0 TgHitUp:0}] invuln_wait [0 0 0] hkdx 00 00 00 00 tn_tg_hit_up 0
+knob table at 0x80413750: gen_head 5533 gen_tail 5533 layout 4 count 16: valid for knob_gen; hook [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] quiet [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] tg_hit_up [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] invuln [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  hit_apply: seq 0 setID 0 collider 0 flags 0x00 atType 0x00000000 atp 0 se 0 hit_mark 0 spl 0 pos 0.0 0.0 0.0 pid 0
+REL span: ack_seq 135 ack_frame 20674 adopted 0000 epoch_seen 5532 hit_apply_ack 277807107 result 2 detail 0 frames 0 sets 0 canaries pause_reasserts 0 anm_unresolved 0 revalidate_failures 0 watchdog_releases 1 canaries2 {0 0 0 0} knob_gen_seen 5533 fp_miss 0
+  status 0: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 1884 anm_state 0 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 1: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 1884 anm_state 0 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 2: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 1884 anm_state 0 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 3: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 1884 anm_state 0 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+== B
+enemy block at 0x80413100 (0x198 bytes); REL words: magic 0x5757524C linked=true build 0xCAC6980B frames 20610
+Go span: magic 0x5757454E 'WWEN' seq_head 556 seq_tail 556 host_beat 0 go_write_ms 11003 count 0 flags 0x01 layout 4 epoch 1 stage "M_NewD2" room 7 role 2 kind_mask 0x0 knob_gen 65381 hkd_hi 00 00 00 00 00 00 00 00
+annex at 0x804130C8: annex_seq 556 aux [[0 0 0 0] [0 0 0 0] [0 0 0 0] [0 0 0 0]] override [{HookDisable:0 QuietFrames:0 TgHitUp:0} {HookDisable:0 QuietFrames:0 TgHitUp:0} {HookDisable:0 QuietFrames:0 TgHitUp:0}] invuln_wait [0 0 0] hkdx 00 00 00 00 tn_tg_hit_up 0
+knob table at 0x80413750: gen_head 65381 gen_tail 65381 layout 4 count 16: valid for knob_gen; hook [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] quiet [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] tg_hit_up [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] invuln [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  hit_apply: seq 0 setID 0 collider 0 flags 0x00 atType 0x00000000 atp 0 se 0 hit_mark 0 spl 0 pos 0.0 0.0 0.0 pid 0
+REL span: ack_seq 556 ack_frame 20159 adopted 0000 epoch_seen 1 hit_apply_ack 0 result 0 detail 0 frames 0 sets 0 canaries pause_reasserts 0 anm_unresolved 0 revalidate_failures 0 watchdog_releases 7 canaries2 {0 0 0 0} knob_gen_seen 65381 fp_miss 0
+  status 0: actor 0x00000000 pid 0 state 2 pause_prev 0x00 last_err 0 frames 319 anm_state 0 bck 0x3D anm_changes 4; hit: seq 0 collider 0 pending 0
+  status 1: actor 0x00000000 pid 0 state 2 pause_prev 0x00 last_err 0 frames 319 anm_state 0 bck 0x52 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 2: actor 0x00000000 pid 0 state 2 pause_prev 0x00 last_err 0 frames 319 anm_state 0 bck 0x14 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 3: actor 0x00000000 pid 0 state 2 pause_prev 0x00 last_err 0 frames 319 anm_state 0 bck 0x14 anm_changes 1; hit: seq 0 collider 0 pending 0
+== B log tail
+[enemy-B] enemy client: REL module linked (build CAC6980B, frame 20336)
+[enemy-B] enemy client: not mirroring: the host is in M_NewD2 room 7, this game in M_Dra09 room 9

@@ -1,0 +1,2 @@
+scope stage=M_Dra09 room=9 kinds=mo2+u,bk+u,bb+u walk=complete
+summary idents=0 taken=0 refused=0
