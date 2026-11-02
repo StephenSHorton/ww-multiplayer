@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -209,6 +210,43 @@ func TestFrontendDOM(t *testing.T) {
 		{"no Room items before the world", "s=ingame&room=none", func(d string) string {
 			if !regexp.MustCompile(`id="room-panel"[^>]*hidden`).MatchString(d) {
 				return "the room card shows with no world"
+			}
+			return ""
+		}},
+		{"the Room items card's dungeons (wind#56)", "s=ingame", func(d string) string {
+			m := regexp.MustCompile(`(?s)<ul class="dungeons" id="room-dungeons">(.*?)</ul>`).FindStringSubmatch(d)
+			if m == nil {
+				return "no Dungeons section"
+			}
+			rows := regexp.MustCompile(`(?s)<li[^>]*>.*?</li>`).FindAllString(m[1], -1)
+			if len(rows) != 7 {
+				return fmt.Sprintf("%d dungeon rows, want 7", len(rows))
+			}
+			for i, n := range []string{"Forsaken Fortress", "Dragon Roost Cavern", "Forbidden Woods", "Tower of the Gods", "Earth Temple", "Wind Temple", "Ganon's Tower"} {
+				if !strings.Contains(rows[i], n) {
+					return "row " + fmt.Sprint(i) + " isn't " + n
+				}
+			}
+			drc, ff, gt := rows[1], rows[0], rows[6]
+			switch {
+			case !strings.Contains(drc, "Blake is here") || !strings.Contains(drc, `class="here"`):
+				return "Blake isn't marked in DRC"
+			case !strings.Contains(drc, "1 key") || !strings.Contains(drc, "3 of 4 found"):
+				return "DRC's key row isn't inside its dungeon row"
+			case !regexp.MustCompile(`<span class="on"[^>]*><i></i>Map</span>`).MatchString(drc):
+				return "DRC's map isn't marked"
+			case strings.Contains(ff, "kcount") || strings.Contains(gt, "kcount") || strings.Contains(ff, "dkeys") || strings.Contains(gt, "dkeys"):
+				return "FF or GT shows key pips"
+			case !strings.Contains(rows[2], "Not seen yet"):
+				return "FW's unseen key table isn't in its row"
+			case strings.Contains(d, `<ul class="keys">`):
+				return "the progress card still lists the keys with the world in"
+			}
+			return ""
+		}},
+		{"keys before the world (wind#56)", "s=ingame&room=none", func(d string) string {
+			if !strings.Contains(d, `<ul class="keys">`) || !strings.Contains(d, "3 of 4 found") {
+				return "with no world the progress card lost its key rows"
 			}
 			return ""
 		}},

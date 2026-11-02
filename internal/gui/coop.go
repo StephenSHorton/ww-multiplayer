@@ -614,7 +614,7 @@ func pipeView(cs session.CoopStatus) CoopPipeView {
 		Escapes: cs.Escapes, Failed: cs.Failed, DryRun: cs.DryRun, Paused: cs.WritesOff != "" && !cs.DryRun,
 		Progression: append([]string{}, cs.Progression...), Puzzle: cs.Puzzle, Combat: cs.Combat, Tuner: cs.Tuner,
 		Shares: append([]string{}, cs.Shares...), Held: append([]string{}, cs.HeldStory...), Keys: []CoopKeyView{},
-		NoKeyTable: cs.NoKeyTable, Life: cs.Life, LifeWhy: cs.LifeWhy, Room: roomView(cs.Room), Activity: []CoopActivityView{}}
+		NoKeyTable: cs.NoKeyTable, Life: cs.Life, LifeWhy: cs.LifeWhy, Room: roomView(cs.Room, partnersHere(cs)), Activity: []CoopActivityView{}}
 	for _, a := range cs.Activity {
 		v.Activity = append(v.Activity, CoopActivityView{ID: a.ID, At: a.At.UnixMilli(), Who: a.Who, Kind: a.Kind, Text: a.Text})
 	}
