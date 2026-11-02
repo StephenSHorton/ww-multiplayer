@@ -1,0 +1,8 @@
+[ 0.000s] walk: 85 actors (complete), 3 ki in room 4 of "M_NewD2", 3 taken:
+     16 setID 0x0002 pid 405 pos 1978.5 3695.6 -2845.2 ang -16202 hp 1 mode 1 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x00 [] flags2 0x01 [ATTN] bck 0x14 WAIT1 attr 2 seq 0 morf 0 frame 30.03 rate 1.00 blur 0 scale 0.00 attn 0x4 end 61 cur 0/-16202/255 shape 0/-16202/0 dy 0 status 0x08040120 freeze 0 dormant true beh 1 m2D4 0 
+   1968 setID 0x0002 pid 405 pos 1978.5 3695.6 -2845.2 ang -16202 hp 0 mode 1 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x02 [DYING] flags2 0x00 [] bck 0x14 WAIT1 attr 2 seq 0 morf 0 frame 28.30 rate 1.00 blur 0 scale 0.00 attn 0x0 end 61 cur 0/-16202/255 shape 0/-16202/0 dy 0 status 0x08040120 freeze 0 dormant true beh 1 m2D4 0
+   2096 setID 0x0002 pid 405 pos 1978.5 3695.6 -2845.2 ang -16202 hp 0 mode 1 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x02 [DYING] flags2 0x00 [] bck 0x14 WAIT1 attr 0 seq 1 morf 0 frame 35.26 rate 3.00 blur 0 scale 0.00 attn 0x0 end 61 cur 0/-16202/255 shape 0/-16202/0 dy 0 status 0x08040120 freeze 0 dormant true beh 1 m2D4 0
+   2400 setID 0x0002 pid 405 pos 1978.5 3695.6 -2845.2 ang -16202 hp 0 mode 1 action 0 tilt 0/0 aux 0/0/0/0 ice 0 flags 0x02 [DYING] flags2 0x00 [] bck 0x14 WAIT1 attr 0 seq 1 morf 0 frame 61.00 rate 0.00 blur 0 scale 0.00 attn 0x0 end 61 cur 0/-16202/255 shape 0/-16202/0 dy 0 status 0x08040120 freeze 0 dormant true beh 1 m2D4 0
+[ 4.928s] proc 0x00D8 setID 0x0002 pkey 0xFD080FE1 pid 405: actors: the actor changed since the walk: proc 0x00D8 setID 0x0002 pkey 0xFD080FE1 pid 405 at 0x80A9CD28
+[ 4.928s] walk: 85 actors (complete), 3 ki in room 4 of "M_NewD2", 2 taken:
+[ 5.440s] walk: 84 actors (complete), 2 ki in room 4 of "M_NewD2", 2 taken:

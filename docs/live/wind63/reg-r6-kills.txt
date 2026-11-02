@@ -1,0 +1,7 @@
+the actor is gone (the shrink ran its course); room 6's zone slot 0 records setID 0 dead: true
+the actor is gone (the shrink ran its course); room 6's zone slot 0 records setID 1 dead: true
+A:
+setID=0x0002 pkey=0x0C4774DC params=0xFFFF0002
+B:
+setID=0x0002 pkey=0x0C4774DC params=0xFFFF0002
+  79  0x80A946E4  pid 1838   proc 0x00BE bk     set 2     enemy  room   6  (    623.7    3757.2    2158.6)  hp 5/5  params 0xFFFF0002  enemyice ok, mode 1, shrink timer 0, weapon pid 1862 (holding record 1); K1 held: paused: mirror (mPauseFlag 0x01)

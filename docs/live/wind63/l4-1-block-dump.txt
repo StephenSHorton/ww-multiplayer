@@ -1,0 +1,26 @@
+== A
+enemy block at 0x80413100 (0x198 bytes); REL words: magic 0x5757524C linked=true build 0xCAC6980B frames 2805
+Go span: magic 0x5757454E 'WWEN' seq_head 102 seq_tail 102 host_beat 0 go_write_ms 2591845552 count 0 flags 0x01 layout 4 epoch 3934 stage "Hyrule" room 0 role 1 kind_mask 0x8F knob_gen 3935 hkd_hi 00 00 00 00 00 00 00 00
+annex at 0x804130C8: annex_seq 102 aux [[0 0 0 0] [0 0 0 0] [0 0 0 0] [0 0 0 0]] override [{HookDisable:0 QuietFrames:0 TgHitUp:0} {HookDisable:0 QuietFrames:0 TgHitUp:0} {HookDisable:0 QuietFrames:0 TgHitUp:0}] invuln_wait [0 0 0] hkdx 00 00 00 00 tn_tg_hit_up 0
+knob table at 0x80413750: gen_head 3935 gen_tail 3935 layout 4 count 16: valid for knob_gen; hook [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] quiet [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] tg_hit_up [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] invuln [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  hit_apply: seq 0 setID 0 collider 0 flags 0x00 atType 0x00000000 atp 0 se 0 hit_mark 0 spl 0 pos 0.0 0.0 0.0 pid 0
+REL span: ack_seq 102 ack_frame 2802 adopted 0000 epoch_seen 3934 hit_apply_ack 0 result 0 detail 0 frames 0 sets 0 canaries pause_reasserts 0 anm_unresolved 0 revalidate_failures 0 watchdog_releases 0 canaries2 {0 0 0 0} knob_gen_seen 3935 fp_miss 0
+  status 0: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 0 anm_state 0 bck 0x00 anm_changes 0; hit: seq 0 collider 0 pending 0
+  status 1: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 0 anm_state 0 bck 0x00 anm_changes 0; hit: seq 0 collider 0 pending 0
+  status 2: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 0 anm_state 0 bck 0x00 anm_changes 0; hit: seq 0 collider 0 pending 0
+  status 3: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 0 anm_state 0 bck 0x00 anm_changes 0; hit: seq 0 collider 0 pending 0
+== B
+enemy block at 0x80413100 (0x198 bytes); REL words: magic 0x5757524C linked=true build 0xCAC6980B frames 2805
+Go span: magic 0x5757454E 'WWEN' seq_head 1544 seq_tail 1544 host_beat 3909 go_write_ms 25746 count 4 flags 0x07 layout 4 epoch 1 stage "Hyrule" room 0 role 2 kind_mask 0x8F knob_gen 27162 hkd_hi 00 00 00 00 00 00 00 00
+  slot 0: pid 342 proc 0x00CF pkey 0xF8F8E57A pos 4920.8 -2793.3 -18145.4 angle -14017 tilt 0 attack 0/0 health 1 flags 0x04 frame 0.00 rate 0.00 sample 1544 bck 0x21 attr 0 anm_seq 0 morf 0 flags2 0x94 blur 0/0.00
+  slot 1: pid 341 proc 0x00CF pkey 0xAE9A87A4 pos 4894.4 -2814.8 -18372.6 angle -14017 tilt 0 attack 0/0 health 1 flags 0x04 frame 0.00 rate 0.00 sample 1544 bck 0x21 attr 0 anm_seq 0 morf 0 flags2 0x94 blur 0/0.00
+  slot 2: pid 343 proc 0x00CF pkey 0xE192E7F9 pos 5404.0 -2760.3 -18311.3 angle -14017 tilt 0 attack 0/0 health 1 flags 0x04 frame 0.00 rate 0.00 sample 1544 bck 0x21 attr 0 anm_seq 0 morf 0 flags2 0x94 blur 0/0.00
+  slot 3: pid 345 proc 0x00CF pkey 0x267321E8 pos 5936.0 -2713.3 -18273.7 angle -14017 tilt 0 attack 0/0 health 1 flags 0x04 frame 0.00 rate 0.00 sample 1544 bck 0x21 attr 0 anm_seq 0 morf 0 flags2 0x94 blur 0/0.00
+annex at 0x804130C8: annex_seq 1544 aux [[0 0 0 0] [0 0 0 0] [0 0 0 0] [0 0 0 0]] override [{HookDisable:0 QuietFrames:0 TgHitUp:0} {HookDisable:0 QuietFrames:0 TgHitUp:0} {HookDisable:0 QuietFrames:0 TgHitUp:0}] invuln_wait [0 0 0] hkdx 00 00 00 00 tn_tg_hit_up 0
+knob table at 0x80413750: gen_head 27162 gen_tail 27162 layout 4 count 16: valid for knob_gen; hook [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] quiet [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] tg_hit_up [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] invuln [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0]
+  hit_apply: seq 0 setID 0 collider 0 flags 0x00 atType 0x00000000 atp 0 se 0 hit_mark 0 spl 0 pos 0.0 0.0 0.0 pid 0
+REL span: ack_seq 1543 ack_frame 2805 adopted 1111 epoch_seen 1 hit_apply_ack 0 result 0 detail 0 frames 0 sets 0 canaries pause_reasserts 0 anm_unresolved 0 revalidate_failures 0 watchdog_releases 0 canaries2 {0 0 0 0} knob_gen_seen 27162 fp_miss 0
+  status 0: actor 0x80A93CE0 pid 342 state 1 pause_prev 0x00 last_err 0 frames 764 anm_state 1 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 1: actor 0x80A9F3A0 pid 341 state 1 pause_prev 0x00 last_err 0 frames 764 anm_state 1 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 2: actor 0x80A92ECC pid 343 state 1 pause_prev 0x00 last_err 0 frames 764 anm_state 1 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0
+  status 3: actor 0x80A912A4 pid 345 state 1 pause_prev 0x00 last_err 0 frames 764 anm_state 1 bck 0x21 anm_changes 1; hit: seq 0 collider 0 pending 0

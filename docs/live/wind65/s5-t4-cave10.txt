@@ -1,0 +1,21 @@
+== Cave10 0 16 (every kind on, a superset of mo2+u,tn+u: the room holds only Moblins and Darknuts)
+both list 5: 3 mo2 (params 0xFFFFFF00) + 2 tn (params 0xFFFF9634, behaviour 4), goldens equal; B adopted 1111 [mo2 uC9C071CC][mo2 u17307D81][mo2 uFDB274D4][tn uA9E3B338]
+A enemy-kill mo2 0xC9C071CC: gone; B: adopted 1111 [tn uD5DCC00D][mo2 u17307D81][mo2 uFDB274D4][tn uA9E3B338] (the fifth takes the slot); 4 on both
+B swing.py on copy mo2 0x17307D81 (B 0x80AAF5B0):
+[enemy-B] enemy client: ACK setID 0xFFFF handle 60 hit 2 applied_at/none frames 1 sets 1 health 8
+[enemy-B] enemy client: ACK setID 0xFFFF handle 60 hit 3 applied_at/none frames 1 sets 1 health 6
+[enemy-B] enemy client: ACK setID 0xFFFF handle 60 hit 4 applied_at/none frames 1 sets 1 health 4
+[enemy-B] enemy client: ACK setID 0xFFFF handle 60 hit 5 applied_at/none frames 1 sets 1 health 2
+[enemy-B] enemy client: ACK setID 0xFFFF handle 60 hit 6 applied_at/none frames 1 sets 1 health 0
+[enemy-A] enemy host: 3 enemies (mo2+u,bk+u,cc+u,ki+u,am+u,am2+u,tn+u,bb+u,mt+u) in Cave10 room 16
+[enemy-A] enemy host: actors: the actor changed since the walk: Moblin setID 65535 pid 891 at 0x80AAF5B0; walking again
+-- a after
+ident kind=mo2 proc=0x00BD setID=0xFFFF pkey=0xFDB274D4 params=0xFFFFFF00 home_room=16 verdict=ok mo2_mode=0
+ident kind=tn proc=0x00C0 setID=0xFFFF pkey=0xA9E3B338 params=0xFFFF9634 home_room=16 verdict=ok tn_behavior=4 tn_action=4 tn_boss=0 tn_equip=2 tn_m02c1=0 tn_m1
+ident kind=tn proc=0x00C0 setID=0xFFFF pkey=0xD5DCC00D params=0xFFFF9634 home_room=16 verdict=ok tn_behavior=4 tn_action=4 tn_boss=0 tn_equip=2 tn_m02c1=0 tn_m1
+summary idents=3 taken=3 refused=0
+-- b after
+ident kind=mo2 proc=0x00BD setID=0xFFFF pkey=0xFDB274D4 params=0xFFFFFF00 home_room=16 verdict=ok mo2_mode=0
+ident kind=tn proc=0x00C0 setID=0xFFFF pkey=0xA9E3B338 params=0xFFFF9634 home_room=16 verdict=ok tn_behavior=4 tn_action=1 tn_boss=0 tn_equip=2 tn_m02c1=0 tn_m1
+ident kind=tn proc=0x00C0 setID=0xFFFF pkey=0xD5DCC00D params=0xFFFF9634 home_room=16 verdict=ok tn_behavior=4 tn_action=1 tn_boss=0 tn_equip=2 tn_m02c1=0 tn_m1
+summary idents=3 taken=3 refused=0

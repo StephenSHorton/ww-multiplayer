@@ -1,0 +1,4 @@
+  timer 91
+the actor is gone (the shrink ran its course)
+A:
+B:

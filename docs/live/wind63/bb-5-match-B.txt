@@ -1,0 +1,6 @@
+scope stage=M_Dra09 room=9 kinds=mo2+u,bk+u,bb+u walk=complete
+ident kind=bk proc=0x00BE setID=0xFFFF pkey=0x7C49AB68 params=0x2CFF9674 home_room=9 home=0xC4E5DC1F,0x46547FFE,0x43C92A5A verdict=ok pid=2576 bk_type=4
+ident kind=bk proc=0x00BE setID=0xFFFF pkey=0xDAA366C6 params=0x2CFF9674 home_room=9 home=0xC4EBBD1B,0x46547FFE,0x43740F83 verdict=ok pid=2575 bk_type=4
+boko kind=bk setID=0xFFFF pkey=0x7C49AB68 pid=2576 boko_pid=2648 boko_state=found boko_proc=0x01D5 boko_mode=0
+boko kind=bk setID=0xFFFF pkey=0xDAA366C6 pid=2575 boko_pid=2647 boko_state=found boko_proc=0x01D5 boko_mode=0
+summary idents=2 taken=2 refused=0

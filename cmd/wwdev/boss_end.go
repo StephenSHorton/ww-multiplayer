@@ -67,7 +67,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/diag"
 )
 
-const bossEndUsage = "boss-end <gohma|kalle|jalhalla|molgera|pg-maze|pg3|puppet|ganondorf> [--step flower|door|form1|form2|form3] [--variant natural|parry] [--dry-run] [--watch secs=20]"
+const bossEndUsage = "boss-end <gohma|kalle|jalhalla|molgera|pg-maze|pg3|puppet|ganondorf> [--step flower|door|form1|form2|form3] [--variant natural|parry] [--arena] [--dry-run] [--watch secs=20]"
 
 // bossEndDefaultWatch is --watch's default.
 const bossEndDefaultWatch = 20 * time.Second
@@ -181,7 +181,13 @@ const (
 type bossEndOpts struct {
 	Boss, Step, Variant string
 	DryRun              bool
-	Watch               time.Duration // 0: no watch
+	// Arena runs the plan in the boss's first-visit arena (bossDef.Arena:
+	// M_DragB, kinBOSS) instead of its refight stage, for the boss-dead
+	// relay's live rows (wind#62). The same actor, the same writes; the
+	// ending there sets the dungeon's STAGE_BOSS_ENEMY, not the trials
+	// event, so the watch is off unless --watch is given.
+	Arena bool
+	Watch time.Duration // 0: no watch
 	// Tick is the read-back's and the watch's sample period
 	// (enemyWatchTick); tests shorten it.
 	Tick time.Duration
@@ -311,7 +317,8 @@ type bossEnv struct {
 type bossDef struct {
 	Name     string
 	Stage    string
-	Room     int // mStayNo it needs; -1 any
+	Arena    string // the first-visit arena --arena uses; "" for none
+	Room     int    // mStayNo it needs; -1 any
 	Steps    []string
 	Variants []string
 	NeedStep bool
@@ -319,8 +326,8 @@ type bossDef struct {
 }
 
 var bossDefs = map[string]bossDef{
-	"gohma":     {Name: "Gohma", Stage: "Xboss0", Room: -1, Plan: planGohma},
-	"kalle":     {Name: "Kalle Demos", Stage: "Xboss1", Room: -1, Steps: []string{"flower"}, Variants: []string{"natural"}, Plan: planKalle},
+	"gohma":     {Name: "Gohma", Stage: "Xboss0", Arena: "M_DragB", Room: -1, Plan: planGohma},
+	"kalle":     {Name: "Kalle Demos", Stage: "Xboss1", Arena: "kinBOSS", Room: -1, Steps: []string{"flower"}, Variants: []string{"natural"}, Plan: planKalle},
 	"jalhalla":  {Name: "Jalhalla", Stage: "Xboss2", Room: -1, Variants: []string{"natural"}, Plan: planJalhalla},
 	"molgera":   {Name: "Molgera", Stage: "Xboss3", Room: -1, Variants: []string{"natural"}, Plan: planMolgera},
 	"pg-maze":   {Name: "Phantom Ganon (maze)", Stage: "GanonJ", Room: 13, Variants: []string{"natural"}, Plan: planPGMaze},
@@ -334,6 +341,7 @@ var bossDefs = map[string]bossDef{
 func parseBossEndArgs(args []string) (bossEndOpts, error) {
 	o := bossEndOpts{Watch: bossEndDefaultWatch, Tick: enemyWatchTick}
 	var pos []string
+	watchSet := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		name, ok := strings.CutPrefix(a, "--")
@@ -342,11 +350,15 @@ func parseBossEndArgs(args []string) (bossEndOpts, error) {
 			continue
 		}
 		name, val, hasVal := strings.Cut(name, "=")
-		if name == "dry-run" {
+		if name == "dry-run" || name == "arena" {
 			if hasVal {
-				return o, fmt.Errorf("--dry-run takes no value")
+				return o, fmt.Errorf("--%s takes no value", name)
 			}
-			o.DryRun = true
+			if name == "arena" {
+				o.Arena = true
+			} else {
+				o.DryRun = true
+			}
 			continue
 		}
 		if name != "step" && name != "variant" && name != "watch" {
@@ -365,6 +377,7 @@ func parseBossEndArgs(args []string) (bossEndOpts, error) {
 		case "variant":
 			o.Variant = val
 		case "watch":
+			watchSet = true
 			n, err := strconv.Atoi(val)
 			if err != nil || n < 0 || n > 3600 {
 				return o, fmt.Errorf("--watch must be seconds from 0 to 3600, not %q", val)
@@ -382,6 +395,14 @@ func parseBossEndArgs(args []string) (bossEndOpts, error) {
 	}
 	if o.Step != "" && !contains(d.Steps, o.Step) {
 		return o, fmt.Errorf("%s has no --step %s (steps: %s)", o.Boss, o.Step, orNone(d.Steps))
+	}
+	if o.Arena {
+		if d.Arena == "" {
+			return o, fmt.Errorf("%s has no --arena (only gohma and kalle: M_DragB, kinBOSS)", o.Boss)
+		}
+		if !watchSet {
+			o.Watch = 0
+		}
 	}
 	if d.NeedStep && o.Step == "" {
 		return o, fmt.Errorf("%s needs --step %s", o.Boss, strings.Join(d.Steps, "|"))
@@ -504,6 +525,9 @@ func planBossEnd(m mem.Mem, o bossEndOpts) (*bossPlan, error) {
 	snap, err := state.Read(m, state.Options{})
 	if err != nil {
 		return nil, err
+	}
+	if o.Arena {
+		d.Stage = d.Arena
 	}
 	if err := bossSnapRefusal(d, snap); err != nil {
 		return nil, err

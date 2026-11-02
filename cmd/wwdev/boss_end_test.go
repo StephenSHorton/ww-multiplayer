@@ -182,6 +182,22 @@ func TestBossEndGohma(t *testing.T) {
 	wantWrites(t, ws)
 }
 
+// TestBossEndGohmaArena: --arena runs the same plan in M_DragB (wind#62)
+// and refuses Xboss0; without it M_DragB is refused.
+func TestBossEndGohmaArena(t *testing.T) {
+	f := bossRoom(t, "M_DragB", 0, addr.TableDRC, fakegame.Enemy{Proc: stage.ProcBTD})
+	f.u32(t, f.at[0]+btdOffAct, 0x00010005)
+	r, out, ws := f.run(t, bossEndOpts{Boss: "gohma"})
+	wantOut(t, r, out, bossRefused, `stage "M_DragB", not Gohma's Xboss0`)
+	wantWrites(t, ws)
+	r, out, ws = f.run(t, bossEndOpts{Boss: "gohma", Arena: true})
+	wantOut(t, r, out, bossOK, "read-back: m02E4 0xB, mGohmaState 0x32")
+	wantWrites(t, ws, wr{f.at[0] + 0x2E4, 0x000B0032})
+	g := gohmaFix(t)
+	r, out, _ = g.run(t, bossEndOpts{Boss: "gohma", Arena: true})
+	wantOut(t, r, out, bossRefused, `stage "Xboss0", not Gohma's M_DragB`)
+}
+
 func TestBossEndGohmaRockNote(t *testing.T) {
 	f := gohmaFix(t)
 	f.u8(t, f.at[0]+btdOffRock, 1)
@@ -761,8 +777,14 @@ func TestParseBossEndArgs(t *testing.T) {
 	if o, err := parseBossEndArgs([]string{"gohma"}); err != nil || o.Watch != bossEndDefaultWatch {
 		t.Errorf("%+v %v", o, err)
 	}
+	if o, err := parseBossEndArgs([]string{"kalle", "--arena", "--step", "flower"}); err != nil || !o.Arena || o.Watch != 0 || o.Step != "flower" {
+		t.Errorf("--arena: %+v %v", o, err)
+	}
+	if o, err := parseBossEndArgs([]string{"gohma", "--arena", "--watch", "7"}); err != nil || !o.Arena || o.Watch != 7*time.Second {
+		t.Errorf("--arena --watch: %+v %v", o, err)
+	}
 	for _, args := range [][]string{
-		{}, {"gohdan"}, {"gohma", "x"}, {"gohma", "--step", "door"}, {"puppet"},
+		{}, {"gohdan"}, {"pg3", "--arena"}, {"gohma", "--arena=1"}, {"gohma", "x"}, {"gohma", "--step", "door"}, {"puppet"},
 		{"gohma", "--variant", "natural"}, {"ganondorf", "--variant", "natural"},
 		{"gohma", "--watch", "-1"}, {"gohma", "--step"}, {"gohma", "--bogus"},
 		{"pg3", "--step", "door", "--variant", "natural"},
