@@ -98,6 +98,7 @@ Each left the same list on both games (`l4-2-*-kill-A.txt`).
   - Mirror.disarm writes its count-0 block with `mailbox.EnemyAnnex{}` (mods/enemysync/client.go:1279; the dump showed HookDisable 0 and hkd_hi 0 in that block).
   - em_release's handback reads em_hkd from that zeroed annex, so the hook never applies at a scope-exit handback.
   - **wind#69** has the fix. The default settings are not affected.
+  - **Rerun on the fix** (branch wind69-disarm-annex, d021067; tools built from it, pair 7993/8003): same steps with `bk:hooks=ambush`. B's copy (pid 411) went from action/mode 15/0 to 0/0 within 5 s of A's hop, same pid, m02BA still 0xFF. The disarm block (count 0) shows BK HookDisable 64 (`amb-4-hook-ambush-wind69-B.txt`). The control passes on the fix.
 - **Regression** (in part: room 3's BK adopted in every visit but was not killed):
   - the room 6 pair (`9 6`, keyed setIDs 0 and 2, type 2, plus the type-4 setID 1): host kills of setIDs 0 and 1 left only setID 2 on both games;
   - r1 0xFFFF6443 (`20 1`) and r11 0xFFFF1E03 (`2 11`): after each host kill the BK was gone on both games, no ghost.
