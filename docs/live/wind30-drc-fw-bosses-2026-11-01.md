@@ -62,7 +62,23 @@ Pair 3 (A 52933, B 52976):
 
 ## Kalle Demos (s3)
 
-Pair 4 (A 8654, B 8685), 6-StartFW:
-- B: intro by walking onto the flower (Bmd mMode 0xA, then the fight). Boomerang added by poke, equipped by input.
-- KD-2: the vine cuts work by input (5 per throw seen), but the 20 vines regrow in waves (e.g. 0x0A -> 0x10) faster
-  than the throw cycle (about 10 s, 5-lock throws about 1 in 3); best reached was 8 left. Blocked, see the card.
+Vine cutting by input does not outpace the regrowth (20 vines; best seen 8 left, with 5-vine Boomerang throws about 1 in 3
+and a cycle of about 10 s). Stephen chose a recorded stand-in for the vine step only: Bmd +0x331 m331 = 0 and
++0x312 m312 = 3 (what a real cut sets, d_a_bmdhand.cpp:507), after which the game's own damage_check drops the flower
+(mMode 3, m302 1..5). Every hit on the flower stays real input.
+
+Pair 4 (A 8654, B 8685): A's Kalle killed by input (31 sword hits). B: not applied. A loop that kept re-dropping B's
+flower cut short Kalle's grab sequence, whose camera event is only cleared at its end (d_a_bmd.cpp:391), so B's event
+stayed running, B's IDLE gate stayed closed and the request was never written. The relay waits on IDLE silently:
+bossSent drops ErrClosed without a line, so the log stops at "asking the REL" (a logging gap worth a fix).
+
+Pair 5 (A 16485, B 16495): A's Kalle killed by input (28 hits). B died first (life refill off, Kalle reaches the
+entrance), continued at kindan, and the held bit landed on leaving (`set t04 FW boss defeated`, 0x28): KD-6's path again,
+not KD-2. No save written (No on the prompt).
+
+Pair 6 (A 75334, B 75344), B's life refill on throughout, B idle at the entrance, one flower drop:
+- **KD-2 PASS** (mp-local.out 512-519): `holding t04 FW boss defeated back`, `asking the REL ... once its flower is down
+  and open`, `boss_kill 1: waiting (mMode 0x2, m302 1, m304 0)`, one drop at 00:57:40, `boss_kill 3: waiting (mMode 0x3,
+  m302 1, m304 0)`, `boss_kill 4: applied (mMode 0x3, m302 2, m304 1)` at 00:57:42. Then by input on B: the death demo
+  (mMode 0xB), Makar (0x0150) drops and talks, the heart container taken (max life 0x15 -> 0x19, +4 once), the Warpf
+  (0x006A) at the body: B landed in Omori (point 214, layer 9). B's FW dungeonItem 0x00 held in kinBOSS, 0x38 after.
