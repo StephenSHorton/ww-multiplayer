@@ -187,11 +187,13 @@ go build -o wwdev.exe ./cmd/wwdev
 ./wwdev.exe dump                                        # Dump mailbox state (WWMB header + contract verdict, shadow_mode, pose seqs, etc.)
 ./wwdev.exe shadow-mode <0|5>                           # 0=off, 5=pose-feed (the dev modes 1-4 were deleted in Phase E0)
 ./wwdev.exe poke-u32 <addr-hex> <val-hex>               # Direct memory write
-./wwdev.exe boss-end <gohma|kalle|jalhalla|molgera|pg-maze|pg3|puppet|ganondorf> [--step S] [--variant natural|parry] [--dry-run] [--watch secs=20]
+./wwdev.exe boss-end <gohma|kalle|jalhalla|molgera|pg-maze|pg3|puppet|ganondorf> [--step S] [--variant natural|parry] [--arena] [--dry-run] [--watch secs=20]
                                                         # End a boss from its own actor's fields (cmd/wwdev/boss_end.go, wind#58): refuses the wrong stage, a pending
                                                         #   change, an event, the menu; writes only inside the boss (Link's flag for ganondorf --variant parry), never the save
                                                         #   or the REL request; read-back RACE check, then watches bit/NextStage/stage change. Exit 0 seen, 1 refused/ALREADY,
                                                         #   2 RACE or the game went another way, 3 watch ran out. Steps: kalle flower, pg3 door, puppet form1|form2|form3
+                                                        #   --arena (gohma, kalle): the same plan in the first-visit arena (M_DragB, kinBOSS) for the
+                                                        #   boss-dead relay rows (wind#62); the watch is off there unless --watch is given
 ./wwdev.exe move-puppet <x> <y> <z> [slot]              # Manually drive a puppet actor slot
 ./wwdev.exe unhide-puppet                               # Apply per-proc unhide poke (mSwitchNo / m678)
 
