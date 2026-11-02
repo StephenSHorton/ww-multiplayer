@@ -79,7 +79,7 @@ type GameDeps struct {
 // has the pipelines' feed.Env, the bundled cheats and co-op's coop-sync.
 func realGameDeps(ls *LiveState, c Config) *GameDeps {
 	var onClient func(*network.Client)
-	var onPos func(x, y, z float32)
+	var onPos feed.OnPos
 	var onVitals func(vissync.Vitals, bool)
 	if ls != nil {
 		onClient, onPos, onVitals = ls.SetClient, ls.SetLocalPos, ls.SetLocalVitals
@@ -538,7 +538,7 @@ func (g *GameRunner) finish(played map[uint32]bool) {
 // runPosePipelinesOn runs broadcast-pose and puppet-sync on Dolphin pid,
 // as runMultiplayerGoroutines does on the env's Dolphin (no co-op), with
 // fe the pipelines' feed.Env.
-func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, pid uint32, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), onVitals func(vissync.Vitals, bool)) error {
+func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, pid uint32, rep log.Reporter, onClient func(*network.Client), onPos feed.OnPos, onVitals func(vissync.Vitals, bool)) error {
 	connLog := feed.NewConnectLog(addr, rep)
 	return RunPipelines(ctx, cancel, rep,
 		Pipeline{Name: "broadcast-pose", Run: func(ctx context.Context) error {

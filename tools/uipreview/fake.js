@@ -15,6 +15,7 @@
 //	&tables=differ   ingame-host: Blake's stage tables differ (no switches, puzzles, kills, keys, hearts for him)
 //	&room=none       the Room items card before the hub's world came in
 //	&two=1           two players (no Sam): Warp to on the partner's row
+//	&places=1        in game without co-op: each row's place (in a place, Loading, last seen) and the "You are in" header
 //	&dry=1           this player's game runs a dry run (the host can still edit the rules)
 //	&slow=1          SetCoopShares answers out of order: the first call takes 800 ms, the rest none
 //	&upd=1           a newer release is out, in any scenario
@@ -31,6 +32,7 @@
 	const noRoom = q.get("room") === "none";
 	const two = q.get("two") === "1";
 	const noVitals = q.get("vitals") === "none";
+	const places = q.get("places") === "1";
 	const dry = q.get("dry") === "1";
 	const slow = q.get("slow") === "1";
 	let shareCalls = 0;
@@ -127,8 +129,8 @@
 	// every peer, a joiner only where its partner is (with one other
 	// player); Warp to is on the one other player's row (&two=1: no Sam).
 	const coopRow = (name) => !playing ? {} : host
-		? { coop: name === "Sam" ? "" : "Bound · DRC room 3" }
-		: { coop: two && name === "Blake" ? "DRC room 3" : "" };
+		? { coop: name === "Sam" ? "" : "Bound · Dragon Roost Cavern, room 3" }
+		: { coop: two && name === "Blake" ? "Dragon Roost Cavern, room 3" : "" };
 	const members = [
 		{ id: 1, name: host ? "Stephen" : "Blake", color: host ? "#2C5CE0" : "#F08C1E", colorName: host ? "blue" : "orange", ready: true, host: true, self: host, via: "app", away: false, ...dolphinChip, area: playing && !host ? "near" : "", dist: 140, rttMs: 0, file: playing ? "" : "File 1 “Link”: bound", canKick: false },
 		{ id: 2, name: host ? "Blake" : "Stephen", color: host ? "#F08C1E" : "#2C5CE0", colorName: host ? "orange" : "blue", ready: !host, host: false, self: !host, via: "app", away: S === "reconnecting", ...dolphinChip, area: playing && host ? "near" : "", dist: 140, rttMs: 24, file: playing ? "" : "File 2 “Stephen”: unbound", canKick: host },
@@ -143,6 +145,17 @@
 		Sam: { life: 52, maxLife: 52, magic: 0, maxMagic: 0, rupees: 1000 },
 	};
 	for (const m of members) Object.assign(m, coopRow(m.name), { canWarp: playing && two && !m.self, vitals: playing && !noVitals ? VITALS[m.name] : null });
+	// &places=1 (view.go memberPlace, no co-op): Blake in his room, Sam
+	// quiet for 14 s on the sea, Quill loading a stage.
+	if (places && playing) {
+		members.push({ id: 4, name: "Quill", color: "#8E44AD", colorName: "purple", ready: true, host: false, self: false, via: "app", away: false, ...dolphinChip, area: "", dist: 0, rttMs: 33, file: "", canKick: host });
+		const PLACES = {
+			Blake: { place: "Dragon Roost Cavern, room 5", placeState: "in", area: "near" },
+			Sam: { place: "Sea, B4 (Windfall Island)", placeState: "stale", lastSeen: 14, area: "" },
+			Quill: { place: "", placeState: "loading", area: "" },
+		};
+		for (const m of members) Object.assign(m, { coop: "", canWarp: false }, PLACES[m.name] || {});
+	}
 
 	// The rules (room.go rulesView) and the Room items card (roomView).
 	const RULES = [
@@ -243,7 +256,7 @@
 			}],
 			hub: S === "ingame-host" ? {
 				world: "7f3a91c2", seq: 412, features: "image|puzzle|combat|switches|story|inventory|keys|life|magic", merge: false,
-				peers: [{ name: "Blake", state: "bound", file: "bound", where: "DRC room 3" }], lines: ["hub puzzles: 14 dan, 6 zone", "hub combat: 37 kills"],
+				peers: [{ name: "Blake", state: "bound", file: "bound", where: "Dragon Roost Cavern, room 3" }], lines: ["hub puzzles: 14 dan, 6 zone", "hub combat: 37 kills"],
 			} : null,
 		} : null,
 		backup: "",
@@ -308,7 +321,8 @@
 					{ name: "Lin", color: "#C03CC0", x: 0, z: 0, drawn: false, pinned: false, square: "", island: "", where: "Xyzzy" },
 				],
 			} : null,
-			color: "#2C5CE0", startDolphinMyself: false, coop,
+			where: playing ? "Dragon Roost Cavern, room 3" : "",
+			color: "#2C5CE0", startDolphinMyself: false, coop: places ? null : coop,
 		};
 	}
 

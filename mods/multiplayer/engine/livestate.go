@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 )
@@ -45,6 +46,13 @@ type LiveState struct {
 	// (wind#55), set via SetLocalVitals.
 	localVitals    vissync.Vitals
 	hasLocalVitals bool
+	// localPlace/hasLocalPlace back session.Live's LocalStage/Room/InPlay:
+	// this game's place, read with the position (feed.ReadPlace).
+	localPlace    network.Place
+	hasLocalPlace bool
+
+	// now is the clock remote places are aged by (time.Now when nil).
+	now func() time.Time
 
 	// chat receives incoming chat lines from the puppet-sync client's OnChat
 	// callback (#20): Engine points it at the running session's
@@ -68,6 +76,7 @@ func (ls *LiveState) Begin(role, selfName string, hostIPs []string) {
 	ls.localX, ls.localY, ls.localZ = 0, 0, 0
 	ls.hasLocalPos = false
 	ls.localVitals, ls.hasLocalVitals = vissync.Vitals{}, false
+	ls.localPlace, ls.hasLocalPlace = network.Place{}, false
 }
 
 // SetChat points incoming chat at sink (nil drops it). begin() leaves it
@@ -122,10 +131,11 @@ func (ls *LiveState) SetClient(c *network.Client) {
 // successfully reads Link's position — see the onPos callback threaded
 // through runMultiplayerGoroutines, mirroring how onClient wires the
 // puppet-sync *network.Client into LiveState.
-func (ls *LiveState) SetLocalPos(x, y, z float32) {
+func (ls *LiveState) SetLocalPos(x, y, z float32, place network.Place, placeOK bool) {
 	ls.mu.Lock()
 	ls.localX, ls.localY, ls.localZ = x, y, z
 	ls.hasLocalPos = true
+	ls.localPlace, ls.hasLocalPlace = place, placeOK && place.Stage != ""
 	ls.mu.Unlock()
 }
 
@@ -151,6 +161,25 @@ func sessionVitals(v vissync.Vitals) session.Vitals {
 	return session.Vitals{Life: v.Life, MaxLife: v.MaxLife, Magic: v.Magic, MaxMagic: v.MaxMagic, Rupees: v.Rupees}
 }
 
+// LocalPlace reports this game's own place; ok is false until the first
+// broadcast-pose tick read one, and while the game is between stages.
+func (ls *LiveState) LocalPlace() (session.Place, bool) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	if !ls.hasLocalPlace {
+		return session.Place{}, false
+	}
+	p := ls.localPlace
+	return session.Place{Stage: p.Stage, Room: int(p.Room), InPlay: p.InPlay}, true
+}
+
+func (ls *LiveState) clock() time.Time {
+	if ls.now != nil {
+		return ls.now()
+	}
+	return time.Now()
+}
+
 // Players returns the OTHER humans in the session, one entry per person, as
 // network-free session.Player values. Returns nil when no client is registered
 // yet. The raw client snapshot is de-duplicated (see remoteViews +
@@ -159,7 +188,7 @@ func (ls *LiveState) Players() []session.Player {
 	ls.mu.Lock()
 	c, self := ls.client, ls.selfName
 	ls.mu.Unlock()
-	return dedupePlayersByName(remoteViews(c, self))
+	return dedupePlayersByName(remoteViews(c, self, ls.clock()))
 }
 
 // PlayerCount reports the truthful HUMAN count for BOTH roles. Whenever a
@@ -172,7 +201,7 @@ func (ls *LiveState) PlayerCount() int {
 	c, s, self := ls.client, ls.srv, ls.selfName
 	ls.mu.Unlock()
 	if c != nil {
-		return len(dedupePlayersByName(remoteViews(c, self))) + 1
+		return len(dedupePlayersByName(remoteViews(c, self, time.Time{}))) + 1
 	}
 	if s != nil {
 		return s.PlayerCount()
@@ -190,19 +219,33 @@ func (ls *LiveState) PlayerCount() int {
 // people. Returns nil when no client is registered. Position is nil for
 // connections that haven't broadcast yet (e.g. a remote's own puppet leg),
 // which dedupePlayersByName then collapses into the positioned twin.
-func remoteViews(c *network.Client, selfName string) []session.Player {
+func remoteViews(c *network.Client, selfName string, now time.Time) []session.Player {
 	if c == nil {
 		return nil
 	}
-	remotes := c.GetRemotePlayers() // deep copy under the client's RLock
-	now := time.Now()
+	return playerViews(c.GetRemotePlayers(), selfName, now) // deep copy under the client's RLock
+}
+
+// playerViews converts remotes to session.Player values (remoteViews, which
+// see), with each one's place as of now: its last place trailer, its age,
+// and whether it is still believed (RemotePlayer.PlaceFresh). A zero now
+// skips the places (PlayerCount needs none).
+func playerViews(remotes []network.RemotePlayer, selfName string, now time.Time) []session.Player {
 	out := make([]session.Player, 0, len(remotes))
-	for _, rp := range remotes {
+	for i := range remotes {
+		rp := &remotes[i]
 		if selfName != "" && rp.Name == selfName {
 			continue // our own broadcast/puppet twin — not another human
 		}
-		pv := playerView(rp)
-		pv.Place, pv.HasPlace = freshPlace(rp, now)
+		pv := playerView(*rp)
+		if rp.HasPlace && !now.IsZero() {
+			pv.Place = session.Place{Stage: rp.Place.Stage, Room: int(rp.Place.Room), InPlay: rp.Place.InPlay}
+			pv.HasPlace = true
+			pv.Fresh = rp.PlaceFresh(now)
+			if !rp.PlaceAt.IsZero() && now.After(rp.PlaceAt) {
+				pv.PlaceAge = now.Sub(rp.PlaceAt)
+			}
+		}
 		out = append(out, pv)
 	}
 	return out
@@ -231,37 +274,6 @@ func playerView(rp network.RemotePlayer) session.Player {
 // broadcast connection carries the real pose, which PR-C's minimap needs — else
 // the first seen is kept. Input order is otherwise preserved. Pure: no shared
 // state, safe to unit-test with canned input.
-// freshPlace is rp's place when its positions carry one (relay scoping's
-// trailer) and the last came within network.PlaceStale.
-func freshPlace(rp network.RemotePlayer, now time.Time) (session.Place, bool) {
-	if !rp.HasPlace || now.Sub(rp.PlaceAt) > network.PlaceStale {
-		return session.Place{}, false
-	}
-	return session.Place{Stage: rp.Place.Stage, Room: int(rp.Place.Room), InPlay: rp.Place.InPlay}, true
-}
-
-// LocalPlace is this player's own place: the server relays every position
-// to every other connection, so the puppet-sync client hears its own
-// broadcaster's (the self-named twin remoteViews leaves out). ok is false
-// without a fresh one.
-func (ls *LiveState) LocalPlace() (session.Place, bool) {
-	ls.mu.Lock()
-	c, self := ls.client, ls.selfName
-	ls.mu.Unlock()
-	if c == nil || self == "" {
-		return session.Place{}, false
-	}
-	now := time.Now()
-	for _, rp := range c.GetRemotePlayers() {
-		if rp.Name == self {
-			if p, ok := freshPlace(rp, now); ok {
-				return p, true
-			}
-		}
-	}
-	return session.Place{}, false
-}
-
 func dedupePlayersByName(in []session.Player) []session.Player {
 	if len(in) == 0 {
 		return nil
@@ -277,7 +289,14 @@ func dedupePlayersByName(in []session.Player) []session.Player {
 			// Same human already recorded: upgrade to the positioned entry when
 			// the one we kept has no known position but this one does.
 			if isZeroPos(out[i]) && !isZeroPos(p) {
+				if !p.HasPlace && out[i].HasPlace {
+					p.Place, p.HasPlace, p.Fresh, p.PlaceAge = out[i].Place, true, out[i].Fresh, out[i].PlaceAge
+				}
 				out[i] = p
+			} else if !out[i].HasPlace && p.HasPlace || p.HasPlace && p.Fresh && !out[i].Fresh {
+				// Keep the kept entry's position, take the place the other
+				// connection carries (the broadcaster's positions bring it).
+				out[i].Place, out[i].HasPlace, out[i].Fresh, out[i].PlaceAge = p.Place, true, p.Fresh, p.PlaceAge
 			}
 			continue
 		}
@@ -347,7 +366,7 @@ func LiveStateClientSetter(ls *LiveState) func(*network.Client) {
 // runMultiplayerGoroutines / feed.BroadcastPose expect, returning nil (no
 // registration) when ls is nil so CLI callers stay unaffected. Mirrors
 // LiveStateClientSetter above.
-func LiveStateLocalPosSetter(ls *LiveState) func(x, y, z float32) {
+func LiveStateLocalPosSetter(ls *LiveState) feed.OnPos {
 	if ls == nil {
 		return nil
 	}

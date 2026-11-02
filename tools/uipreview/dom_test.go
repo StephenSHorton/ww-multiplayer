@@ -98,6 +98,17 @@ func TestFrontendDOM(t *testing.T) {
 			}
 			return ""
 		}},
+		{"each row says where its game is", "s=ingame&places=1", func(d string) string {
+			for _, want := range []string{"You are in Dragon Roost Cavern, room 3", ">Dragon Roost Cavern, room 5<", ">Loading<", ">Sea, B4 (Windfall Island) · last seen 14s<"} {
+				if !strings.Contains(d, want) {
+					return "no " + want
+				}
+			}
+			if strings.Count(d, ">Same area<") != 1 {
+				return "only Blake is in the same area"
+			}
+			return ""
+		}},
 		{"a lobby counts its members", "s=ingame", func(d string) string {
 			if got := text(d, "me-status"); got != "In game · 3 players" {
 				return "sidebar status " + got
@@ -251,7 +262,7 @@ func TestFrontendDOM(t *testing.T) {
 			return ""
 		}},
 		{"Warp to on the partner's row", "s=ingame&two=1", func(d string) string {
-			if strings.Count(d, `class="rowact"`) != 1 || !strings.Contains(d, ">DRC room 3<") {
+			if strings.Count(d, `class="rowact"`) != 1 || !strings.Contains(d, ">Dragon Roost Cavern, room 3<") {
 				return "no single Warp to, or no partner chip, with two players"
 			}
 			return ""

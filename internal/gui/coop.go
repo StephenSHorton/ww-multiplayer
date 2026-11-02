@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
+	"github.com/StephenSHorton/ww-multiplayer/internal/placename"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
@@ -591,7 +592,7 @@ func coopPanel(st session.State, mk masker) *CoopPanelView {
 		for _, pr := range h.Peers {
 			pv := CoopPeerView{Name: mk.text(pr.Name), State: pr.State, File: pr.File}
 			if pr.Stage != "" {
-				pv.Where = fmt.Sprintf("%s room %d", pr.Stage, pr.Room)
+				pv.Where = placename.Describe(pr.Stage, pr.Room)
 			}
 			hv.Peers = append(hv.Peers, pv)
 		}
@@ -623,7 +624,7 @@ func pipeView(cs session.CoopStatus) CoopPipeView {
 			Have: k.Have, Taken: k.Taken, Sources: k.Sources, Open: k.Open, Doors: k.Doors, Held: k.Held, Target: k.Target, Pending: k.Pending})
 	}
 	if cs.PartnerStage != "" {
-		v.Partner = fmt.Sprintf("%s, room %d", cs.PartnerStage, cs.PartnerRoom)
+		v.Partner = placename.Describe(cs.PartnerStage, cs.PartnerRoom)
 	}
 	why := ""
 	if cs.Why != "" {

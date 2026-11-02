@@ -102,9 +102,9 @@ func TestMapPlaces(t *testing.T) {
 	st := session.State{Live: session.Live{LocalOK: true, LocalX: -200000, LocalZ: 320000,
 		LocalPlace: session.Place{Stage: "sea", Room: 44, InPlay: true}, LocalHasPlace: true,
 		Players: []session.Player{
-			{Name: "Komali", X: 10, Y: 1, Z: 20, Place: session.Place{Stage: "M_NewD2", Room: 3}, HasPlace: true},
-			{Name: "Aryll", X: 10, Y: 1, Z: 20, Place: session.Place{Stage: "Omasao"}, HasPlace: true},
-			{Name: "Zill", X: 10, Y: 1, Z: 20, Place: session.Place{Stage: "Xyzzy"}, HasPlace: true},
+			{Name: "Komali", X: 10, Y: 1, Z: 20, Place: session.Place{Stage: "M_NewD2", Room: 3}, HasPlace: true, Fresh: true},
+			{Name: "Aryll", X: 10, Y: 1, Z: 20, Place: session.Place{Stage: "Omasao"}, HasPlace: true, Fresh: true},
+			{Name: "Zill", X: 10, Y: 1, Z: 20, Place: session.Place{Stage: "Xyzzy"}, HasPlace: true, Fresh: true},
 			{Name: "Old", X: 5000, Y: 1, Z: -7000},
 		}}}
 	m := mapView(st, "#3c9e2e", hideIPs, ch)
@@ -326,5 +326,62 @@ func TestMemberVitals(t *testing.T) {
 	}
 	if v := memberVitals(st, "Sam", false); v != nil {
 		t.Errorf("Sam sends none, got %+v", v)
+	}
+}
+
+// TestStateViewPlaces: with places on the wire, each other row reads
+// where its game is ("in"), "loading" between stages and "stale" with its
+// age once quiet; the header says where we are; a partner on another stage,
+// loading or stale is never "same area", however near its coordinates
+// (the sea chart still places everyone); a partner whose build sends no place keeps the old
+// position hint.
+func TestStateViewPlaces(t *testing.T) {
+	st := gameState(session.LobbyPhaseInGame, session.DolphinInfo{State: session.DolphinInGame, PID: 7, Launched: true, Pipelines: true})
+	st.LocalPlace, st.LocalHasPlace = session.Place{Stage: "M_NewD2", Room: 3, InPlay: true}, true
+	tetra, medli := &st.Players[0], &st.Players[1]
+	tetra.Place, tetra.HasPlace, tetra.Fresh = session.Place{Stage: "M_NewD2", Room: 5, InPlay: true}, true, true
+	medli.X, medli.Z = 150, 150 // near by coordinates, but on the sea
+	medli.Place, medli.HasPlace, medli.Fresh = session.Place{Stage: "sea", Room: 11, InPlay: true}, true, true
+
+	v := stateView(st, true, "v1", time.Now(), hideIPs)
+	if v.Where != "Dragon Roost Cavern, room 3" {
+		t.Fatalf("Where %q", v.Where)
+	}
+	tv, mv := v.Lobby.Members[1], v.Lobby.Members[2]
+	if tv.Place != "Dragon Roost Cavern, room 5" || tv.PlaceState != "in" || tv.Area != "near" {
+		t.Fatalf("Tetra %+v", tv)
+	}
+	if mv.Place != "Sea, B4 (Windfall Island)" || mv.PlaceState != "in" || mv.Area != "" {
+		t.Fatalf("Medli on another stage %+v", mv)
+	}
+	// The sea chart places everyone (Tetra pinned to her dungeon's island):
+	// the place gate is for the Players rows' "same area" only.
+	if len(v.Map.Players) != 2 || !strings.HasPrefix(v.Map.Players[0].Name, "Tetra") || !v.Map.Players[0].Pinned {
+		t.Fatalf("map %+v", v.Map.Players)
+	}
+
+	// Medli loading, then quiet for 12 s.
+	medli.Place.Stage, medli.Place.InPlay = "M_NewD2", false
+	v = stateView(st, true, "v1", time.Now(), hideIPs)
+	if mv := v.Lobby.Members[2]; mv.PlaceState != "loading" || mv.Place != "" || mv.Area != "" {
+		t.Fatalf("loading %+v map %+v", mv, v.Map.Players)
+	}
+	medli.Place.InPlay, medli.Fresh, medli.PlaceAge = true, false, 12*time.Second+400*time.Millisecond
+	v = stateView(st, true, "v1", time.Now(), hideIPs)
+	if mv := v.Lobby.Members[2]; mv.PlaceState != "stale" || mv.LastSeen != 12 || mv.Place != "Dragon Roost Cavern, room 11" || mv.Area != "" {
+		t.Fatalf("stale %+v map %+v", mv, v.Map.Players)
+	}
+
+	// No place from Medli's build: the position hint as before.
+	*medli = session.Player{Name: "Medli", X: 150, Z: 150}
+	v = stateView(st, true, "v1", time.Now(), hideIPs)
+	if mv := v.Lobby.Members[2]; mv.PlaceState != "" || mv.Area != "near" {
+		t.Fatalf("no place %+v map %+v", mv, v.Map.Players)
+	}
+
+	// Our own game between stages: no header.
+	st.LocalPlace.InPlay = false
+	if v := stateView(st, true, "v1", time.Now(), hideIPs); v.Where != "" {
+		t.Fatalf("loading header %q", v.Where)
 	}
 }

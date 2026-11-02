@@ -1,13 +1,13 @@
 package gui
 
 import (
-	"fmt"
-	"github.com/StephenSHorton/ww-multiplayer/mods/coop/roomitems"
 	"slices"
 	"strings"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/placename"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/roomitems"
 )
 
 // The room: what co-op shares as rules the host changes while the session
@@ -341,8 +341,5 @@ func memberCoop(st session.State, name string, self bool, others int) (chip stri
 // placeChip is a stage and its room, or the stage alone while the room is
 // not known yet (-1 at a stage start, CoopStatus.PartnerRoom).
 func placeChip(stage string, room int) string {
-	if room < 0 {
-		return stage
-	}
-	return fmt.Sprintf("%s room %d", stage, room)
+	return placename.Describe(stage, room)
 }
