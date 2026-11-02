@@ -186,7 +186,7 @@ func TestRunMultiplayerGoroutinesEnemyRejectKeepsPose(t *testing.T) {
 	rep := &syncReporter{}
 	done := make(chan error, 1)
 	go func() {
-		done <- runMultiplayerGoroutines(ctx, cancel, idleEnv(ctx, &clears).Feed, "Link", "127.0.0.1:1", rep, nil, nil, nil, false)
+		done <- runMultiplayerGoroutines(ctx, cancel, idleEnv(ctx, &clears).Feed, "Link", "127.0.0.1:1", rep, nil, nil, nil, nil, false)
 	}()
 	deadline := time.Now().Add(5 * time.Second)
 	for rep.count("enemy sync off for this session") == 0 && time.Now().Before(deadline) {

@@ -75,7 +75,8 @@ func PoseFakeLoop(env Env, name, addr string) {
 		avatar.Localize(data, avatar.JointCount, pos.PosX, pos.PosY, pos.PosZ)
 		captured = data
 		var equip vissync.EquipSampler
-		face = faceTrailer(d, player.NewLink(d), [3]float32{pos.PosX, pos.PosY, pos.PosZ}, &equip, boatsync.SettingsFromEnv().On)
+		var vit vitalsSampler
+		face = faceTrailer(d, player.NewLink(d), [3]float32{pos.PosX, pos.PosY, pos.PosZ}, &equip, boatsync.SettingsFromEnv().On, vit.sample(d, time.Now()))
 		fmt.Printf("captured fake pose at (%.0f, %.0f, %.0f), face trailer %d bytes\n", pos.PosX, pos.PosY, pos.PosZ, len(face))
 	}
 	if captured == nil {

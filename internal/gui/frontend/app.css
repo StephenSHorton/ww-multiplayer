@@ -424,6 +424,18 @@ input.secret { -webkit-text-security: disc; text-security: disc; }
 .members .crown { flex: none; width: 22px; height: 17px; }
 .members .crown svg { display: block; width: 22px; height: 17px; }
 .members .chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-left: auto; }
+/* a member's hearts, magic and rupees in game (wind#55): a line of its own */
+.members .vitals { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding-left: 36px; font: 700 12px var(--body); color: var(--text-dim); }
+.members .vstat { display: inline-flex; align-items: center; gap: 6px; }
+.members .vstat b { font-variant-numeric: tabular-nums; color: var(--text); }
+.members .vbar { --c: var(--red); flex: none; width: 84px; height: 8px; border-radius: 999px; background: linear-gradient(90deg, var(--c) var(--p), color-mix(in srgb, var(--c) 16%, var(--surface)) var(--p)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent); }
+.members .vbar.magic { --c: var(--green); width: 56px; }
+.members .heart { font-style: normal; font-size: 13px; line-height: 1; color: var(--red); }
+.members .gem { flex: none; width: 8px; height: 12px; background: var(--green); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.members .vitals.low .vstat.life b { color: var(--red-ink); }
+.members .vitals.low .vbar.life { animation: lowlife 1.2s ease-in-out infinite; }
+@keyframes lowlife { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .members .vitals.low .vbar.life { animation: none; } }
 .members .empty { justify-content: center; padding: 14px; font: 700 13px var(--body); color: var(--text-dim); background: none; border-style: dashed; }
 /* Kick: the host's per-player action */
 .kick { flex: none; padding: 1px 10px 2px; cursor: pointer; font: 700 12px var(--body); color: var(--red-ink); background: var(--red-soft); border: 1px solid color-mix(in srgb, var(--red) 40%, transparent); border-radius: 999px; }

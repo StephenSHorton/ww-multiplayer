@@ -256,6 +256,24 @@ func TestFrontendDOM(t *testing.T) {
 			}
 			return ""
 		}},
+		{"every row's hearts, Blake's low", "s=ingame-host", func(d string) string {
+			if n := strings.Count(d, `class="vitals`); n != 3 {
+				return fmt.Sprintf("%d vitals lines, want 3", n)
+			}
+			if strings.Count(d, `class="vitals low"`) != 1 || !strings.Contains(d, ">¼ / 5<") {
+				return "Blake's quarter heart isn't the one low line"
+			}
+			if strings.Count(d, `class="vstat magic"`) != 2 {
+				return "a magic bar for Sam, who has no meter"
+			}
+			return ""
+		}},
+		{"no hearts from senders before them", "s=ingame-host&vitals=none", func(d string) string {
+			if strings.Contains(d, `class="vitals`) {
+				return "vitals lines with none known"
+			}
+			return ""
+		}},
 		{"no Warp to with three players", "s=ingame", func(d string) string {
 			if strings.Contains(d, `class="rowact"`) {
 				return "Warp to with two others"

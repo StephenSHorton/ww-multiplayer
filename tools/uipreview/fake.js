@@ -18,6 +18,7 @@
 //	&dry=1           this player's game runs a dry run (the host can still edit the rules)
 //	&slow=1          SetCoopShares answers out of order: the first call takes 800 ms, the rest none
 //	&upd=1           a newer release is out, in any scenario
+//	&vitals=none     in game, nobody's hearts, magic and rupees are known (senders from before them)
 //	&click=a,b       click these element ids in turn once the page is up
 (function () {
 	const q = new URLSearchParams(location.search);
@@ -29,6 +30,7 @@
 	const tablesDiffer = q.get("tables") === "differ";
 	const noRoom = q.get("room") === "none";
 	const two = q.get("two") === "1";
+	const noVitals = q.get("vitals") === "none";
 	const dry = q.get("dry") === "1";
 	const slow = q.get("slow") === "1";
 	let shareCalls = 0;
@@ -133,7 +135,14 @@
 		{ id: 3, name: "Sam", color: "#3C9A2E", colorName: "green", ready: false, host: false, self: false, via: "cli", away: false, dolphin: playing ? "title" : "", dolphinLabel: playing ? "Title screen" : "", area: playing ? "far" : "", dist: 5400, rttMs: 61, file: "", canKick: host },
 	];
 	if (two) members.pop();
-	for (const m of members) Object.assign(m, coopRow(m.name), { canWarp: playing && two && !m.self });
+	// In game, each row's hearts, magic and rupees (wind#55): Stephen and
+	// Sam at full hearts, Blake on his last quarter heart.
+	const VITALS = {
+		Stephen: { life: 24, maxLife: 24, magic: 16, maxMagic: 16, rupees: 342 },
+		Blake: { life: 1, maxLife: 20, magic: 3, maxMagic: 32, rupees: 47 },
+		Sam: { life: 52, maxLife: 52, magic: 0, maxMagic: 0, rupees: 1000 },
+	};
+	for (const m of members) Object.assign(m, coopRow(m.name), { canWarp: playing && two && !m.self, vitals: playing && !noVitals ? VITALS[m.name] : null });
 
 	// The rules (room.go rulesView) and the Room items card (roomView).
 	const RULES = [

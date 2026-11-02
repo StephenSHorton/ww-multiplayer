@@ -137,7 +137,7 @@ func runBroadcastPose(name, addr string) {
 	rep := log.Stdout{}
 	ctx, cancel := engine.CLIMultiplayerContext(rep)
 	defer cancel()
-	if err := feed.BroadcastPose(ctx, feedEnv, name, addr, 0, rep, nil, nil); err != nil {
+	if err := feed.BroadcastPose(ctx, feedEnv, name, addr, 0, rep, nil, nil, nil); err != nil {
 		engine.LogSessionErr(rep, err)
 		os.Exit(1)
 	}

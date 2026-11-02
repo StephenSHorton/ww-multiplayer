@@ -20,8 +20,9 @@
 // server relays as is, so the protocol version is unchanged. A receiver
 // from before it reads only the bytes it knows; a sender from before it
 // sends 19 bytes, which Decode reads as no boat. A run is always sent
-// once the equip bytes are (RunPresent clear when there is no ship), so a
-// later run can follow at a fixed offset.
+// once the equip bytes are (RunPresent clear when there is no ship, all
+// zero with boats off), so a later run can follow at a fixed offset: the
+// vitals (vissync vitals.go) end the trailer at 64.
 //
 // Receiver (puppet-sync): a Tracker turns the remotes' runs into the
 // block's entries each tick, Sync writes it when it changes. An aboard

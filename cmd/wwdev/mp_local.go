@@ -402,7 +402,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		}()
 	}
 	broadcast := func(name string, pid uint32) func(log.Reporter) error {
-		return func(r log.Reporter) error { return feed.BroadcastPose(ctx, feedEnv, name, addr, pid, r, nil, nil) }
+		return func(r log.Reporter) error { return feed.BroadcastPose(ctx, feedEnv, name, addr, pid, r, nil, nil, nil) }
 	}
 	puppet := func(name string, pid uint32) func(log.Reporter) error {
 		// With --coop, each Dolphin's warp to the partner takes the other's

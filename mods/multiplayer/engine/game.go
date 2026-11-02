@@ -14,6 +14,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/feed"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
@@ -79,8 +80,9 @@ type GameDeps struct {
 func realGameDeps(ls *LiveState, c Config) *GameDeps {
 	var onClient func(*network.Client)
 	var onPos func(x, y, z float32)
+	var onVitals func(vissync.Vitals, bool)
 	if ls != nil {
-		onClient, onPos = ls.SetClient, ls.SetLocalPos
+		onClient, onPos, onVitals = ls.SetClient, ls.SetLocalPos, ls.SetLocalVitals
 	}
 	d := &GameDeps{
 		Running: runningDolphins,
@@ -89,7 +91,7 @@ func realGameDeps(ls *LiveState, c Config) *GameDeps {
 			return launchDolphinFor(o, rep, c.CheatsIni)
 		},
 		Pipelines: func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter) error {
-			return runPosePipelinesOn(ctx, cancel, c.Env.Feed, name, addr, pid, rep, onClient, onPos)
+			return runPosePipelinesOn(ctx, cancel, c.Env.Feed, name, addr, pid, rep, onClient, onPos, onVitals)
 		},
 		Reset:  resetMailboxOn,
 		EnvPID: envDolphinPID(),
@@ -536,11 +538,11 @@ func (g *GameRunner) finish(played map[uint32]bool) {
 // runPosePipelinesOn runs broadcast-pose and puppet-sync on Dolphin pid,
 // as runMultiplayerGoroutines does on the env's Dolphin (no co-op), with
 // fe the pipelines' feed.Env.
-func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, pid uint32, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32)) error {
+func runPosePipelinesOn(ctx context.Context, cancel context.CancelFunc, fe feed.Env, name, addr string, pid uint32, rep log.Reporter, onClient func(*network.Client), onPos func(x, y, z float32), onVitals func(vissync.Vitals, bool)) error {
 	connLog := feed.NewConnectLog(addr, rep)
 	return RunPipelines(ctx, cancel, rep,
 		Pipeline{Name: "broadcast-pose", Run: func(ctx context.Context) error {
-			return feed.BroadcastPose(ctx, fe, name, addr, pid, rep, connLog, onPos)
+			return feed.BroadcastPose(ctx, fe, name, addr, pid, rep, connLog, onPos, onVitals)
 		}},
 		Pipeline{Name: "puppet-sync", Run: func(ctx context.Context) error {
 			return feed.PuppetSync(ctx, fe, name, addr, name, pid, rep, connLog, onClient)

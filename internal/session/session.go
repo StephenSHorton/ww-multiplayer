@@ -84,6 +84,11 @@ type Player struct {
 	// positions, relay scoping's), set when HasPlace is: it is fresh.
 	Place    Place
 	HasPlace bool
+	// Vitals are the player's hearts, magic and rupees from its pose
+	// trailer (wind#55), set when HasVitals is: a sender before them
+	// sends none.
+	Vitals    Vitals
+	HasVitals bool
 }
 
 // Place is where a game is: its stage (mCurStage.mName: "sea",
@@ -92,6 +97,14 @@ type Place struct {
 	Stage  string
 	Room   int
 	InPlay bool
+}
+
+// Vitals are one player's hearts, magic and rupees, as its save's player
+// status holds them.
+type Vitals struct {
+	Life, MaxLife   int // quarter hearts
+	Magic, MaxMagic int
+	Rupees          int
 }
 
 // Live is the engine's view of the running session: the values the status
@@ -111,6 +124,10 @@ type Live struct {
 	// (it comes back from the server on the player's own positions).
 	LocalPlace    Place
 	LocalHasPlace bool
+	// LocalVitals is this player's own hearts, magic and rupees;
+	// LocalVitalsOK is false until broadcast-pose has read them.
+	LocalVitals   Vitals
+	LocalVitalsOK bool
 
 	// CoopStatus is each co-op pipeline's status, as /status reports it; nil
 	// without co-op.

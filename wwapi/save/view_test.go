@@ -140,3 +140,19 @@ func TestRecordSet(t *testing.T) {
 		}
 	}
 }
+
+// TestVitals: mLife, mRupee, mMagic and mWalletSize as the player status
+// holds them (wind#55).
+func TestVitals(t *testing.T) {
+	s := snapAt(-1)
+	img := s.Save[addr.InfoOffSavedata:]
+	img[addr.OffMaxLife], img[addr.OffMaxLife+1] = 0x00, 0x30
+	img[addr.OffLife], img[addr.OffLife+1] = 0x00, 0x2B
+	img[addr.OffRupee], img[addr.OffRupee+1] = 0x03, 0xE7
+	img[addr.OffMaxMagic], img[addr.OffMagic], img[addr.OffWalletSize] = 0x20, 0x11, 1
+	v := ViewOf(s)
+	got := [5]int{v.MaxLife(), v.Life(), v.Rupee(), v.MaxMagic(), v.Magic()}
+	if want := [5]int{0x30, 0x2B, 999, 0x20, 0x11}; got != want || v.WalletSize() != 1 {
+		t.Fatalf("got %v wallet %d, want %v wallet 1", got, v.WalletSize(), want)
+	}
+}
