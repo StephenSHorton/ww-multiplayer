@@ -43,5 +43,21 @@ Pair 2 (A 79681, B 79770), both in M_DragB at the entry, both Btd in the fight, 
   REL` (256-257); the request was never written on either game (seq 0 throughout: each game's death demo keeps the idle
   gate shut), so there is no `already`, no `applied`, nothing twice. A logged no hold: its own kill had set its bit.
 - Both heart containers (ITEM 0x0101, params 0x17FFFF08, at (-1508, 3, 590)) taken: POKE `ww-multiplayer warp -1508 3
-  590` onto them, "You got a Heart Container!" (`run2/A-heart.png`), A pressed through: max life 0x14 -> 0x18 on both.
+  590` onto them, "You got a Heart Container!" (`run2/A-heart.png`), A pressed on both: max life 0x14 -> 0x18 on both.
+
+Pair 3 (A 9476, B 9486), `start-gohma-intro.sav`: the pre-Gohma GCI with DRC's STAGE_BOSS_DEMO cleared
+(`wwfixture -craft ... di-=3:5`, built from `fixtures/saves-new/src`; the prebuilt binary predates `di-=`). Both
+`stage-hop M_DragB 1 0`: Link at (-1427, 2, 836), about 130 from (-1534, 0, 909); both Btd at y -10000, m02E4 0xA.
+Btd was at 0x80AACC38 on A and 0x80AACC6C on B (read it per game).
+- POKE (setup): A `warp -1100 3 640`, out of the hold radius. A's intro played (state 0xA/2) and A's fight began
+  (m02E4 0, state 1) 26 s later. 04:35:59.104 POKE A's end word.
+- **D4-3 PASS** (the armor break poked): B, still at the entry, logged (mp-local.out 277-279) the hold, `asking the
+  REL`, and `boss_kill 1: waiting (m02E4 0xA, state 0x0, m02E0 0)` once; B also held A's `t03 DRC boss demo seen`
+  (225), so B's intro could still play. B then walked in by stick input (forward, 2.5 s: B moved to (-1373, 3, 790)
+  and its intro started; Btd 0xA/2). After the intro, through the armored fight: `boss_kill 16: waiting (m02E4 0x0,
+  state 0x1, m02E0 0)` (322), once. POKE B's armor byte Btd+0x2E0 = 1 at 04:39:40.352: `boss_kill 253: applied (m02E4
+  0x0, state 0x1, m02E0 1)` (506), once. B's Gohma died from the fight (m02E4 0xB), not at y -10000: floor, sparkles
+  and the heart rising (`run3/B-after.png`), the Warpf at (0, -100, 0).
+  Slip: a first armor poke at 04:38:18.846 wrote the half-word (byte +0x2E1 = 1, +0x2E0 still 0); the REL kept
+  answering `waiting` (m02E0 0) and +0x2E1 was put back to 0 with the correct write 80 s later.
   After both hopped to `M_NewD2 0 0`: 0x18 on both, DRC dungeonItem 0x38 on both, no further line. One container each.
