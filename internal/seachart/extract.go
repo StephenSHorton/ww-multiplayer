@@ -6,8 +6,9 @@
 // The geometry is the game's (d_menu_fmap.cpp, d_map.cpp in the tww
 // decomp): the sea is 7x7 squares of 100000 units, square (gx, gz) with gx
 // and gz in -3..3 centred on (gx*100000, gz*100000), +X east and +Z south.
-// The squares are named by row letter A..G (gz -3..3) and column number
-// 1..7 (gx -3..3): Outset Island is G2. Each square has one island tile,
+// The squares are named by column letter A..G (gx -3..3, west to east) and
+// row number 1..7 (gz -3..3, north to south), as the guides name them
+// (Prima's: Windfall Island D2, Outset Island B7); the game draws no labels. Each square has one island tile,
 // res/Fmap/Fmap.arc fm/rXX_b.bti with XX = grid+1 in hex (grid = gx+3 +
 // (gz+3)*7), drawn over 20000x20000 units centred on the square's
 // checkpoint, res/FmapDat/FmapDat.bin's offset from the square's centre
@@ -64,12 +65,12 @@ func (s Square) Valid() bool {
 	return s.GX >= GridMin && s.GX <= GridMax && s.GZ >= GridMin && s.GZ <= GridMax
 }
 
-// Name is the chart's name of the square: "G2".
+// Name is the chart's name of the square: "B7" for Outset Island.
 func (s Square) Name() string {
 	if !s.Valid() {
 		return ""
 	}
-	return fmt.Sprintf("%c%d", 'A'+(s.GZ-GridMin), s.GX-GridMin+1)
+	return fmt.Sprintf("%c%d", 'A'+(s.GX-GridMin), s.GZ-GridMin+1)
 }
 
 // SquareAt is the square holding world point (x, z), clamped to the grid

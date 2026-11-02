@@ -99,7 +99,7 @@ func TestFrontendDOM(t *testing.T) {
 			return ""
 		}},
 		{"each row says where its game is", "s=ingame&places=1", func(d string) string {
-			for _, want := range []string{"You are in Dragon Roost Cavern, room 3", ">Dragon Roost Cavern, room 5<", ">Loading<", ">Sea, B4 (Windfall Island) · last seen 14s<"} {
+			for _, want := range []string{"You are in Dragon Roost Cavern, room 3", ">Dragon Roost Cavern, room 5<", ">Loading<", ">Sea, D2 (Windfall Island) · last seen 14s<"} {
 				if !strings.Contains(d, want) {
 					return "no " + want
 				}

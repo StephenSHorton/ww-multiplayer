@@ -73,7 +73,7 @@ type MapDotView struct {
 	Drawn bool `json:"drawn"`
 	// Pinned: off the sea, drawn at its island's centre.
 	Pinned bool   `json:"pinned"`
-	Square string `json:"square"` // "G2"; "" when not drawn
+	Square string `json:"square"` // "B7" (Outset); "" when not drawn
 	Island string `json:"island"` // the square's island
 	Where  string `json:"where"`  // the place, "Dragon Roost Cavern"; "" on the sea
 }

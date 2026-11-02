@@ -129,7 +129,7 @@ function drawNames() {
 	for (let r = 0; r < 7; r++) {
 		for (let c = 0; c < 7; c++) {
 			const x = -SEA + c * SQ, y = -SEA + r * SQ;
-			kids.push(svg("text", { class: "sqname", x: x + 5 * u, y: y + 15 * u, "font-size": 12 * u, "stroke-width": 2 * u }, String.fromCharCode(65 + r) + (c + 1)));
+			kids.push(svg("text", { class: "sqname", x: x + 5 * u, y: y + 15 * u, "font-size": 12 * u, "stroke-width": 2 * u }, String.fromCharCode(65 + c) + (r + 1)));
 			if (close && chart.names) {
 				kids.push(svg("text", { class: "isname", x: x + SQ / 2, y: y + SQ - 8 * u, "font-size": 12 * u, "stroke-width": 2.5 * u, "text-anchor": "middle" }, chart.names[r][c]));
 			}

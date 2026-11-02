@@ -192,7 +192,7 @@ func TestMemberCoop(t *testing.T) {
 	st.CoopHub = nil
 	st.CoopStatus = []session.CoopStatus{{PartnerRoom: -1, Partners: []session.CoopPartner{
 		{Name: "Blake", Stage: "M_NewD2", Room: 3}, {Name: "Sam", Stage: "sea", Room: 44}, {Name: "Quill", Room: -1}}}}
-	if chip, warp := memberCoop(st, "Sam", false, 3); chip != "Sea, G2 (Outset Island)" || !warp {
+	if chip, warp := memberCoop(st, "Sam", false, 3); chip != "Sea, B7 (Outset Island)" || !warp {
 		t.Errorf("joiner's Sam of three: %q, %v", chip, warp)
 	}
 	if chip, warp := memberCoop(st, "Quill", false, 3); chip != "" || !warp {
