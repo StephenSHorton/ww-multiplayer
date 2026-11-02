@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
-"""hookaim: aim the Grappling Hook at a KUI (hook target) by Link's own stick input.
+"""hookaim: aim the Grappling Hook (or the Boomerang) by Link's own stick input (wind#30).
 
-Usage: WW_DOLPHIN_PID=<pid> scripts/hookaim.py [--wwdev PATH] [--range 1200] [--no-walk] [--no-throw]
+Usage:
+  Hook at Valoo's tail (Gohma):  WW_DOLPHIN_PID=<pid> scripts/hookaim.py --wwdev PATH --no-walk --timeout 8
+  Boomerang at a Kalle vine:     ... --hold --button 10 --target-addr <bmdhand+0x260> --no-throw
+  Fixed point (testing):         ... --target X Y Z --no-throw
+Options: --range (walk stop, horizontal), --no-walk, --no-throw, --no-sheathe, --yaw-tol, --pitch-tol,
+--pitch-above (default 800 for a KUI), --life-floor (stop below this many quarter hearts), --timeout.
 
-1) walk: hold the stick toward the KUI (proc 0x00FC) until Link is within --range
-   (horizontal) of it. Stick angle = target yaw - camera yaw, the camera yaw read
-   back as m34E8 - m34DC (as wwdev face does).
-2) aim: press Y (rope ready / first person), then steer with short stick pulses until
-   shape_angle.y (+0x20E) and mBodyAngle.x (+0x2B4) point from Link's head at the KUI.
-   The rope picks a KUI within a yaw cone and a pitch window around the sight line
-   (d_a_himo2.cpp search_target), so close is enough.
-3) throw: press Y.
+1) walk (unless --no-walk): hold the stick toward the target until Link is within --range of it.
+   Stick angle = target yaw - camera yaw, the camera yaw read back as m34E8 - m34DC (as wwdev face does).
+2) aim: raise the item (Y by default; --button hex picks another, 10 = Z) and check aim mode by memory
+   (a stick-up must drive mBodyAngle.x +0x2B4 negative without moving Link). Then steer the CAMERA's sight
+   line (camera *0x803CA718, eye +0xD8, centre +0xE4) onto the target with sized stick pulses. The rope picks a
+   KUI by angles from the camera eye, 400 below to 2000 above in pitch and about atan(60/dist) in yaw
+   (d_a_himo2.cpp search_target), so a KUI is aimed --pitch-above it and thrown as the swaying tail passes.
+   --hold keeps the button down the whole time (the Boomerang aims while held and locks up to 5 targets that the
+   sight sweeps over); input is then set-and-leave, since `wwdev input <ms>` lets every button go.
+3) throw: press the button again (or, with --hold, let it go). A KUI catch reads health 1 (wrap) then 3 (hanging).
 
 Only input is written (wwdev input). Reads go through wwdev actors / peek.
 """
@@ -21,7 +28,6 @@ OFF_SHAPE_Y = 0x20E
 OFF_BODY_X = 0x2B4
 OFF_STICK = 0x34DC
 OFF_MOVE = 0x34E8
-HEAD_Y = 100.0  # throwRope's origin: current.pos.y + 100
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--wwdev", default=os.environ.get("WWDEV", "./bin/wwdev"))

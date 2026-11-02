@@ -12,8 +12,11 @@ access in either dolphin.log, no panic or fatal in mp-local.out.
   Grappling Hook owned. Max life 20 (DRC's container already in the save, so D4-8 reads 20 -> 24).
 - Kalle Demos: CryZe 6-StartFW. It has no Boomerang (item slot 5 = 0xFF).
 
-## Pokes (setup only, none on bosses, rocks or boss bits)
+## Pokes (setup only; none on the kills, the rocks or the boss bits)
 
+- Kalle vine step (Stephen's choice, the vines regrow faster than input cuts): Bmd +0x331 m331 = 0, +0x312 m312 = 3,
+  once per flower opening on A and once on B at the relay's `waiting` (pairs 6, 8); a re-drop loop on B in pair 4.
+- FW r5: A's sw28 (Kokiie fallen) set by poke, as in wind#21. DRC r6: A's third Bokoblin (setID 2) by `enemy-kill`.
 - Life refills, many, on both: `0x803C4C08 = 00140014` (Gohma) / `00150015` (FW). Gohma and Kalle kept hitting Link
   while the scripts waited; a background loop held B's life while A fought.
 - `stage-hop M_DragB 1 0` / `kinBOSS 0 0` to enter the arenas, and one re-hop of B to the M_DragB entry in pair 1
@@ -37,7 +40,11 @@ access in either dolphin.log, no panic or fatal in mp-local.out.
 
 ## Gohma (s2)
 
-Pair 1 (A 85691, B 85701):
+Pair 1 (A 85691, B 85701), shots `wind30/gohma-B-*.png`:
+- B died once before the first catch: hookaim.py v0 walked B toward the tail for 12 s with no damage check, then a Y tap
+  that did not raise the hook let the aim pulses walk B around under Gohma's fire. B continued at the M_NewD2 entrance
+  (the game's own continue, no state reload). On the game-over save prompt Yes was highlighted, not No, and B's file
+  was saved to the rig's u2 card copy (not the shared fixture); DRC dungeonItem stayed 0x20.
 - B broke its own armor by input (three drops): m02E0 1 at 19:03. A broke its own the same way.
 - **D4-1 PASS**: A's kill by input; B's log `boss_kill 1: applied (m02E4 0x1, state 0x5, m02E0 1)`, from Gohma's
   attack state 0x5, not wait.
@@ -76,7 +83,7 @@ Pair 5 (A 16485, B 16495): A's Kalle killed by input (28 hits). B died first (li
 entrance), continued at kindan, and the held bit landed on leaving (`set t04 FW boss defeated`, 0x28): KD-6's path again,
 not KD-2. No save written (No on the prompt).
 
-Pair 6 (A 75334, B 75344), B's life refill on throughout, B idle at the entrance, one flower drop:
+Pair 6 (A 75334, B 75344; shots `wind30/kalle-B-death.png`, `wind30/kalle-B-makar-kd2.png`), B's life refill on throughout, B idle at the entrance, one flower drop:
 - **KD-2 PASS** (mp-local.out 512-519): `holding t04 FW boss defeated back`, `asking the REL ... once its flower is down
   and open`, `boss_kill 1: waiting (mMode 0x2, m302 1, m304 0)`, one drop at 00:57:40, `boss_kill 3: waiting (mMode 0x3,
   m302 1, m304 0)`, `boss_kill 4: applied (mMode 0x3, m302 2, m304 1)` at 00:57:42. Then by input on B: the death demo
@@ -87,7 +94,7 @@ Pair 7: void. B's card (6-StartFW + `wwfixture di+=4:5`, FW STAGE_BOSS_DEMO) was
 file, so B never bound (NOT_BOUND) and no co-op ran on B.
 
 Pair 8 (A 34535, B 34613), mp-local `--coop=new --coop-merge` (the merge also gave A the demo bit, line 171):
-- **KD-3 PASS**: B bound and armed (lines 152, 156), FW dungeonItem 0x20 before the hop; `kinBOSS 1 0` played no
+- **KD-3 PASS** (`wind30/kalle-B-makar-kd3-nointro.png`): B bound and armed (lines 152, 156), FW dungeonItem 0x20 before the hop; `kinBOSS 1 0` played no
   intro (Kalle fight mode 0 at once, never 0xA). After A's kill (01:21:20, 26 hits): `boss_kill 1: waiting (mMode 0x2,
   m302 1, m304 0)`, one flower drop at 01:21:45, `boss_kill 3: waiting (mMode 0x3, m302 1, m304 0)`, `boss_kill 4:
   applied (mMode 0x3, m302 2, m304 1)` at 01:21:47. Then by input: the death demo, Makar drops and talks with no intro
@@ -100,7 +107,7 @@ Pair 8 (A 34535, B 34613), mp-local `--coop=new --coop-merge` (the merge also ga
 - POKE (as wind#21): A's sw28 (Kokiie fallen), A in kindan room 5. B in room 5 with the room in camera logged
   `set t04 FW switch 0x1C (0x803C501C, and its live copy |= 0x10)`; within 12 s B's Kokiie (0x0064) fell from y 6920 to
   y 1380 and B's Kanat (0x00A5, the solid vine floor over B1) was gone. B then walked to the Kanat spot and dropped
-  through it to y 1150 (the floor stood at y 3877), landing in the water beside the fallen Kokiie: **visual PASS**.
+  through it to y 1150 (the floor stood at y 3877), landing in the water beside the fallen Kokiie: **visual PASS** (`wind30/fw-r5-B-before.png`, `wind30/fw-r5-B-dropped-through.png`).
 
 ## DRC r6 bars (s4, pair 9: A 51306, B 51320, CryZe 4-WindWaker, `--coop-merge`)
 
@@ -108,7 +115,7 @@ Pair 8 (A 34535, B 34613), mp-local `--coop=new --coop-merge` (the merge also ga
   three keyed Bokoblins: setID 1 and 0 by sword input, setID 2 by `enemy-kill` (on a ledge out of reach). B's log:
   `set the partner's dead setID 1/0 in room 6`, the light-shrink of B's setID 1; all three of B's keyed copies gone.
 - B's own room logic then raised sw63 and played the Zenshut demo: s188 (01:41:45 UTC) the close-up with the bars
-  down, s190/s192 (01:41:48) the same door with the bars gone: **visual PASS** (no separate `DRC switch 0x3F` line on
+  down, s190/s192 (01:41:48) the same door with the bars gone: **visual PASS** (`wind30/drc-r6-B-bars-closed.png`, `-demo-bars-down.png`, `-demo-bars-open.png`) (no separate `DRC switch 0x3F` line on
   B; the sw came from B's room once its keyed enemies were dead).
 
 ## Not run / open
