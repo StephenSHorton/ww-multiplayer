@@ -1,0 +1,15 @@
+remote-Link block at 0x80413420 (0x330 bytes), hook words at 0x804130BC/0x804130C0; stage "sea" room 44; m714 at mo2+0xD28; swap state as inject/rel/remote.h lays it out
+tunables: epoch 4724 margin_q8 164 min_hold 30 body_iframes 30 role 1 dy_max 400.0 create_cooldown 30; full_allow 0x00 heap_reason none flags2 0x0000 (Co off)
+policy (1): 0x00BD ALLOW; ff denylist (0): []
+[ 0.000s] REL linked=true build 0xCAC6980B frames 1747; exec_hook 0x8111D91C swap_state 0x80AB2A50 (keeper 0x80AB25F8 proc 0x00B5 ok)
+        block valid: seq 939 ack_seq 937 ack_frame 1747 flags 0x24FF bodies|swap|hittable|detect|apply|attrib|name_a9|guard|attacker|iframe_stamp (ff gate on, rouya gate on) role 1; collect 0x0F & 0x0F = 0xF (pearls set: the rouya gate passes); mPlayerInfo[0] 0x80AA9418 mpPlayerPtr[0] 0x80AA9418 equal; Link eye_dy 93.2
+        full: full_allow 0x00 heap_reason none flags2 0x0000 (Co off)
+        profile: DMC[0x27] 0x80AD2830 DMC[0xB5] 0x80AD2830 aliased; list 0x80ADD2D8 slot 0x27 -> 0x81128CC8 g_profile_WWBODY (proc 0x00B5, size 0x4C80), slot 0xB5 -> 0x81128CF8
+        shanm: not allocated (no FULL create this boot)
+        counters: hook_calls 177453(+0) swaps 0(+0) switches 0(+0) attacker_overrides 0(+0) denied 0(+0) rouya_skips 0(+0) park_rewrites 0(+0) both_word_swaps 0(+0) vt_refusals 0(+0) gate_skips 0(+0); hook_calls/frame n/a over 0 REL frames (0.00s); hit_head 0
+        slot 0: active true sflags 0x01 stage "sea" room 44 pos -201472.1 168.3 312243.0 ang 30765 shield 0 eye_dy 110.0 cyl 30.0/120.0 iframes 0 cut 0/0 pid 0 pose_slot 0 gen 1; pose_buf_state 0 (NOT ready: the body parks) pose_seq 0
+          body: lite PARKED err none actor 0x80AA71D8 pid 710 hits 0 latched_by 0 frames_live 447 tries 1; read: proc 0x00B5 prof 0x00B5 magic 'WWRB' slot 0 gen 1 state PARKED iframes_left 0 vptr 0x80AA74F8 own vt vt+0x1C 0x8111A2E0 pos -201622.1 168.3 312243.0 eye_dy 93.2 last_pose_seq 4294967295 park_since 1299
+        swap: valid 1 role 1 flags 0x24FF swap_ready 0 live_mask 00 last_seq 937 stale_frames 0 full_allow 00 flags2 0x0000 full_denied 00; body0 parked 1 gen 1 cooldown 0 del_sent 0 kind lite full_wait 0; body1 parked 1 gen 0 cooldown 0 del_sent 0 kind lite full_wait 0; body2 parked 1 gen 0 cooldown 0 del_sent 0 kind lite full_wait 0
+        latch: no entries
+        apply: seq 0 setID 0 atp 0 se 0 hitmark 0 spl 0 at_sprm 0x00 flags 0x00 attype 0x00000000 rel_hit 0.0 0.0 0.0 rvec 0.00 0.00 0.00; ack 0 result NONE detail none executes 0 sets 0 life 0 -> 0
+        m714: no Moblins in the room
