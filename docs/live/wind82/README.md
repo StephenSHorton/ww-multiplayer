@@ -93,7 +93,9 @@ pessimistic loss runs, cv rose to 0.65 to 1.14. The full lines are in `results.t
 - **The joiner's link carries about 2.9 Mbit/s** (the proxy's 30 s counts: about 11 MB per 30 s, 3.7 MB up and 7.3 MB
   down, i.e. 1.0 Mbit/s up and 1.9 Mbit/s down)
   in DRC and at sea, with enemy sync and co-op on. That is a lot for a home uplink. Carded as a follow-up: measure it
-  per stream (pose matrices, enemy STATE, co-op) and trim it.
+  per stream (pose matrices, enemy STATE, co-op) and trim it. Done in wind#84 (`docs/live/wind84/README.md`): pose was 95% of it (half the
+  download was the joiner's own pose echoed back, and every other pose repeated a frame); the joiner now carries
+  about 1.1 Mbit/s.
 
 ## Bugs
 

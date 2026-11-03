@@ -316,6 +316,8 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 #   MP_LOCAL_NETEM=rtt=150ms,jitter=20ms,loss=1%[,rto=D][,seed=N]  Dolphin B's clients dial mp-local's server through a shaped
 #                 TCP proxy on 127.0.0.1 (internal/netem: delay both ways, jitter without reordering, loss as retransmit stalls), A stays
 #                 on loopback; `wwdev netem <listen> <server> <spec>` runs the same proxy alone for a host and a join (docs/live/wind82)
+#   MP_WIRE_STATS=<secs>  mp-local's server counts each connection's frames (network.WireStats, wind#84) and logs a [wire] line per player
+#                 every <secs>: up and down kbit/s, then each stream (pose, pos, enemy/STATE, coop/0x03, ...) biggest first; the run's totals at teardown
 # Env knobs honored by `dolphin2` and `auto-recapture` (defaults: wwapi/emu/launch Defaults;
 # DOLPHIN_EXE, ISO_PATH and USER_DIR_1 also override the app's saved settings, as WW_COLOR does):
 #   DOLPHIN_EXE   path to Dolphin (Windows default: %USERPROFILE%\Desktop\Dolphin-x64\Dolphin.exe;

@@ -38,6 +38,14 @@ const LobbyCapJSON uint16 = 1 << 0
 // bit with LobbyCapJSON; it means nothing in any other role's hello.
 const CapModsHash uint16 = 1 << 0
 
+// CapNoSelfEcho is caps bit 1 of a player hello (wind#84): this connection
+// ignores every remote named as itself (puppet-sync's self-filter, set to
+// the name it joins with), so the server need not relay it the poses,
+// positions and projectile events of its own player's other connections
+// (the broadcast-pose twin on the same Dolphin). A server from before the
+// bit ignores it and relays them as before; the client drops them then.
+const CapNoSelfEcho uint16 = 1 << 1
+
 // MaxLobbyBody caps a lobby sub-message's JSON body. The biggest is STATE,
 // a few hundred bytes per member.
 const MaxLobbyBody = 16 << 10
