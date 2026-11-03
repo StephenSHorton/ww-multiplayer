@@ -18,7 +18,7 @@ type StageChanged struct {
 func (StageChanged) EventName() string { return "core.stage_changed" }
 ```
 
-That is the real `events.StageChanged` from `wwapi/events/core.go`. A mod's own events look the same, under its `mod.<id>.` names.
+That is the real `events.StageChanged` from `wwapi/events/core.go`. Since wind#90 the watcher also emits `events.RuntimeEvent` (`core.runtime_event`: `N`, `Kind`, `A`, `B`, `C`), one per entry of the C runtime's event ring (`inject/include/wwops.h`, `wwapi/ops`), on a blob with the `ops` feature: one-frame edges the game's own code pushed, which a snapshot poll would miss. A mod's own events look the same, under its `mod.<id>.` names.
 
 The bus stamps every event it emits with a `Meta`:
 
