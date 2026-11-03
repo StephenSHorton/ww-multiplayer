@@ -210,7 +210,7 @@ func TestRelayScopeBandwidth(t *testing.T) {
 	}
 
 	st, hs := run(true)
-	frame := int64(3 + 1 + 4 + 42*48 + 19)
+	frame := int64(3 + 1 + 4 + poseOriginLen + 42*poseInt16Joint + 19) // quantized (wind#85)
 	total := st.PosesSent + st.PosesScoped
 	// Per round: p0 and p1 reach their twins and each other's puppet-sync
 	// (2 each); p2 and p3 their twins alone (1 each).

@@ -83,7 +83,8 @@ func FuzzDeserializePose(f *testing.F) {
 	for _, seed := range [][]byte{
 		SerializePose(42, make([]byte, 42*48), make([]byte, 16)),
 		SerializePose(1, make([]byte, 48), nil),
-		nil, {0, 0, 0, 0}, {0, 1, 0, 0}, {0xFF, 0xFF, 0, 0}, {0, MaxPoseJoints + 1, 0, 0},
+		serializePoseRaw(2, make([]byte, 96), nil),
+		nil, {0, 0, 0, 0}, {0, 1, 0, 0}, {0, 1, 1, 0}, {0xFF, 0xFF, 0, 0}, {0, MaxPoseJoints + 1, 0, 0},
 	} {
 		f.Add(seed)
 	}
@@ -95,11 +96,15 @@ func FuzzDeserializePose(f *testing.F) {
 		if joints < 1 || joints > MaxPoseJoints || len(matrices) != joints*48 || len(face) > MaxFaceBytes {
 			t.Fatalf("accepted joints=%d matrices=%d face=%d", joints, len(matrices), len(face))
 		}
-		// Re-serializing reproduces the payload, except the pad bytes
-		// [2:4], which a sender always zeroes.
-		got := SerializePose(joints, matrices, face)
-		if got == nil || !bytes.Equal(got[:2], data[:2]) || !bytes.Equal(got[4:], data[4:]) {
-			t.Fatalf("round trip = %x, want %x", got, data)
+		// Re-sending what was received keeps the pose: the same joints
+		// and face, and matrices equal within the quantization step.
+		again := SerializePose(joints, matrices, face)
+		j2, m2, f2, err := DeserializePose(again)
+		if err != nil || j2 != joints || !bytes.Equal(f2, face) {
+			t.Fatalf("re-sent pose: joints %d face %x err %v", j2, f2, err)
+		}
+		if i, a, b, ok := poseClose(matrices, m2); !ok {
+			t.Fatalf("float %d: %v became %v", i, a, b)
 		}
 	})
 }
@@ -107,7 +112,7 @@ func FuzzDeserializePose(f *testing.F) {
 func FuzzParsePoseRelayMessage(f *testing.F) {
 	for _, seed := range [][]byte{
 		PoseRelayMessage(3, 42, make([]byte, 42*48), make([]byte, 16)),
-		nil, {3}, {3, 0, 1, 0, 0}, {3, 0xFF, 0xFF, 0, 0},
+		nil, {3}, {3, 0, 1, 0, 0}, {3, 0, 1, 1, 0}, {3, 0xFF, 0xFF, 0, 0},
 	} {
 		f.Add(seed)
 	}
@@ -116,9 +121,12 @@ func FuzzParsePoseRelayMessage(f *testing.F) {
 		if err != nil {
 			return
 		}
-		relay := PoseRelayMessage(id, joints, matrices, face)
-		if relay == nil || relay[0] != data[0] || !bytes.Equal(relay[1:3], data[1:3]) || !bytes.Equal(relay[5:], data[5:]) {
-			t.Fatalf("round trip = %x, want %x", relay, data)
+		// The server relays a checked payload byte for byte.
+		if relay := PoseRelayFrame(id, data[1:]); !bytes.Equal(relay, data) {
+			t.Fatalf("relay = %x, want %x", relay, data)
+		}
+		if len(matrices) != joints*48 || len(face) > MaxFaceBytes {
+			t.Fatalf("parsed joints=%d matrices=%d face=%d", joints, len(matrices), len(face))
 		}
 	})
 }

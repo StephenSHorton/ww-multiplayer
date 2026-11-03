@@ -399,16 +399,21 @@ Link #1 over TCP).
 ### Wire format
 
 ```
-client -> server:  MsgPose='M' [joints:u16][_pad:u16][Mtx[joints]:48*N]
-server -> client:  MsgPose='M' [playerID:1][joints:u16][_pad:u16][Mtx[joints]:48*N]
+client -> server:  MsgPose='M' [joints:u16][format:u8][_pad:u8][block][face?]
+server -> client:  MsgPose='M' [playerID:1] + the client's payload, unchanged
 ```
 
-For Link: 4 + 2016 = 2020 B sender-side, +1 = 2021 B relayed. At 20 Hz
-that's ~40 KB/s — trivial for LAN. Joint count is shipped explicitly so
-the protocol survives non-Link rigs (children, fairies, etc.). Matrices
-are raw GameCube big-endian Mtx layout (`f32[3][4]`), which means the
-receiver does **zero byteswap** — `WriteAbsolute(pose_buf, matrices)`
-goes straight into `mpNodeMtx`.
+Since protocol 9 (wind#85) the block is usually quantized: format 1 is a
+12-byte origin (joint 0's translation, 3 x f32) and 24 B a joint (9 x i16
+rotation at 1/8192, 3 x i16 translation at 1/32 unit from the origin). A
+frame with a value that does not fit (|rotation| >= 4, a joint 1024 units
+or more from joint 0, NaN) goes as format 0, the raw GameCube big-endian
+Mtx layout (`f32[3][4]`, 48 B a joint). For Link: 1024 B against 2020 B
+sender-side. Joint count is shipped explicitly so the protocol survives
+non-Link rigs (children, fairies, etc.). `DeserializePose` hands the
+receiver raw Mtx bytes either way, so `WriteAbsolute(pose_buf, matrices)`
+still goes straight into `mpNodeMtx` with **zero byteswap**
+(mods/multiplayer/net/protocol.go; docs/live/wind85).
 
 ### Receiver recipe (`shadow_mode = 5`)
 

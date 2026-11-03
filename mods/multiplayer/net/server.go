@@ -446,21 +446,19 @@ func (s *Server) handlePlayer(conn net.Conn) {
 
 		case MsgPose:
 			// Reuse the sender's payload, prepended with their ID.
-			// Server doesn't decode the matrices; it's just bytes.
 			// Face state (optional trailer) passes through untouched.
 			// DeserializePose rejects joint counts over MaxPoseJoints and
 			// face trailers over MaxFaceBytes, which keeps the relay small.
-			joints, matrices, face, err := DeserializePose(msg.Data)
-			if err != nil {
+			if _, _, _, err := DeserializePose(msg.Data); err != nil {
 				if !poseWarned {
 					poseWarned = true
 					s.log(fmt.Sprintf("dropping bad pose frames from %s: %v", name, err))
 				}
 				break
 			}
-			if relay := PoseRelayMessage(id, joints, matrices, face); relay != nil {
-				s.relayPose(player, relay)
-			}
+			// Relay the checked payload as sent: a quantized pose
+			// (wind#85) stays quantized for every receiver.
+			s.relayPose(player, PoseRelayFrame(id, msg.Data))
 			if !player.posed.Swap(true) {
 				s.lobby.playersChanged()
 			}

@@ -401,50 +401,148 @@ func parseColorTrailer(players []PlayerEntry, tail []byte) {
 	}
 }
 
-// Pose-message wire format (game wants raw GameCube big-endian Mtx layout
-// so the receiver can WriteProcessMemory straight into mpNodeMtx with no
-// byteswap):
+// Pose-message wire format. The game wants raw GameCube big-endian Mtx
+// layout (3 rows x 4 float32: rotation in columns 0..2, translation in
+// column 3) so the receiver can write straight into mpNodeMtx; on the wire
+// it is usually quantized (wind#85):
 //
-//   client -> server:  [joints:u16][_pad:u16][Mtx[joints]:48*N B][face?:N B]
-//   server -> client:  [playerID:1][joints:u16][_pad:u16][Mtx[joints]:48*N B][face?:N B]
+//   client -> server:  [joints:u16][format:u8][_pad:u8][block][face?:N B]
+//   server -> client:  [playerID:1] + the client's payload, byte for byte
 //
-// For Link this is 4 + 2016 = 2020 B sender-side, +1 B = 2021 B relayed.
-// The 2-byte pad keeps the matrices 4-byte aligned after the playerID.
+// format 0 (PoseRaw):   block = Mtx[joints], 48*N B, as read from mpNodeMtx.
+// format 1 (PoseInt16): block = [origin: 3 x f32] + 24*N B. Per joint,
+//   9 x i16 rotation elements at 1/PoseRotScale, then 3 x i16 translation
+//   at 1/PoseTransScale unit, relative to origin (joint 0's translation).
+//   For Link: 4 + 12 + 1008 = 1024 B against 2020 B raw.
+//
+// A sender quantizes when every value fits (|rotation| < 4, every joint
+// within 1024 units of joint 0, all finite) and sends that frame raw
+// otherwise. Receivers always get raw Mtx bytes back from DeserializePose.
+// Deltas against the previous frame do not fit: relay scoping drops frames
+// per receiver, so each frame must stand alone.
 //
 // Joint count is shipped explicitly so the protocol survives if we ever
 // drive a non-Link rig (e.g. a child puppet with a different skeleton).
 //
-// Session 9: an optional face-state suffix follows the matrix block.
-// Length is implicit (= total payload - 4 - joints*48). If zero, the
-// receiver leaves face_state untouched. Zero-length is the legacy
-// format from v0.1.x; a v0.2 sender appends 8 bytes (eye-only) or
-// more. Both ends share the layout via mailboxFaceState* constants.
+// Session 9: an optional face-state suffix follows the matrix block; its
+// length is what is left of the payload. If zero, the receiver leaves
+// face_state untouched. Both ends share the layout via mailboxFaceState*
+// constants.
 
-// SerializePose builds a raw client->server pose payload. `matrices` must
-// already be GameCube-format big-endian bytes (i.e. exactly what was just
-// read out of mpNodeMtx) — no conversion happens here. `face` is an
-// optional trailing payload (len 0 if unused). It returns nil unless
-// 1 <= joints <= MaxPoseJoints, len(matrices) == joints*48 and
-// len(face) <= MaxFaceBytes, the limits the server enforces.
+const (
+	// PoseRaw and PoseInt16 are the pose block formats (header byte 2).
+	PoseRaw   byte = 0
+	PoseInt16 byte = 1
+
+	// PoseRotScale: a rotation element v travels as round(v*PoseRotScale),
+	// a step of 1/8192 (~0.00012) with |v| < 4 (room for model scale).
+	PoseRotScale = 8192
+	// PoseTransScale: a translation offset d travels as round(d*32), a
+	// step of 1/32 unit with |d| < 1024 units of joint 0.
+	PoseTransScale = 32
+
+	poseRawJoint   = 48
+	poseInt16Joint = 24
+	poseOriginLen  = 12
+)
+
+// SerializePose builds a client->server pose payload. `matrices` must be
+// GameCube-format big-endian Mtx bytes (exactly what was read out of
+// mpNodeMtx). It quantizes them when every value fits and sends them raw
+// otherwise. `face` is an optional trailing payload (len 0 if unused). It
+// returns nil unless 1 <= joints <= MaxPoseJoints, len(matrices) ==
+// joints*48 and len(face) <= MaxFaceBytes, the limits the server enforces.
 func SerializePose(joints int, matrices []byte, face []byte) []byte {
-	if joints <= 0 || joints > MaxPoseJoints || len(matrices) != joints*48 || len(face) > MaxFaceBytes {
+	if joints <= 0 || joints > MaxPoseJoints || len(matrices) != joints*poseRawJoint || len(face) > MaxFaceBytes {
 		return nil
 	}
+	if q := quantizePose(joints, matrices); q != nil {
+		buf := make([]byte, 4, 4+len(q)+len(face))
+		binary.BigEndian.PutUint16(buf[0:2], uint16(joints))
+		buf[2] = PoseInt16
+		buf = append(buf, q...)
+		return append(buf, face...)
+	}
+	return serializePoseRaw(joints, matrices, face)
+}
+
+func serializePoseRaw(joints int, matrices []byte, face []byte) []byte {
 	buf := make([]byte, 4+len(matrices)+len(face))
 	binary.BigEndian.PutUint16(buf[0:2], uint16(joints))
-	// buf[2:4] = padding (zero)
+	buf[2] = PoseRaw
 	copy(buf[4:], matrices)
-	if len(face) > 0 {
-		copy(buf[4+len(matrices):], face)
-	}
+	copy(buf[4+len(matrices):], face)
 	return buf
 }
 
-// DeserializePose parses the joints + matrix-bytes + (optional) face
-// suffix from a payload (used both for client->server frames and the
-// post-playerID slice of server->client frames). It returns an error for a
-// truncated payload, a joint count outside 1..MaxPoseJoints, or a face
-// trailer over MaxFaceBytes; the server drops such frames at ingress.
+func mtxFloat(m []byte, joint, i int) float64 {
+	return float64(math.Float32frombits(binary.BigEndian.Uint32(m[joint*poseRawJoint+i*4:])))
+}
+
+// quantizePose returns the PoseInt16 block, or nil when a value does not
+// fit (the frame then goes raw).
+func quantizePose(joints int, m []byte) []byte {
+	var origin [3]float64
+	for r := 0; r < 3; r++ {
+		origin[r] = mtxFloat(m, 0, r*4+3)
+	}
+	out := make([]byte, poseOriginLen, poseOriginLen+joints*poseInt16Joint)
+	for r := 0; r < 3; r++ {
+		binary.BigEndian.PutUint32(out[r*4:], math.Float32bits(float32(origin[r])))
+	}
+	put := func(v float64) bool {
+		if math.IsNaN(v) || v < -32767.5 || v > 32767.5 {
+			return false
+		}
+		out = binary.BigEndian.AppendUint16(out, uint16(int16(math.Round(v))))
+		return true
+	}
+	for j := 0; j < joints; j++ {
+		for r := 0; r < 3; r++ {
+			for c := 0; c < 3; c++ {
+				if !put(mtxFloat(m, j, r*4+c) * PoseRotScale) {
+					return nil
+				}
+			}
+		}
+		for r := 0; r < 3; r++ {
+			if !put((mtxFloat(m, j, r*4+3) - origin[r]) * PoseTransScale) {
+				return nil
+			}
+		}
+	}
+	// A NaN or infinite origin made every offset NaN, which put refused.
+	return out
+}
+
+// dequantizePose turns a PoseInt16 block back into raw Mtx bytes.
+func dequantizePose(joints int, q []byte) []byte {
+	var origin [3]float64
+	for r := 0; r < 3; r++ {
+		origin[r] = float64(math.Float32frombits(binary.BigEndian.Uint32(q[r*4:])))
+	}
+	q = q[poseOriginLen:]
+	out := make([]byte, joints*poseRawJoint)
+	for j := 0; j < joints; j++ {
+		in := q[j*poseInt16Joint:]
+		at := func(k int) float64 { return float64(int16(binary.BigEndian.Uint16(in[k*2:]))) }
+		dst := out[j*poseRawJoint:]
+		for r := 0; r < 3; r++ {
+			for c := 0; c < 3; c++ {
+				binary.BigEndian.PutUint32(dst[(r*4+c)*4:], math.Float32bits(float32(at(r*3+c)/PoseRotScale)))
+			}
+			binary.BigEndian.PutUint32(dst[(r*4+3)*4:], math.Float32bits(float32(origin[r]+at(9+r)/PoseTransScale)))
+		}
+	}
+	return out
+}
+
+// DeserializePose parses a client->server pose payload (also the
+// post-playerID slice of server->client frames) into the joint count, raw
+// Mtx bytes ready for mpNodeMtx (dequantized if it came as PoseInt16), and
+// the optional face suffix. It returns an error for a truncated payload, an
+// unknown format, a joint count outside 1..MaxPoseJoints, or a face trailer
+// over MaxFaceBytes; the server drops such frames at ingress.
 func DeserializePose(data []byte) (joints int, matrices, face []byte, err error) {
 	if len(data) < 4 {
 		return 0, nil, nil, fmt.Errorf("pose: %d-byte payload is shorter than its 4-byte header", len(data))
@@ -453,14 +551,36 @@ func DeserializePose(data []byte) (joints int, matrices, face []byte, err error)
 	if joints <= 0 || joints > MaxPoseJoints {
 		return 0, nil, nil, fmt.Errorf("pose: joint count %d outside 1..%d", joints, MaxPoseJoints)
 	}
-	need := 4 + joints*48
+	var block int
+	switch data[2] {
+	case PoseRaw:
+		block = joints * poseRawJoint
+	case PoseInt16:
+		block = poseOriginLen + joints*poseInt16Joint
+	default:
+		return 0, nil, nil, fmt.Errorf("pose: unknown format %d", data[2])
+	}
+	need := 4 + block
 	if len(data) < need {
 		return 0, nil, nil, fmt.Errorf("pose: %d joints need %d bytes, payload has %d", joints, need, len(data))
 	}
 	if len(data)-need > MaxFaceBytes {
 		return 0, nil, nil, fmt.Errorf("pose: %d-byte face trailer (max %d)", len(data)-need, MaxFaceBytes)
 	}
+	if data[2] == PoseInt16 {
+		return joints, dequantizePose(joints, data[4:need]), data[need:], nil
+	}
 	return joints, data[4:need], data[need:], nil
+}
+
+// PoseRelayFrame builds the server->client pose frame from a payload the
+// server has already checked with DeserializePose: the sender's ID, then
+// its bytes unchanged, so a quantized pose stays quantized on the way out.
+func PoseRelayFrame(playerID byte, payload []byte) []byte {
+	out := make([]byte, 1+len(payload))
+	out[0] = playerID
+	copy(out[1:], payload)
+	return out
 }
 
 // PoseRelayMessage builds the server->client pose frame: same payload
@@ -470,10 +590,7 @@ func PoseRelayMessage(playerID byte, joints int, matrices []byte, face []byte) [
 	if body == nil {
 		return nil
 	}
-	out := make([]byte, 1+len(body))
-	out[0] = playerID
-	copy(out[1:], body)
-	return out
+	return PoseRelayFrame(playerID, body)
 }
 
 // ParsePoseRelayMessage decodes a server->client pose frame into
