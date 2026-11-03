@@ -1,0 +1,71 @@
+== base-tcp
+pid 62079: 30 fps
+pid 62166: 30 fps
+pid 62079: 30 fps
+pid 62166: 30 fps
+A: walker 16.73 +- 0.59 a frame; remote 16.86 +- 3.36 (cv 0.199, ratio 1.008, 0 stalls, 0 jumps, jerk 4.82, 65 units behind; 0+0 frames missed)
+B: walker 16.74 +- 0.64 a frame; remote 16.67 +- 4.35 (cv 0.261, ratio 0.996, 0 stalls, 0 jumps, jerk 5.52, 80 units behind; 0+0 frames missed)
+== base-udp
+pid 97372: 30 fps
+pid 97386: 30 fps
+pid 97372: 30 fps
+pid 97386: 30 fps
+A: walker 16.77 +- 0.61 a frame; remote 16.87 +- 4.38 (cv 0.260, ratio 1.006, 0 stalls, 0 jumps, jerk 6.81, 62 units behind; 0+0 frames missed)
+B: walker 16.75 +- 0.63 a frame; remote 16.86 +- 4.23 (cv 0.251, ratio 1.006, 0 stalls, 0 jumps, jerk 6.02, 80 units behind; 0+0 frames missed)
+[server] UDP pose transport on port 61101
+[net] [bcast-A] UDP pose transport up
+[net] [puppet-A] UDP pose transport up
+[net] [bcast-B] UDP pose transport up
+[net] [puppet-B] UDP pose transport up
+== l1-tcp
+pid 23841: 30 fps
+pid 23851: 30 fps
+pid 23841: 30 fps
+pid 23851: 30 fps
+A: walker 16.78 +- 0.60 a frame; remote 17.41 +- 5.51 (cv 0.316, ratio 1.038, 0 stalls, 2 jumps, jerk 6.59, 112 units behind; 0+0 frames missed)
+B: walker 16.74 +- 0.70 a frame; remote 16.93 +- 4.24 (cv 0.251, ratio 1.012, 0 stalls, 0 jumps, jerk 5.78, 102 units behind; 0+0 frames missed)
+[netem] Dolphin B dials 127.0.0.1:61217, shaped rtt=150ms,jitter=20ms,loss=0.01,rto=350ms, toward localhost:61216
+[netem] conns 3, chunks 6129, bytes 2953007 (up 1070266, down 1882741), stalls 62, mean one-way 107ms
+[netem] udp peers 0, datagrams 0, dropped 0 (0.0%), bytes 0 (up 0, down 0), mean one-way 0s
+== l1-udp
+pid 52666: 30 fps
+pid 52682: 30 fps
+pid 52666: 30 fps
+pid 52682: 30 fps
+A: walker 16.71 +- 0.62 a frame; remote 16.75 +- 3.75 (cv 0.224, ratio 1.002, 0 stalls, 0 jumps, jerk 5.52, 105 units behind; 0+0 frames missed)
+B: walker 16.75 +- 0.65 a frame; remote 16.84 +- 3.91 (cv 0.232, ratio 1.005, 0 stalls, 0 jumps, jerk 5.44, 111 units behind; 0+0 frames missed)
+[server] UDP pose transport on port 61599
+[netem] Dolphin B dials 127.0.0.1:61599, shaped rtt=150ms,jitter=20ms,loss=0.01,rto=350ms, toward localhost:61598
+[net] [bcast-A] UDP pose transport up
+[net] [puppet-A] UDP pose transport up
+[net] [bcast-B] UDP pose transport up
+[net] [puppet-B] UDP pose transport up
+[netem] conns 3, chunks 2387, bytes 794779 (up 18238, down 776541), stalls 21, mean one-way 106ms
+[netem] udp peers 2, datagrams 2858, dropped 30 (1.0%), bytes 2122053 (up 1065806, down 1056247), mean one-way 75ms
+== l5-tcp
+pid 82510: 30 fps
+pid 82653: 30 fps
+pid 82510: 30 fps
+pid 82653: 30 fps
+A: walker 16.74 +- 0.57 a frame; remote 16.66 +- 6.79 (cv 0.408, ratio 0.995, 0 stalls, 1 jumps, jerk 9.27, 127 units behind; 0+0 frames missed)
+B: walker 16.74 +- 0.67 a frame; remote 17.05 +- 6.87 (cv 0.403, ratio 1.018, 0 stalls, 3 jumps, jerk 7.73, 162 units behind; 0+0 frames missed)
+[netem] Dolphin B dials 127.0.0.1:61700, shaped rtt=150ms,jitter=20ms,loss=0.05,rto=350ms, toward localhost:61699
+[netem] conns 3, chunks 5961, bytes 2927341 (up 1068479, down 1858862), stalls 317, mean one-way 203ms
+[netem] udp peers 0, datagrams 0, dropped 0 (0.0%), bytes 0 (up 0, down 0), mean one-way 0s
+== l5-udp
+pid 10646: 30 fps
+pid 10688: 30 fps
+pid 10646: 31 fps
+pid 10688: 30 fps
+A: walker 16.77 +- 0.52 a frame; remote 16.81 +- 4.42 (cv 0.263, ratio 1.002, 0 stalls, 0 jumps, jerk 5.92, 106 units behind; 0+0 frames missed)
+B: walker 16.74 +- 0.68 a frame; remote 16.91 +- 5.09 (cv 0.301, ratio 1.010, 0 stalls, 0 jumps, jerk 7.22, 107 units behind; 0+0 frames missed)
+[server] UDP pose transport on port 61879
+[netem] Dolphin B dials 127.0.0.1:61879, shaped rtt=150ms,jitter=20ms,loss=0.05,rto=350ms, toward localhost:61878
+[net] [bcast-A] UDP pose transport up
+[net] [puppet-A] UDP pose transport up
+[net] [bcast-B] UDP pose transport up
+[net] [puppet-B] UDP pose transport up
+[netem] conns 3, chunks 2414, bytes 793708 (up 18292, down 775416), stalls 134, mean one-way 220ms
+[netem] udp peers 2, datagrams 2803, dropped 154 (5.2%), bytes 2060882 (up 1017044, down 1043838), mean one-way 75ms
+[net] [bcast-B] UDP pose transport down, using TCP
+[net] [bcast-B] UDP pose transport up

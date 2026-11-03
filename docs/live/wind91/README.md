@@ -30,4 +30,28 @@ WW_NETEM_SECS=20 WW_NETEM_COMPARE='rtt=150ms,jitter=20ms;rtt=150ms,jitter=20ms,l
 - "New frames seen" under 600 with no loss is the 2 ms poll: frames that land together count once.
 - The proxy's loss is independent per datagram. Real loss comes in bursts, which this doesn't model. NC-5 (a real WAN run) still stands.
 
-The two-Dolphin check (mp-local, `MP_LOCAL_NETEM` at 1% and 5%, `smooth-steps`) is below once it has run.
+## Two Dolphins (mp-local), Mac rig, 2026-11-03
+
+Rig `wind91`, lease `ww/dolphin-slot-1`, branch `wind91-udp-pose` rebased on main 50c8498, REL 0x3D7FEC97 (`WW-mp.iso`),
+start save `start-mac-3D7FEC97-62DBA05C.sav` (at sea). `walk.sh <label> <spec> <udp>` runs one condition on a fresh pair:
+`mp-local` with `MP_LOCAL_PORT=0`, B behind `MP_LOCAL_NETEM` (the TCP proxy, and with it the UDP proxy at its port + 1),
+`WW_UDP` set or not for the server and all clients, then `smooth-steps 5 A` and `5 B`, fps before and after, and a crash
+sweep of both Dolphin logs. Only B's link is shaped, as in wind#82. The raw lines are in `results.txt`.
+
+| condition | transport | walk A seen on B: stalls / jumps / cv / behind | walk B seen on A: stalls / jumps / cv / behind |
+| --- | --- | --- | --- |
+| loopback | TCP | 0 / 0 / 0.20 / 65 | 0 / 0 / 0.26 / 80 |
+| loopback | UDP | 0 / 0 / 0.26 / 62 | 0 / 0 / 0.25 / 80 |
+| rtt 150, jitter 20, 1% | TCP | 0 / 2 / 0.32 / 112 | 0 / 0 / 0.25 / 102 |
+| rtt 150, jitter 20, 1% | UDP | 0 / 0 / 0.22 / 105 | 0 / 0 / 0.23 / 111 |
+| rtt 150, jitter 20, 5% | TCP | 0 / 1 / 0.41 / 127 | 0 / 3 / 0.40 / 162 |
+| rtt 150, jitter 20, 5% | UDP | 0 / 0 / 0.26 / 106 | 0 / 0 / 0.30 / 107 |
+
+- With `WW_UDP=1`, all four pose clients (bcast-A/B, puppet-A/B) logged "UDP pose transport up", through the proxy too.
+  At 5% the UDP proxy dropped 154 of 2957 datagrams (5.2%), and the TCP proxy logged 134 stalls on the control plane.
+- Loopback is unchanged: UDP and TCP read the same within the run-to-run spread.
+- At 5% loss, UDP keeps the remote Link moving as it does at 1%: no jumps, cv 0.26 to 0.30 against TCP's 0.40, and it
+  trails by about 106 units against TCP's 127 to 162. TCP shows no stalls here (wind#82 had 9 to 27) because wind#83's
+  playout buffer now absorbs them; it shows them as catch-up jumps and a growing lag instead.
+- Both Dolphins held 30 fps at the start and end of every run. No ISI/DSI or invalid access in either Dolphin log.
+- One run per condition: the cv and jump counts carry noise of a few hundredths and one or two jumps.
