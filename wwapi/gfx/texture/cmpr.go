@@ -222,8 +222,16 @@ func rgbOf(c Color) rgb {
 	return rgb{float64(c.R), float64(c.G), float64(c.B)}
 }
 
-// mapColor moves a tunic color to the target: the target's hue plus the
-// texel's offset from the reference hue (keeps shading variation), and
+// hueSpread is how much of a texel's hue offset from the reference green
+// the recolor keeps. Link's sleeves are a yellower green (hue 80 against
+// the tunic's 111, linktexS3TC on GZLE01): kept whole, that -31 degrees
+// lands blue (224) on cyan (193) and red on pink, so the sleeves read as
+// another color (issue #135). A quarter keeps them a shade apart from the
+// tunic in every target and puts them inside its hue family.
+const hueSpread = 0.25
+
+// mapColor moves a tunic color to the target: the target's hue plus a
+// quarter of the texel's offset from the reference hue (hueSpread), and
 // saturation and value scaled by target/reference (keeps light and shadow).
 // Non-tunic colors pass through by the mask weight.
 func mapColor(c rgb, m Mask, ref Reference, target hsv) rgb {
@@ -240,7 +248,13 @@ func mapColor(c rgb, m Mask, ref Reference, target hsv) rgb {
 	if ref.V > 0 {
 		nv = h.v * target.v / ref.V
 	}
-	n := fromHSV(hsv{target.h + (h.h - ref.H), ns, nv})
+	off := h.h - ref.H
+	if off > 180 {
+		off -= 360
+	} else if off < -180 {
+		off += 360
+	}
+	n := fromHSV(hsv{target.h + off*hueSpread, ns, nv})
 	return rgb{
 		c.r + (n.r-c.r)*w,
 		c.g + (n.g-c.g)*w,
