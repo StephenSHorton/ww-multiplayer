@@ -1,0 +1,48 @@
+== base
+A: walker 16.90 +- 7.54 a frame; remote 15.72 +- 4.77 (cv 0.304, ratio 0.930, 0 stalls, 1 jumps, jerk 2.58, 46 units behind; 0+0 frames missed)
+B: walker 16.90 +- 7.54 a frame; remote 15.89 +- 4.88 (cv 0.307, ratio 0.940, 0 stalls, 1 jumps, jerk 3.32, 43 units behind; 0+0 frames missed)
+  sea idle     3 windows: up 1032, down 2102 kbit/s | down pose 2026.7, up pose 1012.9, down pos 48.1, down enemy/STATE 27.5, up pos 15.5, up enemy/PSTATE 3.5
+  sea walking  2 windows: up 1033, down 2104 kbit/s | down pose 2027.8, up pose 1013.5, down pos 48.1, down enemy/STATE 27.5, up pos 15.6, up enemy/PSTATE 3.8
+  DRC room 6   5 windows: up 1033, down 2198 kbit/s | down pose 2025.8, up pose 1012.5, down enemy/STATE 123.5, down pos 48.0, up pos 15.5, up enemy/PSTATE 4.3
+[wire] run 97 s, PlayerA: up 1089 kbit/s, down 2046 kbit/s | down pose 1994.5 up pose 1001.1 up enemy/STATE 71.6 down pos 47.3 up pos 15.4 down enemy/PSTATE 3.7 down coop/0x03 0.5 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 up ping 0.1 down ping 0.1 up pong 0.1 down pong 0.1 up enemy/PHIT 0.1
+[wire] run 97 s, PlayerB: up 1015 kbit/s, down 2105 kbit/s | down pose 1985.4 up pose 995.6 down enemy/STATE 71.5 down pos 47.1 up pos 15.3 up enemy/PSTATE 3.7 down coop/0x03 0.5 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 down ping 0.1 up ping 0.1 down pong 0.1 up pong 0.1 down enemy/PHIT 0.1
+== base2
+A: walker 16.97 +- 7.60 a frame; remote 15.94 +- 4.93 (cv 0.309, ratio 0.939, 0 stalls, 1 jumps, jerk 3.76, 43 units behind; 0+0 frames missed)
+B: walker 16.89 +- 7.53 a frame; remote 15.92 +- 5.19 (cv 0.326, ratio 0.943, 0 stalls, 1 jumps, jerk 4.75, 48 units behind; 0+0 frames missed)
+  sea idle     3 windows: up 1017, down 2073 kbit/s | down pose 1997.8, up pose 998.4, down pos 47.4, down enemy/STATE 27.5, up pos 15.3, up enemy/PSTATE 3.6
+  sea walking  2 windows: up 1022, down 2083 kbit/s | down pose 2007.8, up pose 1003.5, down pos 47.6, down enemy/STATE 27.5, up pos 15.4, up enemy/PSTATE 3.8
+  DRC room 6   5 windows: up 1029, down 2191 kbit/s | down pose 2019.2, up pose 1009.1, down enemy/STATE 123.5, down pos 47.9, up pos 15.5, up enemy/PSTATE 4.1
+[wire] run 96 s, PlayerA: up 1079 kbit/s, down 2026 kbit/s | down pose 1974.2 up pose 991.2 up enemy/STATE 71.7 down pos 46.8 up pos 15.2 down enemy/PSTATE 3.7 down coop/0x03 0.5 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 down ping 0.1 up ping 0.1 up pong 0.1 down pong 0.1
+[wire] run 96 s, PlayerB: up 1005 kbit/s, down 2084 kbit/s | down pose 1964.7 up pose 985.2 down enemy/STATE 71.6 down pos 46.6 up pos 15.1 up enemy/PSTATE 3.7 down coop/0x03 0.5 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 up ping 0.1 down ping 0.1 up pong 0.1 down pong 0.1
+== trim1
+A: walker 16.98 +- 7.61 a frame; remote 15.99 +- 4.58 (cv 0.286, ratio 0.942, 0 stalls, 1 jumps, jerk 1.56, 46 units behind; 0+0 frames missed)
+B: walker 16.88 +- 7.52 a frame; remote 15.91 +- 5.42 (cv 0.341, ratio 0.942, 0 stalls, 3 jumps, jerk 5.11, 41 units behind; 0+0 frames missed)
+  sea idle     3 windows: up  765, down  736 kbit/s | up pose 749.1, down pose 686.0, down enemy/STATE 27.5, down pos 21.7, up pos 11.5, up enemy/PSTATE 3.8
+  sea walking  2 windows: up  540, down  670 kbit/s | down pose 623.1, up pose 527.6, down enemy/STATE 27.5, down pos 19.7, up pos 8.1, up enemy/PSTATE 3.9
+  DRC room 6   5 windows: up  539, down  670 kbit/s | down pose 529.2, up pose 525.6, down enemy/STATE 123.5, down pos 16.7, up pos 8.0, up enemy/PSTATE 4.5
+[wire] run 96 s, PlayerA: up 645 kbit/s, down 586 kbit/s | up pose 563.9 down pose 563.8 up enemy/STATE 71.7 down pos 17.8 up pos 8.6 down enemy/PSTATE 3.8 down coop/0x03 0.5 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 down ping 0.1 up ping 0.1 up pong 0.1 down pong 0.1
+[wire] run 96 s, PlayerB: up 577 kbit/s, down 649 kbit/s | up pose 563.6 down pose 558.8 down enemy/STATE 71.6 down pos 17.7 up pos 8.6 up enemy/PSTATE 3.8 down coop/0x03 0.5 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 up ping 0.1 down ping 0.1 down pong 0.1 up pong 0.1
+== trim2
+A: walker 16.99 +- 7.62 a frame; remote 15.92 +- 5.03 (cv 0.316, ratio 0.937, 0 stalls, 1 jumps, jerk 3.08, 39 units behind; 0+0 frames missed)
+B: walker 16.91 +- 7.54 a frame; remote 15.74 +- 5.32 (cv 0.338, ratio 0.931, 0 stalls, 1 jumps, jerk 4.31, 50 units behind; 0+0 frames missed)
+  sea idle     3 windows: up  727, down  779 kbit/s | down pose 728.3, up pose 712.4, down enemy/STATE 27.5, down pos 23.0, up pos 10.9, up enemy/PSTATE 3.6
+  sea walking  2 windows: up  602, down  602 kbit/s | up pose 589.4, down pose 556.2, down enemy/STATE 27.5, down pos 17.6, up pos 9.1, up enemy/PSTATE 3.8
+  DRC room 6   5 windows: up  527, down  666 kbit/s | down pose 525.2, up pose 514.2, down enemy/STATE 123.5, down pos 16.6, up pos 7.9, up enemy/PSTATE 4.5
+[wire] run 96 s, PlayerA: up 649 kbit/s, down 589 kbit/s | up pose 567.7 down pose 566.4 up enemy/STATE 71.6 down pos 17.9 up pos 8.7 down enemy/PSTATE 3.8 down coop/0x03 0.5 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 down ping 0.1 up ping 0.1 up pong 0.1 down pong 0.1 up enemy/PHIT 0.1
+[wire] run 96 s, PlayerB: up 579 kbit/s, down 654 kbit/s | up pose 566.1 down pose 563.3 down enemy/STATE 71.6 down pos 17.8 up pos 8.7 up enemy/PSTATE 3.8 down coop/0x03 0.5 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 up ping 0.1 down ping 0.1 down pong 0.1 up pong 0.1 down enemy/PHIT 0.1
+== trim3
+A: walker 16.90 +- 7.54 a frame; remote 15.87 +- 5.48 (cv 0.345, ratio 0.939, 0 stalls, 1 jumps, jerk 5.12, 41 units behind; 0+0 frames missed)
+B: walker 16.90 +- 7.55 a frame; remote 15.93 +- 5.70 (cv 0.358, ratio 0.942, 0 stalls, 1 jumps, jerk 5.29, 51 units behind; 0+0 frames missed)
+  sea idle     3 windows: up  560, down  603 kbit/s | down pose 557.9, up pose 547.6, down enemy/STATE 27.5, down pos 17.7, up pos 8.4, up enemy/PSTATE 3.6
+  sea walking  2 windows: up  550, down  576 kbit/s | up pose 537.6, down pose 531.1, down enemy/STATE 27.5, down pos 16.8, up pos 8.2, up enemy/PSTATE 3.8
+  DRC room 6   5 windows: up  540, down  656 kbit/s | up pose 527.6, down pose 515.8, down enemy/STATE 123.5, down pos 16.3, up pos 8.1, up enemy/PSTATE 4.4
+[wire] run 97 s, PlayerA: up 603 kbit/s, down 543 kbit/s | up pose 523.3 down pose 521.6 up enemy/STATE 71.4 down pos 16.5 up pos 8.0 down enemy/PSTATE 3.7 down coop/0x03 0.5 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 up ping 0.1 down ping 0.1 up pong 0.1 down pong 0.1
+[wire] run 97 s, PlayerB: up 534 kbit/s, down 607 kbit/s | up pose 521.4 down pose 518.8 down enemy/STATE 71.3 down pos 16.4 up pos 8.0 up enemy/PSTATE 3.7 down coop/0x03 0.5 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 down ping 0.1 up ping 0.1 down pong 0.1 up pong 0.1
+== trim4
+A: walker 16.89 +- 7.53 a frame; remote 15.87 +- 5.41 (cv 0.341, ratio 0.940, 0 stalls, 1 jumps, jerk 4.72, 45 units behind; 0+0 frames missed)
+B: walker 16.97 +- 7.59 a frame; remote 15.98 +- 5.52 (cv 0.346, ratio 0.942, 0 stalls, 1 jumps, jerk 5.03, 45 units behind; 0+0 frames missed)
+  sea idle     3 windows: up  552, down  586 kbit/s | down pose 541.2, up pose 539.8, down enemy/STATE 27.5, down pos 17.1, up pos 8.3, up enemy/PSTATE 3.6
+  sea walking  2 windows: up  548, down  594 kbit/s | down pose 549.5, up pose 536.0, down enemy/STATE 27.5, down pos 17.4, up pos 8.2, up enemy/PSTATE 3.9
+  DRC room 6   8 windows: up  525, down  651 kbit/s | up pose 513.0, down pose 510.7, down enemy/STATE 123.4, down pos 16.1, up pos 7.9, up enemy/PSTATE 3.7
+[wire] run 110 s, PlayerA: up 602 kbit/s, down 533 kbit/s | up pose 516.5 down pose 512.7 up enemy/STATE 77.3 down pos 16.2 up pos 7.9 down enemy/PSTATE 3.5 down coop/0x03 0.4 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 up ping 0.1 down ping 0.1 down pong 0.1 up pong 0.1
+[wire] run 110 s, PlayerB: up 524 kbit/s, down 607 kbit/s | down pose 512.7 up pose 512.4 down enemy/STATE 77.2 down pos 16.2 up pos 7.9 up enemy/PSTATE 3.5 down coop/0x03 0.4 up coop/0x03 0.3 down coop/0x05 0.2 up coop/0x05 0.1 up ping 0.1 down ping 0.1 up pong 0.1 down pong 0.1

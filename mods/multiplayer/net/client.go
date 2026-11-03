@@ -169,6 +169,16 @@ func NewClient(name string) *Client {
 	}
 }
 
+// SkipSelfEcho asks the server, in this player client's hello, not to
+// relay it its own player's poses, positions and projectile events
+// (CapNoSelfEcho): set it on a client that ignores remotes named as
+// itself, before Connect. It takes effect at the next connect.
+func (c *Client) SkipSelfEcho() {
+	if c.role == RolePlayer {
+		c.caps |= CapNoSelfEcho
+	}
+}
+
 func (c *Client) log(msg string) {
 	if c.OnLog != nil {
 		c.OnLog(msg)

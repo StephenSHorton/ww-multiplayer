@@ -250,12 +250,20 @@ const helloModsLen = helloColorLen + ModsHashLen
 // hash. With a hash it is always the role form: caps CapModsHash, the
 // color block (hasColor 0 and rgb 0 without a preference), then the hash.
 func HelloPlayerModsMessage(version uint16, pref *playercolor.Color, hash *[ModsHashLen]byte) []byte {
-	if pref == nil && hash == nil {
+	return helloPlayerCapsMessage(version, pref, hash, 0)
+}
+
+// helloPlayerCapsMessage is HelloPlayerModsMessage with more player caps
+// (CapNoSelfEcho) set. Any extra cap makes it the role form, with the
+// color block as for a hash.
+func helloPlayerCapsMessage(version uint16, pref *playercolor.Color, hash *[ModsHashLen]byte, extra uint16) []byte {
+	extra &^= CapModsHash
+	if pref == nil && hash == nil && extra == 0 {
 		return HelloMessage(version)
 	}
-	var caps uint16
+	caps := extra
 	if hash != nil {
-		caps = CapModsHash
+		caps |= CapModsHash
 	}
 	b := HelloRoleMessage(version, RolePlayer, caps)
 	if pref != nil {
@@ -345,7 +353,7 @@ func writeJoinRole(w io.Writer, name string, role byte, caps uint16, pref *playe
 	if err := ValidatePlayerName(name); err != nil {
 		return &RejectError{Code: RejectBadName, Reason: err.Error()}
 	}
-	hello := HelloPlayerModsMessage(ProtocolVersion, pref, hash)
+	hello := helloPlayerCapsMessage(ProtocolVersion, pref, hash, caps)
 	if role != RolePlayer {
 		hello = HelloRoleMessage(ProtocolVersion, role, caps)
 	}

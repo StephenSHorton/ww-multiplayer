@@ -374,6 +374,10 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		}
 		srv.Coop = coop.Hub()
 	}
+	wireEvery := mpLocalWireEvery(rep)
+	if wireEvery > 0 {
+		srv.Wire = network.NewWireStats()
+	}
 	if err := srv.Start(); err != nil {
 		coop.Stop()
 		fail(fmt.Sprintf("server start: %v", err))
@@ -461,6 +465,14 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 				return coopsession.RunSync(ctx, coopEnv, d.name, d.addr, d.pid, r, coop, mpLocalClaimFunc(d.claims))
 			})
 		}
+	}
+
+	if srv.Wire != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			logWireStats(ctx, log.Prefix(rep, "[wire]"), srv.Wire, wireEvery, nameA, nameB)
+		}()
 	}
 
 	rep.Log(log.OK, "Local multiplayer running. Walk in either Dolphin — the other should render Link #2 at your real coords.")

@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -176,10 +177,20 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 		if env.TestRate != nil {
 			return testRateLoop(ctx, env.TestRate, client.IsConnected, capture, send, rep)
 		}
+		var last *poseSample
+		var lastAt time.Time
 		for client.IsConnected() {
 			if s := capture(); s != nil {
-				if err := send(s); err != nil {
-					return err
+				// The game draws 30 frames a second and this loop
+				// samples about 60: every other sample is the frame
+				// already sent (wind#84: half the pose stream, up and
+				// down). sendDue says which go out.
+				now := time.Now()
+				if sendDue(s, last, now.Sub(lastAt)) {
+					if err := send(s); err != nil {
+						return err
+					}
+					last, lastAt = s, now
 				}
 			}
 
@@ -283,6 +294,43 @@ type poseSample struct {
 	place      network.Place
 	placeOK    bool
 	pose, face []byte
+}
+
+// poseRepeatEvery is how often BroadcastPose sends a sample that repeats
+// the last one sent (the same game frame read twice, or a Link standing
+// perfectly still): a keepalive far inside the receivers' freeze and
+// despawn timers (WW_FREEZE_SECS, WW_DESPAWN_SECS).
+const poseRepeatEvery = 250 * time.Millisecond
+
+// trailerEvery is the least time between two samples that differ only
+// outside the pose matrices. The pose is published once a frame at draw
+// time, but the position and the ship (in the face trailer) are read live
+// and move in the game's calc, so two reads of one drawn frame can differ
+// there: at sea, with the ship bobbing, that sent most frames twice.
+// Below a frame (33 ms), above the loop's 16 ms.
+const trailerEvery = 25 * time.Millisecond
+
+// sendDue reports whether BroadcastPose sends sample s, last being the
+// last one sent (nil before the first) since a while ago: a new pose
+// frame always; a change elsewhere (position, place, face trailer) once
+// trailerEvery has passed; a repeat once poseRepeatEvery has.
+func sendDue(s, last *poseSample, since time.Duration) bool {
+	switch {
+	case last == nil || since >= poseRepeatEvery:
+		return true
+	case (s.pose == nil) != (last.pose == nil) || !bytes.Equal(s.pose, last.pose):
+		return true
+	case since < trailerEvery:
+		return false
+	}
+	return !s.same(last)
+}
+
+// same reports whether s would send exactly what o did: the position, the
+// place, the pose matrices and the face trailer.
+func (s *poseSample) same(o *poseSample) bool {
+	return *s.pos == *o.pos && s.place == o.place && s.placeOK == o.placeOK &&
+		bytes.Equal(s.pose, o.pose) && bytes.Equal(s.face, o.face) && (s.pose == nil) == (o.pose == nil)
 }
 
 // testRateLoop is BroadcastPose's send loop under a TestRate: every

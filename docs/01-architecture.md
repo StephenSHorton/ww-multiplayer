@@ -52,7 +52,7 @@ Simple TCP-based protocol with message framing (`[type:1][length:2][data]`). Mes
 - `J` (Join) — client announces name
 - `H` (Hello) — protocol version, and from protocol 2 the connection role and caps (`handshake.go`); protocol 3 (enemy sync) adds the enemy-host and enemy-client roles. This build speaks protocol 6 (`ProtocolVersion`; the list of versions is in `handshake.go`)
 - `W` (Welcome) — server assigns an ID; `R` (Reject) — the server refuses the connection, with a code and a reason
-- `P` (Position) — 18-byte position update (3 floats + 3 int16s); `M` (Pose) — the skeletal pose
+- `P` (Position) — 18-byte position update (3 floats + 3 int16s); `M` (Pose) — the skeletal pose. broadcast-pose samples every 16 ms but sends a sample only when the drawn pose changed (the game draws 30 frames a second), when only the position or face trailer changed and 25 ms passed, or as a 250 ms keepalive (`sendDue`, wind#84); the dev knob `WW_POSE_TEST_RATE` (`testRateLoop`) sends every sample. A player hello's `CapNoSelfEcho` (puppet-sync whose self-filter is its own name) tells the server not to relay it the positions, poses and projectile events of connections under its own name (its broadcast-pose twin); without it the client drops them itself. A server with `Wire` set (`MP_WIRE_STATS` in mp-local) counts every frame by player, role, direction and type (`wirestats.go`); `docs/live/wind84/README.md` has what each stream costs
 - `L` (PlayerList) — server announces who's connected (with the tunic-color trailer, docs/09); `D` (Leave)
 - `C` (Chat) — text messages
 - `K` / `Q` (Ping / Pong) — heartbeat and RTT

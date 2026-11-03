@@ -33,6 +33,9 @@ type Player struct {
 	// posed is set by the first valid pose on the connection: the lobby
 	// lists a CLI player's Dolphin as in game from then on.
 	posed atomic.Bool
+	// noSelfEcho is its hello's CapNoSelfEcho: it is not relayed what
+	// connections under its own name send (relaysTo).
+	noSelfEcho bool
 	// where is the place its last position carried (place.go; guarded by
 	// the server's mu, as Position is).
 	where placeState
@@ -86,6 +89,10 @@ type Server struct {
 	// up to coopHoldTimeout; see handleCoop), and player connections
 	// behave exactly as without it.
 	Coop CoopHandler
+
+	// Wire, when set before Start, counts every connection's frames by
+	// player, role, direction and message type (wirestats.go, wind#84).
+	Wire *WireStats
 	// coopSet is closed when a non-nil CoopHandler is set (guarded by mu).
 	coopSet chan struct{}
 
@@ -232,6 +239,9 @@ func (s *Server) acceptLoop() {
 		if err != nil {
 			return // listener closed
 		}
+		if s.Wire != nil {
+			conn = &wireConn{Conn: conn, w: s.Wire}
+		}
 		go s.handlePlayer(conn)
 	}
 }
@@ -282,6 +292,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 		s.refuse(conn, name, RejectVersion, "malformed "+err.Error())
 		return
 	}
+	labelWire(conn, name, role)
 	// Reject rather than clean up a bad name: names are matched for
 	// self-filtering, so a silently altered name would break it.
 	if err := ValidatePlayerName(name); err != nil {
@@ -323,7 +334,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	// in s.players and hold it until the welcome is written: from the moment
 	// it is in the map, other players' relays (broadcastExcept) can write to
 	// this conn, and the client must read its welcome first.
-	player := &Player{Name: name, Conn: conn}
+	player := &Player{Name: name, Conn: conn, noSelfEcho: caps&CapNoSelfEcho != 0}
 	player.SendMu.Lock()
 	s.mu.Lock()
 	stopping := s.stopping()
@@ -414,7 +425,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 				if hasPlace {
 					relayData = AppendPlace(relayData, place)
 				}
-				s.broadcastExcept(id, MsgPosition, relayData)
+				s.broadcastWhere(id, MsgPosition, relayData, player.relaysTo)
 			}
 
 		case MsgChat:
@@ -474,7 +485,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 				}
 				break
 			}
-			s.broadcastExcept(id, MsgFx, FxRelayMessage(id, msg.Data))
+			s.broadcastWhere(id, MsgFx, FxRelayMessage(id, msg.Data), player.relaysTo)
 
 		case MsgPing:
 			// Echo the timestamp straight back so the client can compute
@@ -627,6 +638,14 @@ func allocFrom(next *byte, taken func(byte) bool) (id byte, ok bool) {
 	return 0, false
 }
 
+// relaysTo reports whether what this player sends (a position, a pose, a
+// projectile event) goes to p: not when p asked for no self-echo
+// (CapNoSelfEcho) and has this player's name, which its self-filter
+// matches exactly (feed.Feeder, fxsync).
+func (pl *Player) relaysTo(p *Player) bool {
+	return !(p.noSelfEcho && p.Name == pl.Name)
+}
+
 func (s *Server) broadcastExcept(excludeID byte, msgType byte, data []byte) {
 	s.broadcastWhere(excludeID, msgType, data, nil)
 }
@@ -662,12 +681,16 @@ func (s *Server) broadcastWhere(excludeID byte, msgType byte, data []byte, keep 
 // sent and held back.
 func (s *Server) relayPose(sender *Player, relay []byte) {
 	if !s.scope {
-		s.broadcastExcept(sender.ID, MsgPose, relay)
+		s.broadcastWhere(sender.ID, MsgPose, relay, sender.relaysTo)
 		return
 	}
 	frame := int64(len(relay) + 3)
 	var sent, scoped int
 	s.broadcastWhere(sender.ID, MsgPose, relay, func(p *Player) bool {
+		if !sender.relaysTo(p) {
+			// Its own player's twin (CapNoSelfEcho): it would drop it.
+			return false
+		}
 		if p.posed.Load() {
 			// A pose sender (broadcast-pose) never draws remotes:
 			// only puppet-sync does (place.go).

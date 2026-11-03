@@ -189,6 +189,11 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	if selfFilter != "" {
 		log.Logf(rep, log.Info, "Filtering self-echo: remotes named %q will be ignored.", selfFilter)
 	}
+	if selfFilter != "" && selfFilter == name {
+		// The server can then leave them out (wind#84): about a pose
+		// stream's worth of this player's download.
+		client.SkipSelfEcho()
+	}
 
 	// sessionLoop owns one live session: the 60 Hz receive→mailbox loop.
 	// network.RunSession (in run, below) wraps it with a ctx-scoped teardown
