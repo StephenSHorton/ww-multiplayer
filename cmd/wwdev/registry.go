@@ -94,6 +94,9 @@ func commandTable() []command {
 		{name: "unhide-puppet", group: groupDev, run: func(string, []string) { runUnhidePuppet() }},
 		{name: "broadcast-link", group: groupDev, run: cmdBroadcastLink},
 		{name: "pose-fake-loop", group: groupDev, run: cmdPoseFakeLoop},
+		// Server + co-op hub under N synthetic players (stress.go, docs/stress-test.md).
+		{name: "stress", group: groupDev, run: cmdStress},
+		{name: "stress-host", group: groupDev, run: cmdStressHost},
 		{name: "tunic-probe", group: groupDev, run: func(string, []string) { runTunicProbe() }},
 		{name: "tunic-recolor", group: groupDev, run: cmdTunicRecolor},
 		{name: "tunic-slot", group: groupDev, run: cmdTunicSlot},

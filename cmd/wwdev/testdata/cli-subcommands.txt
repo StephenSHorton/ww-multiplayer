@@ -71,6 +71,8 @@ shadow-mode
 smoke
 smooth-steps
 stage-hop
+stress
+stress-host
 track-pos
 tunic-probe
 tunic-recolor
