@@ -59,6 +59,8 @@ Only the wake was forced: the hits and the death are the game's own. B's Armos s
 - No ISI, DSI or invalid access in either dolphin.log, and no panic or ERROR in either mp-local log.
 - A's Link died once to the ChuChus while B was being driven. Its game-over prompt saved to the rig's own u1 card (the
   cursor was on Yes). That touches only this rig's copy, not the fixture or the start save.
+- The early runs poked the stale 0x80413078 (WW-MAC-RULES) on my A and on wind89's A. On that build (a41488c) the word
+  read 0 on Dolphins that were never poked, and the last poke wrote 0 back. On later builds it may be T2 code: never poke it.
 - Rig slip: early on, a zsh array index (`${P[0]}`, empty in zsh) left `WW_DOLPHIN_PID` unset, so one warp and about 3 s of
   inputs went to rig wind89's Dolphin A. wind#89 was told on its card. `jump.py`, `stab2.py`, `polla.sh` and `dumpa.sh` now
   refuse to run unless `WW_DOLPHIN_PID` is one of the rig's `pair.pids`.
