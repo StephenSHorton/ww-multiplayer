@@ -771,7 +771,9 @@ Drawing it is not safe: a visible KAMOME puppet hangs the game in an endless loo
 after `wwdev unhide-puppet`. Sea rooms draw it fine.
 
 Fix: every slot is a KAMOME with `KAMOME_PUPPET_PARAM` (`inject/src/mp/mp.h`): no path, and
-hidden behind dungeon switch 0xBF. A zone switch (0xC0 and up) is not usable: it looks up the
+hidden behind dungeon switch 0xBF, the last one (`dSv_danBit_c`, cleared when the save
+table changes). 0xBF is not checked against every stage's data: if a room sets it, the gull
+shows there and that stage hangs, so pick another switch. A zone switch (0xC0 and up) is not usable: it looks up the
 room's zone, and a puppet spawned with Link in room -1 froze Outset. Remotes beyond the
 mini-Link slots stay invisible, as before; a visible stand-in needs another actor or the draw
 hang understood. Live record: [live/wind76-puppet-churn-mac.md](live/wind76-puppet-churn-mac.md).

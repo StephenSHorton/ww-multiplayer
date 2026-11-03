@@ -28,8 +28,9 @@
 // The switch keeps the gull hidden (daKamome_Draw returns while mSwitchNo !=
 // 0): a drawn gull hangs the game in J3DDrawBuffer::draw on non-sea stages
 // (Hyrule, dungeons), so the puppet stays invisible, as it always was. 0xBF
-// is the last dungeon switch (0x80-0xBF, cleared on each stage change), which
-// stages rarely set; param 0 used memory switch 0. Not a zone switch (0xC0+):
+// is the last dungeon switch (0x80-0xBF, dSv_danBit_c, cleared when the save
+// table changes). Not checked against every stage's data: if a room sets it,
+// the gull shows and that stage hangs; pick another. Param 0 used switch 0. Not a zone switch (0xC0+):
 // those look the room's zone up, and a puppet spawned with Link in room -1
 // (Outset arrival) read mStatus[-1] every frame and froze the game. wind#76.
 #define KAMOME_PUPPET_PARAM 0xBFFF0000U

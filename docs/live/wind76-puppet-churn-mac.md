@@ -34,8 +34,9 @@ Stephen's call (wind#76 b1): keep the puppet hidden, no churn.
 ## The fix: `KAMOME_PUPPET_PARAM 0xBFFF0000`
 
 Every slot is a KAMOME, path 0xFF, hidden behind dungeon switch 0xBF (`mSwitchNo` 0xC0).
-A zone switch (0xEF) was tried first: it froze Outset as soon as a puppet spawned with Link
-in room -1 (the arrival point), since a zone switch looks up `mStatus[room]`; the gull itself
+A zone switch (0xEF) was tried first: it froze the game twice, once on the hop from Outset
+to M_Dai with puppets live (frames 1459 -> 1459) and once in Outset right after a puppet spawned
+with Link in room -1 (the arrival point), since a zone switch looks up `mStatus[room]`; the gull itself
 was still hidden (`mSwitchNo` 0xF0). Dungeon switches do not use the room.
 
 One Dolphin, slot 0 off, `stage-hop`, 18 s, slot 0 on next to Link, then frames and the
