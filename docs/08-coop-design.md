@@ -952,6 +952,8 @@ Acceptance:
   - `/coop on` resumes, and B catches up at its next room change. `/status` says where co-op is.
   - Then load save states on B five times within a minute. B turns its writes off once, saying `… save-state loads in …`, and pose sync goes on.
 
+*Run 2026-11-03 (wind#88, Mac rig): A4, A5 and A6 passed, with A's gains set by poke; `coop-watch` (A5) and a real fishman feed or salvage (A4) not run. Record: [live/wind88](live/wind88/README.md).*
+
 Escapes (§6.7):
 - **R1 `/refresh`.** Stand in a room of B's with a chest A opened after B came in, and type `/refresh` for B.
   - The room reloads by the entrance B came in by, and the chest stands open. Pair: before and after.
@@ -1024,6 +1026,8 @@ Acceptance:
   - B's log says `co-op: the world is far ahead of this file: copy the host's save in, or the host can run with --coop-merge to union them; pose sync goes on`, that the copy replaces all three of B's files with the host's, and that the host should first save in game and load its file from the card (item 133). Nothing is asked, bound or written.
   - Join again with `--coop --coop-dry-run` and the same file: the host's NOTICE still says the world is far ahead (item 111), and a bind asked for is refused.
   - With `--coop-merge` on the host, the bind is asked. After a yes, the milestones B lacks stay held (`/status`), so B's file still resumes where its own progress says.
+
+*Run 2026-11-03 (wind#88, Mac rig): P3-P9 passed, with A's gains set by poke. Not run: real pickups by pad, the quest-status and collection pairs (P3, P4), firing an arrow (P5) and a layer pair (P6). Record: [live/wind88](live/wind88/README.md).*
 
 Last: run P1 again with `--coop --coop-dry-run`. B's log says `dry-run: would set t03 DRC chest <n> …`, derives no key (a dry run loads no tables), and `peek 0x803C53A0 1` is unchanged. Run `host`, `join` and `mp-local` once without `--coop`: they behave exactly as before, except `mp-local`'s startup shift, which now moves Dolphin B's Link only when the two Links overlap and logs why when it does not (item 130).
 

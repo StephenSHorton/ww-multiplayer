@@ -1,0 +1,107 @@
+Run logs in ~/ww-shared/rigs/wind88/logs/latest (WW_DEV_LOGS); the run before is in ~/ww-shared/rigs/wind88/logs/sessions/20261103-084933
+Found Dolphin A (pid 22949) and B (pid 23396).
+Waiting for both Dolphins to load to an in-game save state...
+Both Dolphins in-game — proceeding.
+Dolphin logs: no dolphin2 record for pids 22949 and 23396, following USER_DIR_1 and USER_DIR_2's logs as dolphin-1 and dolphin-2.
+Face-state sync armed on the Dolphins that run this version's patch.
+Not moving Dolphin B's Link at start under --coop: the move writes Link's position outside co-op's gates and WriteGuard. If the two Links overlap, walk one a few steps away.
+co-op: backed up 2 memory-card file(s) to ~/Library/Application Support/ww-multiplayer/backups/20261103T154955Z (`coop-world restore 20261103T154955Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind88/u1/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind88/u1/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind88/u2/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind88/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op: stage tables 07fce914c47490e7, ~/ww-shared/rigs/wind88/WW-mp.iso from the cache: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
+Co-op world 07bbbc6bce94f7cd at seq 13 (dry run: planned writes are logged, not made; only a binding tag is ever written, after a yes).
+co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>. With two or more partners, name the one: /warp to <partner>.
+[server] Server listening on port 0
+Server listening on localhost:56833
+[server] PlayerA (ID:1) connected
+[net] [bcast-A] Connected as player 1
+[server] PlayerA (ID:2) connected
+[net] [bcast-A] Player PlayerA (ID:2) in game
+[net] [puppet-A] Connected as player 2
+[net] [puppet-A] Player PlayerA (ID:1) in game
+[server] PlayerB (ID:3) connected
+[net] [bcast-A] Player PlayerA (ID:2) in game
+[net] [bcast-B] Connected as player 3
+[net] [bcast-B] Player PlayerA (ID:1) in game
+[net] [puppet-A] Player PlayerA (ID:1) in game
+[net] [bcast-B] Player PlayerA (ID:2) in game
+[net] [bcast-A] Player PlayerB (ID:3) in game
+[net] [puppet-A] Player PlayerB (ID:3) in game
+[server] PlayerB (ID:4) connected
+[net] [puppet-A] Player PlayerB (ID:3) in game
+[net] [bcast-B] Player PlayerA (ID:2) in game
+[net] [puppet-B] Connected as player 4
+[net] [bcast-B] Player PlayerB (ID:4) in game
+[net] [puppet-A] Player PlayerB (ID:4) in game
+[net] [bcast-A] Player PlayerA (ID:2) in game
+[net] [bcast-A] Player PlayerB (ID:3) in game
+[net] [puppet-A] Player PlayerA (ID:1) in game
+[net] [puppet-B] Player PlayerA (ID:2) in game
+[net] [puppet-B] Player PlayerB (ID:3) in game
+[net] [puppet-B] Player PlayerA (ID:1) in game
+[net] [bcast-B] Player PlayerA (ID:1) in game
+[net] [bcast-A] Player PlayerB (ID:4) in game
+[server] PlayerA (enemy host 1) connected
+[net] [enemy-A] Connected for enemy sync (enemy ID 1)
+WARN: [enemy-A] enemy host: no loaded Mo2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: [enemy-A] enemy host: no loaded Bk entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: [enemy-A] enemy host: no loaded CC entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: [enemy-A] enemy host: no loaded Ki entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: [enemy-A] enemy host: no loaded AM2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: [enemy-A] enemy host: no loaded Tn entry in mObjectInfo: that kind's animation stream is off until it resolves
+[server] PlayerB (enemy client 2) connected
+[net] [enemy-B] Connected for enemy sync (enemy ID 2)
+[coop-A] co-op: small keys: not derived: no key table (coop-tables)
+[coop-A] co-op: max life: not derived: no heart table (coop-tables)
+[server] PlayerA (co-op 1) connected
+[net] [coop-A] Connected for co-op (co-op ID 1)
+[server] co-op: PlayerA (co-op 1) joined world 07bbbc6bce94f7cd (seq 13; image)
+[coop-A] co-op: welcome to world 07bbbc6bce94f7cd (seq 13; image)
+[coop-A] co-op: armed in world 07bbbc6bce94f7cd (dry run: planned writes are logged, not made)
+Local multiplayer running. Walk in either Dolphin — the other should render Link #2 at your real coords.
+Ctrl+C to stop.
+[coop-B] co-op: small keys: not derived: no key table (coop-tables)
+[coop-B] co-op: max life: not derived: no heart table (coop-tables)
+[server] PlayerB (co-op 2) connected
+[net] [coop-B] Connected for co-op (co-op ID 2)
+[server] co-op: PlayerB (co-op 2) joined with an unbound file (unbound)
+[coop-B] co-op: the host says (NOT_BOUND): your file is not bound to co-op world 07bbbc6bce94f7cd; nothing is synced until you bind it
+[coop-B] co-op: the host serves world 07bbbc6bce94f7cd; this file is not bound to it (NOT_BOUND)
+[coop-B] co-op: preflight: subset: the world adds 76 to this file; the file adds nothing to the world
+  the file adds: nothing
+  the world adds: stage progress 36, ocean and charts 17, event registers 4, inventory 17, capacities 2
+[coop-B] Bind this save file to co-op world 07bbbc6bce94f7cd?
+[coop-B]   file slot 0, "Trog", clear count 0, saved and loaded
+[coop-B]   ww-multiplayer writes a 0x30-byte tag at 0x803C532C (dSv_reserve_c, which the game
+[coop-B]   saves with the file and never reads). It lands on the memory card at your next
+[coop-B]   in-game save. Nothing else in the file is written.
+[coop-B] Bind it?
+[coop-B]   yes (--yes)
+[server] co-op: PlayerB (co-op 2) may not bind: the world is far ahead of your file (story milestones 0x0F80, 0x0801); copy the host's save in (it replaces all three of your files), or bind with --coop-merge on the host; held until your file catches up: MET_KORL, UNK_0801, UNK_0520
+[coop-B] co-op: the host says (DIVERGENT): the world is far ahead of your file (story milestones 0x0F80, 0x0801); copying the host's save in (all three files) is better than a union, and a union needs --coop-merge on the host; held until your file catches up: MET_KORL, UNK_0801, UNK_0520
+[coop-B] co-op: the host says (DIVERGENT): the world is far ahead of your file (story milestones 0x0F80, 0x0801); copy the host's save in (it replaces all three of your files), or bind with --coop-merge on the host; held until your file catches up: MET_KORL, UNK_0801, UNK_0520
+[coop-B] co-op: the host did not accept the bind (DIVERGENT); nothing was written
+[coop-B] co-op: the host serves world 07bbbc6bce94f7cd; this file is not bound to it (DIVERGENT)
+[coop-B] co-op: preflight: subset: the world adds 76 to this file; the file adds nothing to the world
+  the file adds: nothing
+  the world adds: stage progress 36, ocean and charts 17, event registers 4, inventory 17, capacities 2
+[server] co-op: PlayerB (co-op 2) joined with an unbound file (unbound)
+[coop-B] co-op: the host says (NOT_BOUND): your file is not bound to co-op world 07bbbc6bce94f7cd; nothing is synced until you bind it
+[coop-B] co-op: the host serves world 07bbbc6bce94f7cd; this file is not bound to it (NOT_BOUND)
+[coop-B] co-op: preflight: subset: the world adds 76 to this file; the file adds nothing to the world
+  the file adds: nothing
+  the world adds: stage progress 36, ocean and charts 17, event registers 4, inventory 17, capacities 2
+Stop file ~/ww-shared/rigs/wind88/stop is there: shutting down...
+Tearing down...
+[coop-A] co-op: disconnected: armed offline, queueing gains until the host is back
+[server] PlayerB disconnected
+[server] PlayerB (co-op 2) disconnected
+[server] PlayerA disconnected
+[server] PlayerA (enemy host 1) disconnected
+[server] PlayerA (co-op 1) disconnected
+[server] PlayerB (enemy client 2) disconnected
+[server] PlayerB disconnected
+[server] PlayerA disconnected
+Done.
