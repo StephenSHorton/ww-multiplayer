@@ -583,7 +583,30 @@ func TestCoopPanelView(t *testing.T) {
 	if b := coopBanner(st, true); b == nil || b.Action != actUnbind || b.ActionArg != worldA {
 		t.Fatalf("blocked founding banner %+v", b)
 	}
-	st.Founding.Blocker = session.BlockSecondQuest
+	// The banner words a blocked founding as the app does, never with
+	// the CLI's refusal (its --coop and coop-tag clear hints; issue #134).
+	cliText := "co-op: this file is bound to world " + worldA + " already: host it with --coop=" + worldA + " (or unbind it with coop-tag clear first)"
+	for _, c := range []struct {
+		blocker string
+		here    bool
+		want    string
+	}{
+		{session.BlockBound, true, "Continue that world"},
+		{session.BlockBound, false, "another player hosts it"},
+		{session.BlockForeign, false, "can't use"},
+		{session.BlockGarbage, false, "can't use"},
+		{session.BlockSecondQuest, false, "second quest"},
+	} {
+		st.Founding = &session.Founding{Phase: session.FoundingBlocked, Blocker: c.blocker, TagWorld: worldA, TagWorldHere: c.here, BlockText: cliText, BlockWhy: "bad magic"}
+		b := coopBanner(st, true)
+		if b == nil || !strings.Contains(b.Text, c.want) || strings.Contains(b.Text, "--coop") || strings.Contains(b.Text, "coop-tag") {
+			t.Fatalf("%s founding banner %+v", c.blocker, b)
+		}
+		d := coopDialog(st, true, masker{})
+		if d == nil || strings.Contains(d.Text+d.Detail, "--coop") || strings.Contains(d.Text+d.Detail, "coop-tag") {
+			t.Fatalf("%s founding dialog %+v", c.blocker, d)
+		}
+	}
 	if b := coopBanner(st, true); b == nil || b.Action != "" {
 		t.Fatalf("second quest banner %+v", b)
 	}

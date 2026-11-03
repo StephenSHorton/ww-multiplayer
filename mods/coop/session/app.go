@@ -488,7 +488,11 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 				ac.out.Log(log.Warn, blocked)
 			}
 			f := session.Founding{Phase: session.FoundingBlocked, File: bind.Describe(file), Blocker: kind, BlockText: err.Error()}
-			if v := bind.Classify(file, bind.Expect{}); v.HasTag {
+			v := bind.Classify(file, bind.Expect{})
+			if kind == session.BlockForeign || kind == session.BlockGarbage {
+				f.BlockWhy = v.Why
+			}
+			if v.HasTag {
 				f.TagWorld = v.Tag.World.String()
 				f.TagWorldHere = worldOnDisk(root, f.TagWorld)
 			}

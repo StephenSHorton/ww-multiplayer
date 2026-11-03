@@ -668,6 +668,24 @@ func dungeonName(table int, short string) string {
 	return fmt.Sprintf("table %d", table)
 }
 
+// foundingBlockedText is the founding banner's line for a blocked file,
+// in the app's words (the dialog's), never the CLI's refusal with its
+// --coop and coop-tag hints.
+func foundingBlockedText(f session.Founding) string {
+	switch f.Blocker {
+	case session.BlockBound:
+		if f.TagWorldHere {
+			return fmt.Sprintf("this file is already bound to world %s. Continue that world, or remove its tag to found a new one.", short(f.TagWorld))
+		}
+		return fmt.Sprintf("this file is bound to world %s (another player hosts it). Remove its tag, or load another file.", short(f.TagWorld))
+	case session.BlockForeign, session.BlockGarbage:
+		return "this file holds a tag this version can't use. Remove it, or load another file."
+	case session.BlockSecondQuest:
+		return "this file is a second quest, which co-op doesn't take. Load another file."
+	}
+	return "this file can't found a world. Load another file."
+}
+
 // coopBanner is the co-op banner the state calls for (design §2.7): the
 // host's founding while it waits or is blocked (its dialog may have been
 // closed, and nothing else shows it), "Co-op writes turned off: reason"
@@ -684,7 +702,7 @@ func coopBanner(st session.State, running bool) *BannerView {
 		case f.Phase == session.FoundingWaiting:
 			b.Text = "in game and idle: founding the world."
 		default:
-			b.Text = f.BlockText + "."
+			b.Text = foundingBlockedText(*f)
 		}
 		if f.Phase == session.FoundingBlocked && (f.Blocker == session.BlockBound || f.Blocker == session.BlockForeign || f.Blocker == session.BlockGarbage) {
 			b.Action, b.ActionLabel, b.ActionArg = actUnbind, "Remove the tag", f.TagWorld
@@ -809,11 +827,14 @@ func foundingDialog(f *session.Founding, key func(...string) string) *DialogView
 			d.Actions = []DialogAction{{ID: actUnbind, Arg: f.TagWorld, Label: "Remove the tag", Primary: true}, {ID: actOK, Label: "Close"}}
 		case session.BlockGarbage, session.BlockForeign:
 			d.Text = "This file holds a tag this version can't use, so it can't found a world. Remove it to found the world from this file, or load another file."
-			d.Detail = f.BlockText
+			if f.BlockWhy != "" {
+				d.Detail = "Why: " + f.BlockWhy + "."
+			}
 			d.Actions = []DialogAction{{ID: actUnbind, Arg: f.TagWorld, Label: "Remove the tag", Primary: true}, {ID: actOK, Label: "Close"}}
+		case session.BlockSecondQuest:
+			d.Text = "This file is a second quest, which co-op doesn't take: load another file."
 		default:
 			d.Text = "This file can't found a world: load another file."
-			d.Detail = f.BlockText
 			d.Actions = []DialogAction{{ID: actOK, Label: "Close", Primary: true}}
 		}
 		return d
