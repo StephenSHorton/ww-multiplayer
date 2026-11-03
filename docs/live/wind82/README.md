@@ -24,6 +24,11 @@ separate processes.
   direct. The proxy's own counters agree: at loss 0 the mean one-way delay was 42 ms at 80, 76 to 80 ms at 150 and 134 ms
   at 250. Its counts are in each `[netem]` log line.
 
+- **Not modelled**: TCP congestion control. Real TCP halves its window at each loss, so one flow at 150 ms RTT and 1%
+  loss tops out near MSS/(RTT·√p) ≈ 1448/(0.15 × 0.1) ≈ 95 KB/s. The joiner's streams need about 120 KB/s up and
+  240 KB/s down in total (below), split over four connections. On a real lossy link a busy stream may therefore fall
+  progressively behind, not just stall and jump as it did here. Only a real WAN run can show that (TESTING.md NC-5).
+
 ## The battery (the same for every condition, `cond.sh`)
 
 1. **Walk**: `smooth-steps 5 A`, then `5 B`, at sea by Dragon Roost (each Link walks; the other game's copy is sampled
