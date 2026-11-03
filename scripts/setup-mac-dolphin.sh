@@ -34,13 +34,16 @@ DST="$HOME/Applications/Dolphin.app"
 NEW_ID="org.dolphin-emu.dolphin-unhardened"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
-# is_our_copy: DST has our bundle ID, or no hardened runtime (a copy an
-# older version of this script re-signed before it set the bundle ID).
+# is_our_copy: DST has our bundle ID, or codesign read its signature and
+# it has no hardened runtime (a copy an older version of this script
+# re-signed before it set the bundle ID). A signature codesign couldn't
+# read proves nothing.
 is_our_copy() {
     local id flags
     id=$(plutil -extract CFBundleIdentifier raw "$DST/Contents/Info.plist" 2>/dev/null || true)
+    [ "$id" = "$NEW_ID" ] && return 0
     flags=$(codesign -d -vvv "$DST/Contents/MacOS/Dolphin" 2>&1 | grep "flags=" || true)
-    [ "$id" = "$NEW_ID" ] || ! echo "$flags" | grep -q "runtime"
+    [ -n "$flags" ] && ! echo "$flags" | grep -q "runtime"
 }
 
 refuse_foreign() {
