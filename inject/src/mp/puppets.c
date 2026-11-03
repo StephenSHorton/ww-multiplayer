@@ -67,7 +67,17 @@ void mp_frame_any(fopAc_ac_c* link) {
 //                      baked at parent's birth pos.
 //   PROC_TSUBO pm=0 -> "Always" archive. Needs m678=2 unhide poke.
 //   PROC_KAMOME pm=0 -> "Always"-ish archive (resident on every island).
-//                      Needs mSwitchNo=0 unhide poke. *Current default.*
+//                      Param 0 asked for path 0 of the spawn room and
+//                      switch 0: no path there (M_Dai) failed the create,
+//                      and switch 0 hid it. KAMOME_PUPPET_PARAM asks for
+//                      neither. *Current proc, every slot* (wind#76).
+//   PROC_NPC_OB1 pm=0 -> Rose, slot 1 until wind#76. Never stable: her
+//                      create (d_a_npc_ob1.rel createInit, init_OB1_0..2)
+//                      fails when the param names a path the room lacks,
+//                      and type 0 only exists before event bit 0x520,
+//                      types 1/2 only after it, by day / by night. A failed
+//                      create is deleted by the engine and phase 2 spawns
+//                      it again: the respawn every ~0.5 s of issue #131.
 //   PROC_NPC_FA1    -> fairy; renders briefly, self-deletes; respawn
 //                      loops froze the game. Not pursued.
 u32 puppets_frame(fopAc_ac_c* link) {
@@ -97,15 +107,8 @@ u32 puppets_frame(fopAc_ac_c* link) {
             slot->pos_y = link_pos->y;
             slot->pos_z = link_pos->z;
 
-            // 2026-04-19 EXPERIMENT: slot 3 was PROC_TSUBO. Parked on
-            // PROC_KAMOME for now so our probe J3DModel (built from the
-            // same Tsubo J3DModelData) is the ONLY consumer of that data
-            // — isolates the shared-ModelData confound in the sky-break
-            // investigation. Revert alongside PROBE_ARCNAME when done.
-            s16 proc;
-            if (i == 1) proc = PROC_NPC_OB1;
-            else        proc = PROC_KAMOME;
-            fpc_ProcID pid = fopAcM_create(proc, 0, link_pos, link_room, link_angle, 0, -1, 0);
+            // Every slot is a KAMOME with KAMOME_PUPPET_PARAM (see there).
+            fpc_ProcID pid = fopAcM_create(PROC_KAMOME, KAMOME_PUPPET_PARAM, link_pos, link_room, link_angle, 0, -1, 0);
             if (pid == fpcM_ERROR_PROCESS_ID_e) {
                 if (best_progress < 6) best_progress = 6;
                 continue;

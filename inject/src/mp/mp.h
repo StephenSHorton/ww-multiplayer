@@ -21,6 +21,13 @@
 #define PROC_TSUBO      0x01CB
 #define PROC_Obj_Barrel 0x01CE
 
+// The actor puppets' KAMOME parameter (daKamome_Create, d_a_kamome.cpp:1482-1507):
+// byte 0 type 0 (a plain gull), byte 1 mKoMaxCount 0, byte 2 path 0xFF (no
+// path: path 0 of the spawn room is NULL in rooms without one, M_Dai, and
+// the create fails), byte 3 switch 0xFF (mSwitchNo stays 0: param 0 set it to
+// 1, which hides the gull until switch 0 of the room is on). wind#76.
+#define KAMOME_PUPPET_PARAM 0xFFFF0000U
+
 // "Always" archive constants (used as a non-shared model probe for the
 // mini-Link modelEntryDL sky-breakage investigation). mpm_tubo is the
 // small-pot BDL. Rigid, non-skinned — doesn't need J3DModel::calc().
