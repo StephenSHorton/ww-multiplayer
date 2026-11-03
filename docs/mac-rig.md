@@ -32,6 +32,7 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
 
 ```
 ~/ww-shared/disc/ww-vanilla.ciso, WW-mp.iso      the disc and the patched disc
+~/ww-shared/disc/WW-mp-3D7FEC97-62DBA05C.iso      wind#90's blob (the C runtime's rings), patched 2026-11-03; WW-mp.iso is re-patched from main once it lands
 ~/ww-shared/fixtures/                             dolphin-user-3/-4 (PC user dirs), saves/ (GCIs),
                                                   start-mac-3D7FEC97.sav (the Mac start save, below; start-gohma-3D7FEC97.sav, the pre-Gohma
                                                   save wind#82's battery boots (docs/live/wind82, wind#86); start-mac-76C1EE09.sav / WW-mp-76C1EE09.iso for builds before wind#77, start-mac-CAC6980B.sav / WW-mp-CAC6980B.iso for builds before wind#80, start-mac-A9DE0F1E.sav / WW-mp-A9DE0F1E.iso and start-mac-1CE30685.sav / WW-mp-1CE30685.iso are kept for builds before #289 and #267)

@@ -1,0 +1,60 @@
+Run logs in ~/ww-shared/rigs/wind90/logs/latest (WW_DEV_LOGS)
+Found Dolphin A (pid 91977) and B (pid 92038).
+Waiting for both Dolphins to load to an in-game save state...
+Both Dolphins in-game — proceeding.
+Dolphin logs: no dolphin2 record for pids 91977 and 92038, following USER_DIR_1 and USER_DIR_2's logs as dolphin-1 and dolphin-2.
+Face-state sync armed on the Dolphins that run this version's patch.
+Warped Dolphin B Link by (50, 0, 50) so the two players don't overlap.
+[server] Server listening on port 0
+Server listening on localhost:62064
+[bcast-A] === Broadcast Link + Pose: PlayerA -> localhost:62064 ===
+[bcast-A] Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[server] PlayerA (ID:1) connected
+[net] [bcast-A] Connected as player 1
+[puppet-A] === Puppet Sync: PlayerA <- localhost:62064 ===
+[puppet-A] Dolphin found.
+[puppet-A] game GZLE01, WWMB header ABI 1 layout 3, code hash 62DBA05C (matches this version), strict mode, features avatar,eyefix,face,input,ops,tunic,warp; writes allowed
+[puppet-A] Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+[puppet-A] Filtering self-echo: remotes named "PlayerA" will be ignored.
+[server] PlayerA (ID:2) connected
+[net] [puppet-A] Connected as player 2
+[net] [bcast-A] Player PlayerA (ID:2) in game
+[puppet-A] puppet-sync session 1 armed (server epoch 1793721675484533000)
+[net] [puppet-A] Player PlayerA (ID:1) in game
+[puppet-A] tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+[bcast-B] === Broadcast Link + Pose: PlayerB -> localhost:62064 ===
+[bcast-B] Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+[server] PlayerB (ID:3) connected
+[net] [bcast-B] Connected as player 3
+[net] [bcast-B] Player PlayerA (ID:1) in game
+[net] [bcast-B] Player PlayerA (ID:2) in game
+[net] [puppet-A] Player PlayerA (ID:1) in game
+[net] [puppet-A] Player PlayerB (ID:3) in game
+[net] [bcast-A] Player PlayerA (ID:2) in game
+[net] [bcast-A] Player PlayerB (ID:3) in game
+[puppet-A] pose-feed slot 0 armed: pose_buf=0x81FF1120
+[puppet-A] link slot 0 := player 3 (PlayerB)
+[puppet-B] === Puppet Sync: PlayerB <- localhost:62064 ===
+[puppet-B] Dolphin found.
+[puppet-B] game GZLE01, WWMB header ABI 1 layout 3, code hash 62DBA05C (matches this version), strict mode, features avatar,eyefix,face,input,ops,tunic,warp; writes allowed
+[puppet-B] Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+[puppet-B] Filtering self-echo: remotes named "PlayerB" will be ignored.
+[server] PlayerB (ID:4) connected
+[net] [puppet-B] Connected as player 4
+[puppet-B] puppet-sync session 1 armed (server epoch 1793721675484533000)
+[net] [bcast-A] Player PlayerA (ID:2) in game
+[net] [puppet-B] Player PlayerA (ID:1) in game
+[net] [bcast-A] Player PlayerB (ID:3) in game
+[net] [puppet-A] Player PlayerA (ID:1) in game
+[net] [bcast-B] Player PlayerA (ID:1) in game
+[net] [puppet-B] Player PlayerA (ID:2) in game
+[net] [bcast-A] Player PlayerB (ID:4) in game
+[puppet-B] tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+[net] [puppet-A] Player PlayerB (ID:3) in game
+[net] [puppet-A] Player PlayerB (ID:4) in game
+[net] [bcast-B] Player PlayerA (ID:2) in game
+[net] [puppet-B] Player PlayerB (ID:3) in game
+[net] [bcast-B] Player PlayerB (ID:4) in game
+[puppet-B] pose-feed slot 0 armed: pose_buf=0x81FF1120
+[puppet-B] link slot 0 := player 1 (PlayerA)
+[enemy-A] === Enemy host: PlayerA -> localhost:62064 ===
