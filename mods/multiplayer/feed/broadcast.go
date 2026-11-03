@@ -3,7 +3,6 @@ package feed
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"time"
 
@@ -82,7 +81,7 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 	// freshly-dialed conn — the self-chaining flap. The child ctx passed
 	// here also drives the select below, so a parent cancel exits promptly.
 	sessionLoop := func(ctx context.Context) error {
-		posErrs, poseErrs := 0, 0
+		frameErrs := 0
 		var equip vissync.EquipSampler // the shield bit, debounced (two samples)
 		vit := vitalsSampler{on: onVitals}
 		boatsOn := boatsync.SettingsFromEnv().On
@@ -151,25 +150,14 @@ func BroadcastPose(ctx context.Context, env Env, name, serverAddr string, dolphi
 			s.face = faceTrailer(d, link, [3]float32{pos.PosX, pos.PosY, pos.PosZ}, &equip, boatsOn, vit.sample(d, time.Now()))
 			return s
 		}
-		// send ships one sample: the position, then the pose.
+		// send ships one sample, the position and its pose, as one frame:
+		// a UDP datagram while the client's UDP is up (WW_UDP, wind#91),
+		// else a MsgPosition then a MsgPose over TCP.
 		send := func(s *poseSample) error {
-			sendPos := client.SendPosition
-			if s.placeOK {
-				sendPos = func(p *network.PlayerPosition) error { return client.SendPositionAt(p, s.place) }
-			}
-			if err := sendPos(s.pos); err != nil {
-				posErrs++
-				if posErrs > 5 {
-					return fmt.Errorf("send position: %w", err)
-				}
-			}
-			if s.pose == nil {
-				return nil
-			}
-			if err := client.SendPose(avatar.JointCount, s.pose, s.face); err != nil {
-				poseErrs++
-				if poseErrs > 5 {
-					return fmt.Errorf("send pose: %w", err)
+			if err := client.SendFrame(s.pos, s.place, s.placeOK, avatar.JointCount, s.pose, s.face); err != nil {
+				frameErrs++
+				if frameErrs > 5 {
+					return err
 				}
 			}
 			return nil
