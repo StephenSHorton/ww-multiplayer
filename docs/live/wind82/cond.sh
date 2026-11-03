@@ -1,18 +1,40 @@
 #!/bin/bash
 # cond.sh <label> [netem spec]: one condition of wind#82's battery on a fresh pair.
-cd ~/ww-shared/rigs/wind82
+#
+# The rig folder needs its own wwdev and ww-multiplayer, both built (and
+# entitled, docs/mac-rig.md) from one tree, and a start save captured on that
+# tree's REL. A save state carries the C blob in RAM: a save from another
+# build runs another mailbox, and the tools' writes (the chest race's warp
+# above all) go unanswered (wind#86). The check before the battery stops on a
+# mismatch instead.
+#   RIG_NAME  the rig name (default wind82): ~/ww-shared/rigs/$RIG_NAME
+#   REPO      the checkout whose scripts/mac-rig.sh runs it (default ~/projects/ww-mp-$RIG_NAME)
+#   SAVE      the start save (default ~/ww-shared/fixtures/start-gohma-3D7FEC97.sav, the
+#             pre-Gohma save on REL 0x3D7FEC97; recapture it from card-gohma.gci after a REL change)
+RIG_NAME=${RIG_NAME:-wind82}
+cd ~/ww-shared/rigs/$RIG_NAME || exit 2
 L=$1; S=${2:-}
-RIG=~/projects/ww-mp-wind82/scripts/mac-rig.sh; W=~/ww-shared/bin/ww-multiplayer
-export WWDEV=$PWD/wwdev
+REPO=${REPO:-~/projects/ww-mp-$RIG_NAME}
+SAVE=${SAVE:-~/ww-shared/fixtures/start-gohma-3D7FEC97.sav}
+RIG=$REPO/scripts/mac-rig.sh; W=$PWD/ww-multiplayer
+export WWDEV=$PWD/wwdev RIG_NAME REPO
+for t in "$WWDEV" "$W"; do [ -x "$t" ] || { echo "missing $t: build it from $REPO and entitle it"; exit 2; }; done
 mark() { python3 -c 'import sys,time;print("%.3f MARK %s"%(time.time()," ".join(sys.argv[1:])))' "$@" >> marks-$L.log; }
 : > marks-$L.log
 # fresh pair from the pre-Gohma save, cards from the same GCI
-$RIG stop wind82 >/dev/null 2>&1; sleep 3
+$RIG stop $RIG_NAME >/dev/null 2>&1; sleep 3
 for u in u1 u2; do cp ~/ww-shared/rigs/wind62/card-gohma.gci "$u/GC/USA/Card A/01-GZLE-gczelda.gci"; done
-$RIG pair wind82 ~/ww-shared/rigs/wind62/start-gohma.sav || exit 1
+$RIG pair $RIG_NAME "$SAVE" || exit 1
 P=$(cat pair.pids); A=${P%,*}; B=${P#*,}
 export MP_LOCAL_PIDS=$P USER_DIR_1=$PWD/u1 USER_DIR_2=$PWD/u2 WW_DEV_LOGS=$PWD/logs
 sleep 25
+# The save and the tools must be one build (see the top).
+for p in $A $B; do
+  if ! WW_DOLPHIN_PID=$p ./wwdev dump 2>&1 | grep -q "matches this version"; then
+    echo "Dolphin $p: the save's build is not this rig's wwdev:"; WW_DOLPHIN_PID=$p ./wwdev dump 2>&1 | grep contract
+    $RIG stop $RIG_NAME >/dev/null 2>&1; exit 2
+  fi
+done
 : > mp-$L.log
 ./run.sh "$L" "$S" &
 RUNPID=$!
@@ -34,8 +56,10 @@ sleep 8
 WW_DOLPHIN_PID=$B ./wwdev actors 2>&1 | grep -c "proc 0x00BE bk" | sed 's/^/B bk left: /' | tee -a kills-$L.txt
 # 3. chest race: both warped 200 units either side of DRC chest 3 at once
 mark chest race
-(WW_DOLPHIN_PID=$A $W warp -2352 2860 -1317 >/dev/null 2>&1 &)
-WW_DOLPHIN_PID=$B $W warp -2752 2860 -1317 >/dev/null 2>&1
+# Each warp's answer goes to warp-$L.txt; a failed warp is said, not dropped.
+(WW_DOLPHIN_PID=$A $W warp -2352 2860 -1317 > warp-$L-A.txt 2>&1 || echo "warp A failed: $(cat warp-$L-A.txt)" &)
+WW_DOLPHIN_PID=$B $W warp -2752 2860 -1317 > warp-$L-B.txt 2>&1 || echo "warp B failed: $(cat warp-$L-B.txt)"
+sleep 1; cat warp-$L-A.txt warp-$L-B.txt > warp-$L.txt; rm -f warp-$L-A.txt warp-$L-B.txt
 sleep 10
 # 4. boss relay: B waits at the DRC entrance, A kills Gohma in its arena
 mark boss hops
