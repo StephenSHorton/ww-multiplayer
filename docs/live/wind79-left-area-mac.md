@@ -31,7 +31,7 @@ on every position, so it works with relay scoping on and off.
   0x54. That is the Link and the "help" tag left standing after B's first hop
   in that window. It was not the gate.
 - A partner in another room of the same stage is still drawn where they really
-  are. Positions keep flowing, so there is no ghost. Whether to hide by room is
-  Stephen's call on wind#79 (not run here).
+  are. Positions keep flowing, so there is no ghost. Stephen chose to keep
+  hiding by stage only (wind#79 b1).
 - A "left the area" indicator: the app's Players rows already show each
   partner's place (wind#54).
