@@ -325,7 +325,18 @@ Ring entries carry `seq` plus an XOR check byte.
 
 ### 4.5 Code-space plan
 
-Current layout (`inject/build.py`: `inject_address` and the `__OSArenaLo` patch at 0x80301820; `MAILBOX_ADDR` in `mailbox_core.h`; `internal/inject/blob.go`):
+**Done (wind#80, issue #130, 2026-11-02): option A, adapted.** By then the mailbox's own blocks (REL words, enemy, boss, remote, refresh, visuals, boats, eye packets, fx) filled mailbox +0x000..+0x1100 right up to the arena, so "mailbox to 0x80415000, layout unchanged" would have run the fx block 0x100 past a 0x80416000 arena. What landed instead:
+
+| Range | Contents | Size |
+|---|---|---|
+| 0x80410000..0x80412D08 | T2 (`inject.T2End`) | 0x2D08 |
+| 0x80412D08..0x80414F00 | **free code space** for M7's C (about 0x700 needed) and anything else (`TestT2EndsBelowMailbox` keeps T2 below the mailbox) | **0x21F8** |
+| 0x80414F00..0x80416000 | mailbox and its blocks, every offset unchanged (+0x2000 from 0x80412F00) | 0x1100 |
+| 0x80416000 | patched `__OSArenaLo` (`addi r3,r3,0x6000` at 0x80301820; `ARENA_LO` in `mailbox_core.h`, which the C static asserts use) | — |
+
+The arena took the planned +8 KB from ZeldaHeap. The co-op data region the table further down puts at 0x80415200 does not exist: the mailbox's blocks are there. M7 places its region either in the free space above (as T2 data, or a fixed range below the mailbox) or past the mailbox with another arena bump; that is M7's choice. Gate result (Mac rig, 2026-11-02): cold boot and menus, then 56 stage loads on each of two Dolphins (four rounds of `sea` 44/11/1/26/9, `Hyrule`, `M_NewD2`, `kenroom`, `M_DragB`, `kindan`, `Hyroom`, `ma2room`, `M_Dra09`, Outset first) with `zeldaHeapErrors`, `gameHeapErrors` and `archiveHeapErrors` at 0 throughout; a two-Dolphin co-op session (new world, writes on, a shared stage change) played normally. ZeldaHeap is 6098 KiB against main's 6106 KiB, exactly the 8 KiB taken. The `solid` counter climbs on some loads (DRC, M_DragB, kindan) identically on main: it is vanilla's estimated-heap `door10` failure (the Dolphin log's OSREPORT), not an allocation the bump starved. The table and items below are the plan as written before wind#80.
+
+Layout before wind#80 (`inject/build.py`: `inject_address` and the `__OSArenaLo` patch at 0x80301820; `MAILBOX_ADDR` in `mailbox_core.h`; `internal/inject/blob.go`):
 
 | Range | Contents | Size |
 |---|---|---|
@@ -346,7 +357,7 @@ Current layout (`inject/build.py`: `inject_address` and the `__OSArenaLo` patch 
 
 **M7 prerequisite: make room.**
 1. Finish-plan **D2**: drop the dead shadow modes 1-4 and the echo ring. (Done in Phase E0, layout unchanged: T2 ends at 0x80412588, 0x978 bytes free; docs/api/00-design.md.)
-2. **Option A, recommended.** It reuses a proven mechanism: the arena has been bumped in 4 KB steps before, and the mailbox has moved four times (the History comment in `mailbox_core.h`; the callback slot five times, per the `CALLBACK_PTR_ADDR` comment in `src/core/hooks.c`).
+2. **Option A, recommended** (done in wind#80 with the mailbox at 0x80414F00, not 0x80415000: see the top of this section). It reuses a proven mechanism: the arena has been bumped in 4 KB steps before, and the mailbox has moved four times (the History comment in `mailbox_core.h`; the callback slot five times, per the `CALLBACK_PTR_ADDR` comment in `src/core/hooks.c`).
    - Change `addi r3,r3,0x4000` to `0x6000` at 0x80301820, so `__OSArenaLo` = **0x80416000**. That is +8 KB taken from ZeldaHeap.
    - Move the mailbox to **0x80415000**, layout unchanged. `frame_shim` becomes `lis 12,0x8041; lwz 12,0x5008(12)`. (Done already: `extract_blob.py` emits `MailboxAddr`, `LayoutVersion` and `ArenaLo` into `blob.go`.)
    - (Done in Phase E1.) A mailbox header `'WWMB'` plus `layout_version` at +0x180. Go checks it before any mailbox write, which also catches stale save states.

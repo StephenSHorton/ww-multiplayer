@@ -59,34 +59,34 @@ The plan:
 
  0x8040EFC0   original __ArenaLo (vanilla)
  0x80410000   T2 code start (injected .text/.data/.bss)
- 0x80412CA8   T2 end (since the REL loader) -> 0x258 bytes free (0x478 after F20, T2 end 0x80412A88; 0x538 after F19; 0x478 after E3; 0x958 after E1/E2; 0x978 after E0; 0x18 before E0, T2 end 0x80412EE8)
- 0x80412F00   Mailbox start (0x1B0 bytes since E1; 0x1A0 before)
- 0x804130B0   Mailbox end                 -> 0xF50 bytes slack, of which:
- 0x804130B0   the REL module's words (mailbox +0x1B0..+0x1BC, inject/include/wwrel.h):
+ 0x80412D08   T2 end -> 0x21F8 bytes free below the mailbox since wind#80 moved it +0x2000 (issue #130; 0x1F8 before, 0x258 with the REL loader, T2 end 0x80412CA8; 0x478 after F20, T2 end 0x80412A88; 0x538 after F19; 0x478 after E3; 0x958 after E1/E2; 0x978 after E0; 0x18 before E0, T2 end 0x80412EE8)
+ 0x80414F00   Mailbox start (0x1B0 bytes since E1; 0x1A0 before)
+ 0x804150B0   Mailbox end                 -> 0xF50 bytes slack, of which:
+ 0x804150B0   the REL module's words (mailbox +0x1B0..+0x1BC, inject/include/wwrel.h):
               'WWRL' magic, build id, frame counter; written by inject/rel/rel_main.c
- 0x804130BC   the REL's remote-Link words (mailbox +0x1BC..+0x1C4, wwrel.h): WWREL_EXEC_HOOK_OFF (T2's
+ 0x804150BC   the REL's remote-Link words (mailbox +0x1BC..+0x1C4, wwrel.h): WWREL_EXEC_HOOK_OFF (T2's
               exec_shim branches to it) and WWREL_SWAP_STATE_OFF (the keeper's swap state); never canary-armed
- 0x804130C4   WWREL_SHANM_OFF (mailbox +0x1C4): the remote-Link full bodies' shanm table, an archive-heap
+ 0x804150C4   WWREL_SHANM_OFF (mailbox +0x1C4): the remote-Link full bodies' shanm table, an archive-heap
               block allocated once per boot and never freed; T2's main01_init zeroes it, the REL never clears it
- 0x804130C8   free slack up to the enemy block (0x38 bytes, unprobed)
- 0x80413100   the enemy-mirror block (mailbox +0x200..+0x398, inject/include/wwenemy.h, layout 2):
+ 0x804150C8   free slack up to the enemy block (0x38 bytes, unprobed)
+ 0x80415100   the enemy-mirror block (mailbox +0x200..+0x398, inject/include/wwenemy.h, layout 2):
               Go writes +0x00..+0x124 per tick, inject/rel/enemy_mirror.c writes +0x124..+0x198
- 0x804132A0   the host's v2 At sphere, a dCcD_Sph image (mailbox +0x3A0..+0x4CC, WWENEMY_SPH_OFF)
- 0x804133D0   its dCcD_Stts (mailbox +0x4D0..+0x50C, WWENEMY_STTS_OFF); enemy sync ends at +0x510
- 0x80413410   free slack (a co-op region here would start at mailbox +0x510, WWENEMY_REGION_END)
+ 0x804152A0   the host's v2 At sphere, a dCcD_Sph image (mailbox +0x3A0..+0x4CC, WWENEMY_SPH_OFF)
+ 0x804153D0   its dCcD_Stts (mailbox +0x4D0..+0x50C, WWENEMY_STTS_OFF); enemy sync ends at +0x510
+ 0x80415410   free slack (a co-op region here would start at mailbox +0x510, WWENEMY_REGION_END)
               (since then: the remote-Link block +0x510..+0x850, the knob table, the refresh request and
               the visuals block +0x8D0..+0x9E4 (0x990 before WWMB_LAYOUT 3, 0x9C0 before the wave-3 models2
               table); the peer boats block +0x9E4..+0xA6C (wwboat.h); free slack +0xA6C..+0xD00)
- 0x80413C00   the mini-Links' eye packets (mailbox +0xD00..+0xE50, MP_EYE_PACKETS_OFF in mailbox_mp.h,
+ 0x80415C00   the mini-Links' eye packets (mailbox +0xD00..+0xE50, MP_EYE_PACKETS_OFF in mailbox_mp.h,
               WWMB_LAYOUT 3: 3 slots x 4 J3DPacket copies x 0x1C; were T2 .bss, then +0xFB0); never canary-armed
- 0x80413D50   the projectile events block (mailbox +0xE50..+0x1100, inject/include/wwfx.h WWFX_OFF;
+ 0x80415D50   the projectile events block (mailbox +0xE50..+0x1100, inject/include/wwfx.h WWFX_OFF;
               Go's magic and ring words, the REL's counters and two event rings); never canary-armed
- 0x80414000   patched __ArenaLo (OSInit patched by build.py)
+ 0x80416000   patched __ArenaLo (OSInit patched by build.py; ARENA_LO in mailbox_core.h; 0x80414000 before wind#80)
 ```
 
 (verified: `inject/build.py`, `inject/include/mailbox_core.h`, `internal/inject/blob.go` T2Bytes = 0x2CA8 since the REL loader (2026-10-18, src/mp/relload.c; 0x2A88 after F20, 0x29C8 after F19, 0x2A88 after E3, 0x25A8 after E1/E2, 0x2588 after E0, 0x2EE8 before it), `t2_budget_test.go`; blob.go's `T2End`, `MailboxAddr` and `ArenaLo` carry these since E1)
 
-**Mailbox layout** at 0x80412F00 (the source of truth is `inject/include/mailbox_core.h` and the `mailbox_mp.h` it includes, split from `mailbox.h` in E3 with the same offsets; `tools/gen_mailbox` generates the Go copy, `wwapi/mailbox/layout_gen.go`, and `TestMailboxLayout` fails when it is stale):
+**Mailbox layout** at 0x80414F00 (the source of truth is `inject/include/mailbox_core.h` and the `mailbox_mp.h` it includes, split from `mailbox.h` in E3 with the same offsets; `tools/gen_mailbox` generates the Go copy, `wwapi/mailbox/layout_gen.go`, and `TestMailboxLayout` fails when it is stale):
 
 | Offset | Field(s) | Owner | Future home |
 |---|---|---|---|

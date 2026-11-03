@@ -21,7 +21,7 @@
 // Layout: the Mailbox struct ends at +0x1B0, the REL words live at
 // +0x1B0..+0x1C8 (wwrel.h), the annex at +0x1C8..+0x200, this block at
 // +0x200..+0x398, the collision objects to +0x510, and __OSArenaLo is
-// 0x80414000 (inject/build.py). Go writes the annex and the block's Go
+// 0x80416000 (inject/build.py). Go writes the annex and the block's Go
 // span in one write, +0x1C8..+0x324 from MAILBOX_ADDR. The slack is not
 // zeroed at boot: validity is magic + epoch + a moving seq_head ==
 // seq_tail (and, for the annex, annex_seq == that seq). Layout 4's knob
@@ -284,7 +284,7 @@
 // annex overrides and ids 3..6 the HKDX bytes; the table's rows 0..6 hook
 // byte is ignored. TN's tg_hit_up keeps WWENEMY_ANNEX_TN_TGUP_OFF as its
 // single source (a nonzero table value for id 6 is not read).
-#define WWENEMY_KNOB_OFF         0x850        // mailbox-relative: 0x80413750, past the remote-Link block (wwremote.h) in the free +0x850..+0x1100
+#define WWENEMY_KNOB_OFF         0x850        // mailbox-relative: 0x80415750, past the remote-Link block (wwremote.h) in the free +0x850..+0x1100
 #define WWENEMY_KNOB_SIZE        0x60         // +0x850..+0x8B0
 #define WWENEMY_KNOB_KINDS       16           // rows per field, indexed by kind id
 #define WWENEMY_KNOB_GEN_HEAD_OFF 0x00        // u32 == knob_gen of the blocks that name this table

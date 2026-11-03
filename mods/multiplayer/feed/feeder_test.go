@@ -38,7 +38,7 @@ const poseBufBase = 0x80C00000
 
 // resetData is where the fake game's mDoRstData sits (main takes it
 // from the arena's low end, m_Do_main.cpp:561).
-const resetData = 0x80414000
+const resetData = 0x80416000
 
 // cside stands in for the C side of the pose feed: while shadow_mode is
 // 5, every slot without a pose_buf (state != 1) gets a fresh one, as the

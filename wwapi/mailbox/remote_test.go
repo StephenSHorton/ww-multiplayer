@@ -375,7 +375,7 @@ func TestRELHeaderPins(t *testing.T) {
 	// The shanm word follows the swap-state word (rel_main.c asserts the
 	// same), below the enemy block and outside every canary region, and it
 	// is not one of the hook words RELHookRegion covers.
-	if OffRELShanm != OffRELSwapState+4 || OffRELShanm+4 > EnemyOff || Mailbox+OffRELShanm != 0x804130C4 || RELHookRegion.Contains(Mailbox+OffRELShanm, 1) {
+	if OffRELShanm != OffRELSwapState+4 || OffRELShanm+4 > EnemyOff || Mailbox+OffRELShanm != 0x804150C4 || RELHookRegion.Contains(Mailbox+OffRELShanm, 1) {
 		t.Errorf("REL shanm word at +0x%X (0x%08X)", OffRELShanm, Mailbox+OffRELShanm)
 	}
 	for _, r := range []addr.Region{CanaryTRK, CanaryArena, CanaryArenaHigh} {
@@ -385,8 +385,8 @@ func TestRELHeaderPins(t *testing.T) {
 	}
 	// The two new words follow the frame counter, in the slack past the
 	// Mailbox struct, below the enemy block, outside every canary region;
-	// T2's exec_shim loads 0x30BC(0x8041 << 16).
-	if OffRELExecHook != OffRELFrame+4 || OffRELSwapState != OffRELExecHook+4 || Mailbox+OffRELExecHook != 0x804130BC {
+	// T2's exec_shim loads 0x50BC(0x8041 << 16).
+	if OffRELExecHook != OffRELFrame+4 || OffRELSwapState != OffRELExecHook+4 || Mailbox+OffRELExecHook != 0x804150BC {
 		t.Errorf("REL hook words at +0x%X/+0x%X (0x%08X)", OffRELExecHook, OffRELSwapState, Mailbox+OffRELExecHook)
 	}
 	if OffRELExecHook < MailboxSize || OffRELSwapState+4 > EnemyOff || RELHookRegion.Size() != relHookWordsLen {
@@ -404,8 +404,8 @@ func TestRELHeaderPins(t *testing.T) {
 // ends where the next starts, the spans and entries tile, and the magics
 // spell 'WWRP' and 'WWRB'.
 func TestRemoteBlockPlacement(t *testing.T) {
-	if RemoteBlockAddr != 0x80413420 || RemoteBlockAddr+RemoteSize != 0x80413750 {
-		t.Errorf("remote-Link block at 0x%08X-0x%08X, the design says 0x80413420-0x80413750", RemoteBlockAddr, RemoteBlockAddr+RemoteSize)
+	if RemoteBlockAddr != 0x80415420 || RemoteBlockAddr+RemoteSize != 0x80415750 {
+		t.Errorf("remote-Link block at 0x%08X-0x%08X, the design says 0x80415420-0x80415750", RemoteBlockAddr, RemoteBlockAddr+RemoteSize)
 	}
 	if RemoteOff < EnemyRegionEnd || RemoteRegionStart != EnemyRegionEnd || RemoteRegionEnd != RemoteOff+RemoteSize ||
 		Mailbox+RemoteRegionEnd > PatchedArenaLo || RemoteBlockAddr%0x20 != 0 {
@@ -494,8 +494,8 @@ func TestRemoteBlockPlacement(t *testing.T) {
 		}
 	}
 	// Absolute addresses the REL and the Go host use (design §6.2).
-	if RemoteSlotAddr(0, 0) != 0x80413440 || RemoteSlotAddr(3, RemoteSLPadOff)+2 != RemoteBlockAddr+RemoteApplyOff ||
-		RemoteBlockAddr+RemoteCountersOff != 0x80413658 || RemoteBlockAddr+RemoteHitRingOff != 0x80413684 {
+	if RemoteSlotAddr(0, 0) != 0x80415440 || RemoteSlotAddr(3, RemoteSLPadOff)+2 != RemoteBlockAddr+RemoteApplyOff ||
+		RemoteBlockAddr+RemoteCountersOff != 0x80415658 || RemoteBlockAddr+RemoteHitRingOff != 0x80415684 {
 		t.Errorf("slot 0 0x%08X, counters 0x%08X, ring 0x%08X", RemoteSlotAddr(0, 0), RemoteBlockAddr+RemoteCountersOff, RemoteBlockAddr+RemoteHitRingOff)
 	}
 }
@@ -886,7 +886,7 @@ func TestReadRELHook(t *testing.T) {
 	if h, err := ReadRELHook(m); err != nil || h != (RELHook{}) {
 		t.Fatalf("zero words: %+v %v", h, err)
 	}
-	if err := m.Write(0x804130BC, []byte{0x81, 0x23, 0x45, 0x60, 0x80, 0xB0, 0x14, 0x58}); err != nil {
+	if err := m.Write(0x804150BC, []byte{0x81, 0x23, 0x45, 0x60, 0x80, 0xB0, 0x14, 0x58}); err != nil {
 		t.Fatal(err)
 	}
 	if h, err := ReadRELHook(m); err != nil || h != (RELHook{ExecHook: 0x81234560, SwapState: 0x80B01458}) {

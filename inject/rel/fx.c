@@ -103,7 +103,7 @@
 
 typedef char fx_check_block[(WWFX_OUT_RING_OFF + WWFX_RING * WWFX_EV_SIZE == WWFX_IN_RING_OFF &&
                              WWFX_IN_RING_OFF + WWFX_RING * WWFX_EV_SIZE == WWFX_SIZE &&
-                             MAILBOX_ADDR + WWFX_OFF + WWFX_SIZE <= 0x80414000 &&
+                             MAILBOX_ADDR + WWFX_OFF + WWFX_SIZE <= ARENA_LO &&
                              (WWFX_RING & (WWFX_RING - 1)) == 0) ? 1 : -1];
 // The copy bit is none of daBomb_c's Prm_e fields (d_a_bomb.h:149-160:
 // state 0-7, cheapEff 16, angXZero 17, version 31).

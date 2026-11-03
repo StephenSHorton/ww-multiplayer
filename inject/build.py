@@ -392,7 +392,7 @@ def main():
 
     # One-shot init hook on main01 (0x80006338 — proven working).
     # main01_init publishes &multiplayer_update at CALLBACK_PTR_ADDR
-    # (mailbox+0x08 = 0x80412F08, src/core/hooks.c) for frame_shim.
+    # (mailbox+0x08 = 0x80414F08, src/core/hooks.c) for frame_shim.
     proj.hook_branchlink("main01_init", 0x80006338)
 
     # Per-frame hook. Targets the LAST bl in fapGm_Execute (0x80023204 ->
@@ -506,18 +506,18 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # Post-build: patch OSInit so __OSArenaLo starts at 0x80414000 (past our
-    # T2 at 0x80410000 + the mailbox at 0x80412F00) instead of the
+    # Post-build: patch OSInit so __OSArenaLo starts at 0x80416000 (past our
+    # T2 at 0x80410000 + the mailbox at 0x80414F00) instead of the
     # linker's 0x8040EFC0. Arena loses ~24 KB from the original layout.
     #
     # History: was 0x80411000 while mod fit in 0xF00 bytes; echo-ring code
     # (docs/06 track 1) pushed .text past 0x80411000, bumping to 0x80412000.
     # Eye-fix recipe (item #9 attempt 4) grew mod past 0x80411F00, bumping
-    # to 0x80413000. Session 6 (mode-1 freeze diagnostics) added
+    # to 0x80415000. Session 6 (mode-1 freeze diagnostics) added
     # dbg_postswap_* fields that pushed mailbox size past 0x100; bumped to
-    # 0x80414000 so mailbox has 0x1000 = 4 KB of headroom for further
+    # 0x80416000 so mailbox has 0x1000 = 4 KB of headroom for further
     # diagnostics without another arena bump. Mailbox lives at
-    # 0x80412F00..0x80413nnn; MUST stay in sync with MAILBOX_ADDR in
+    # 0x80414F00..0x80413nnn; MUST stay in sync with MAILBOX_ADDR in
     # inject/include/mailbox_core.h.
     #
     # Do NOT bump further without measuring ZeldaHeap headroom: the 1 MB
@@ -528,7 +528,7 @@ def main():
     patches = [
         (0x80301818, b"\x60\x00\x00\x00"),  # nop (always fall through)
         (0x8030181C, b"\x3c\x60\x80\x41"),  # lis r3, 0x8041
-        (0x80301820, b"\x38\x63\x40\x00"),  # addi r3, r3, 0x4000  -> r3 = 0x80414000
+        (0x80301820, b"\x38\x63\x60\x00"),  # addi r3, r3, 0x6000  -> r3 = 0x80416000 (ARENA_LO)
         (0x80301838, b"\x48\x00\x00\x30"),  # b +0x30 (skip debug path)
         # 48 MB MEM1 (2026-10-18, docs/05 "48 MB MEM1"): mDoMch_Create's heap
         # plan (m_Do_machine.cpp:500-612), the ww-online split: archive heap

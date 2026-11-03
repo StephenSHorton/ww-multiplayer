@@ -278,14 +278,14 @@ func TestEnemyBlockPlacement(t *testing.T) {
 	if EnemyBlockAddr < relEnd && relStart < EnemyBlockAddr+EnemySize {
 		t.Errorf("enemy block 0x%08X-0x%08X overlaps the REL words 0x%08X-0x%08X", EnemyBlockAddr, EnemyBlockAddr+EnemySize, relStart, relEnd)
 	}
-	if EnemyBlockAddr != 0x80413100 || EnemyBlockAddr+EnemySize != 0x80413298 {
-		t.Errorf("enemy block at 0x%08X-0x%08X, the design says 0x80413100-0x80413298", EnemyBlockAddr, EnemyBlockAddr+EnemySize)
+	if EnemyBlockAddr != 0x80415100 || EnemyBlockAddr+EnemySize != 0x80415298 {
+		t.Errorf("enemy block at 0x%08X-0x%08X, the design says 0x80415100-0x80415298", EnemyBlockAddr, EnemyBlockAddr+EnemySize)
 	}
 	// The host REL's static collision objects sit past the block, inside
 	// the region, 4-aligned, below the arena (design wire_and_block).
 	sph, stts := Mailbox+EnemySphOff, Mailbox+EnemySttsOff
-	if sph != 0x804132A0 || stts != 0x804133D0 || Mailbox+EnemyRegionEnd != 0x80413410 {
-		t.Errorf("collision objects at 0x%08X / 0x%08X, region end 0x%08X; the design says 0x804132A0 / 0x804133D0 / 0x80413410", sph, stts, Mailbox+EnemyRegionEnd)
+	if sph != 0x804152A0 || stts != 0x804153D0 || Mailbox+EnemyRegionEnd != 0x80415410 {
+		t.Errorf("collision objects at 0x%08X / 0x%08X, region end 0x%08X; the design says 0x804152A0 / 0x804153D0 / 0x80415410", sph, stts, Mailbox+EnemyRegionEnd)
 	}
 	if EnemyBlockAddr+EnemySize > sph || sph+EnemySphSize > stts || stts+EnemySttsSize > Mailbox+EnemyRegionEnd || Mailbox+EnemyRegionEnd > PatchedArenaLo || sph%4 != 0 || stts%4 != 0 {
 		t.Error("the collision objects overlap the block, each other, the region end or the arena, or are misaligned")
@@ -307,7 +307,7 @@ func TestEnemyBlockPlacement(t *testing.T) {
 	// Layout 3's annex fills the slack between the REL's shanm word and the
 	// block exactly, and the region (what canaryForbidden covers) starts
 	// at it.
-	if EnemyAnnexOff != OffRELShanm+4 || EnemyAnnexOff+EnemyAnnexSize != EnemyOff || EnemyAnnexAddr != 0x804130C8 {
+	if EnemyAnnexOff != OffRELShanm+4 || EnemyAnnexOff+EnemyAnnexSize != EnemyOff || EnemyAnnexAddr != 0x804150C8 {
 		t.Errorf("annex at Mailbox+0x%X size 0x%X; the design says +0x1C8, right after the shanm word and up to the block", EnemyAnnexOff, EnemyAnnexSize)
 	}
 	if EnemyAnnexSeqOff != EnemyAnnexOff+EnemyMaxSlots*EnemyAnnexAuxSize || EnemyAnnexOvrOff != EnemyAnnexSeqOff+4 ||
@@ -329,7 +329,7 @@ func TestEnemyBlockPlacement(t *testing.T) {
 		7+EnemyHkdHiKinds < EnemyKnobKinds-1 {
 		t.Error("layout 4's block fields moved")
 	}
-	if EnemyKnobAddr != 0x80413750 || EnemyKnobRegion.End != 0x804137B0 || EnemyKnobRegion.Start < Mailbox+EnemyRegionEnd ||
+	if EnemyKnobAddr != 0x80415750 || EnemyKnobRegion.End != 0x804157B0 || EnemyKnobRegion.Start < Mailbox+EnemyRegionEnd ||
 		EnemyKnobRegion.End > PatchedArenaLo || EnemyKnobOvrOff+EnemyKnobKinds*EnemyAnnexOvrSize != EnemyKnobInvWOff ||
 		EnemyKnobInvWOff+EnemyKnobKinds > EnemyKnobGenTailOff || EnemyKnobGenTailOff+4 > int(EnemyKnobSize) || EnemyKnobAddr%4 != 0 {
 		t.Errorf("knob table %+v: fields overlap or it left the free slack", EnemyKnobRegion)

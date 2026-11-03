@@ -281,7 +281,7 @@ Carried from e1b9086. The rows that tonight's cards under "Full co-op state sync
 | Internet play: R11 over a port forward or a VPN; no NAT traversal | live / Stephen |
 | A one-line `co-op: boss-kill rows: ...` at session start, so a release check can read the active rows from the log (LIVE-7 note 1) | Go |
 
-**Rig limits.** Live checks share a few Dolphin slots (Irori leases `ww/dolphin-slot-*` tonight). Other programs' memory use blocks boots. Hops into DRC r16 and TotG `Siren 0 12` void Link. Real sword cuts on FW plants did not register on the PC rig. Lock-on and guard need the analog trigger byte 0x80413078. `mSelectItem` pokes do not equip X items. A pose-fake sends no HITs and no place.
+**Rig limits.** Live checks share a few Dolphin slots (Irori leases `ww/dolphin-slot-*` tonight). Other programs' memory use blocks boots. Hops into DRC r16 and TotG `Siren 0 12` void Link. Real sword cuts on FW plants did not register on the PC rig. Lock-on and guard need the analog trigger byte 0x80415078. `mSelectItem` pokes do not equip X items. A pose-fake sends no HITs and no place.
 
 ---
 

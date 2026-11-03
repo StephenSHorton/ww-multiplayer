@@ -107,7 +107,7 @@ func runAutoRecapture(outPath string) {
 	}()
 
 	// Step 1: wait for the mod blob to come live. The mailbox at
-	// 0x80412F00 starts at zero until main01_init writes the callback
+	// 0x80414F00 starts at zero until main01_init writes the callback
 	// pointer (off+0x08); once that fires, multiplayer_update is
 	// ticking every frame and our hooks are wired.
 	if err := waitForModBlob(uint32(pid), 30*time.Second); err != nil {

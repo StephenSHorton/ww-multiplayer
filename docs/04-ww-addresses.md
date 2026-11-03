@@ -154,7 +154,7 @@ The co-op writer only writes while these say the game is settled (docs/08 §3.2)
 | `dMenu_pause` | `0x803F7097` | 1 | sym:19130 |
 | `mMiniGameType` | `0x803CA8E2` | 1 | `d_com_inf_game.h:886` (play +0x4A3A) |
 | `mPlayerInfoBufferStageNo` (1-4 while a Ganon's Tower boss-refight snapshot is active, else 0) | `0x803CA8C8` | 1 | `d_com_inf_game.h:882` (play +0x4A20); `d_com_inf_game.cpp:1446-1457,1580-1581` |
-| mailbox `spawn_trigger` (mod heartbeat, bumped once per frame by `multiplayer_update`) | `0x80412F00` | 4 | `inject/include/mailbox_core.h` (MAILBOX_ADDR, spawn_trigger); `inject/src/core/hooks.c` multiplayer_update |
+| mailbox `spawn_trigger` (mod heartbeat, bumped once per frame by `multiplayer_update`) | `0x80414F00` | 4 | `inject/include/mailbox_core.h` (MAILBOX_ADDR, spawn_trigger); `inject/src/core/hooks.c` multiplayer_update |
 
 ### Pending counters
 
@@ -196,10 +196,16 @@ Defined in `include/d/d_procname.h` in the decomp.
 0x803FCF20      DOL end (the Freighter DOL-section attempt sat here and BSS zeroing wiped it)
 0x803FCFA8      BSS end
 0x8040CFA8      Main stack top (64 KB stack grows down to 0x803FCFA8); MetroTRK debug stack above
-0x80410000      Mod T2 code + data (0x2A88 B since Phase E3, ends 0x80412A88; internal/inject/blob.go)
-0x80412A88      Free code space (0x478 B)
-0x80412F00      Mailbox (0x1B0 B since Phase E1; inject/include/mailbox_core.h MAILBOX_ADDR)
-0x80414000      Patched __OSArenaLo (inject/build.py OSInit patch); heap/arena above
+0x80410000      Mod T2 code + data (0x2D08 B, ends 0x80412D08; internal/inject/blob.go T2End)
+0x80412D08      Free code space (0x21F8 B; co-op M7 goes here, issue #130)
+0x80414F00      Mailbox (0x1B0 B; inject/include/mailbox_core.h MAILBOX_ADDR) and its
+                blocks at +0x1B0..+0x1100 (REL words, enemy, boss, remote, refresh,
+                visuals, boats, eye packets, fx; docs/api/00-design.md)
+0x80416000      Patched __OSArenaLo (inject/build.py OSInit patch, ARENA_LO); heap/arena above
+
+Before wind#80 (2026-11-02) the mailbox was at 0x80412F00 and the arena at
+0x80414000: absolute mailbox addresses in older records (docs/05, docs/06,
+docs/TESTING.md, docs/live) are 0x2000 lower than today's.
 0x81800000  ─── RAM end (24MB)
 ```
 

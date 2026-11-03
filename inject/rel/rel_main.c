@@ -103,10 +103,10 @@
 #define WWREL_WORD(off) (*(volatile u32*)(MAILBOX_ADDR + (off)))
 
 // The slack words must lie past the Mailbox struct and below the arena
-// (0x80414000, inject/build.py's OSInit patch).
+// (0x80416000, inject/build.py's OSInit patch).
 typedef char wwrel_check_mailbox_size[(sizeof(Mailbox) == 0x1B0) ? 1 : -1];
 typedef char wwrel_check_slack_start[(WWREL_MAGIC_OFF >= sizeof(Mailbox)) ? 1 : -1];
-typedef char wwrel_check_slack_end[(MAILBOX_ADDR + WWREL_FRAME_OFF + 4 <= 0x80414000) ? 1 : -1];
+typedef char wwrel_check_slack_end[(MAILBOX_ADDR + WWREL_FRAME_OFF + 4 <= ARENA_LO) ? 1 : -1];
 
 // Exported so scripts/extract_blob.py can read the id the ELF was built
 // with (it looks the symbol up in .rodata) and emit it as RELBuildID.

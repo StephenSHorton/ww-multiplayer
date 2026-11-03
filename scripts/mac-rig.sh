@@ -20,7 +20,7 @@ WW_SHARED=${WW_SHARED:-$HOME/ww-shared}
 WWDEV=${WWDEV:-$WW_SHARED/bin/wwdev}
 DOLPHIN_APP=${DOLPHIN_APP:-$HOME/Applications/Dolphin.app}
 ISO=${ISO_PATH:-$WW_SHARED/disc/WW-mp.iso}
-SAVE_DEFAULT=$WW_SHARED/fixtures/start-mac-CAC6980B.sav  # REL 0xCAC6980B (main since #289); start-mac-A9DE0F1E.sav and -1CE30685.sav stay for older builds
+SAVE_DEFAULT=$WW_SHARED/fixtures/start-mac-76C1EE09.sav  # REL 0x76C1EE09 (main since wind#80 moved the mailbox); start-mac-CAC6980B.sav, -A9DE0F1E.sav and -1CE30685.sav stay for older builds
 [ -f "$SAVE_DEFAULT" ] || SAVE_DEFAULT=none
 
 die() { echo "mac-rig: $*" >&2; exit 1; }
@@ -152,9 +152,9 @@ SW
 fps)
 	[ $# -gt 0 ] || die "usage: fps <pid>..."
 	t=$(mktemp)
-	for p in "$@"; do echo "$p $(WW_DOLPHIN_PID=$p "$WWDEV" peek 0x80412F00 | awk '{print $2}')"; done >"$t"
+	for p in "$@"; do echo "$p $(WW_DOLPHIN_PID=$p "$WWDEV" peek 0x80414F00 | awk '{print $2}')"; done >"$t"
 	sleep 5
-	while read -r p a; do b=$(WW_DOLPHIN_PID=$p "$WWDEV" peek 0x80412F00 | awk '{print $2}'); echo "pid $p: $(( ($(printf %d "$b") - $(printf %d "$a")) / 5 )) fps"; done <"$t"
+	while read -r p a; do b=$(WW_DOLPHIN_PID=$p "$WWDEV" peek 0x80414F00 | awk '{print $2}'); echo "pid $p: $(( ($(printf %d "$b") - $(printf %d "$a")) / 5 )) fps"; done <"$t"
 	rm -f "$t"
 	;;
 recapture)

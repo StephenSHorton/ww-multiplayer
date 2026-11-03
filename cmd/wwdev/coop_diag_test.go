@@ -515,9 +515,9 @@ func TestCompareBlob(t *testing.T) {
 // refuses anything touching the main stack, T2, the mailbox or the arena.
 func TestCanaryRegions(t *testing.T) {
 	if mailbox.CanaryTRK.Start != 0x8040CFB0 || mailbox.CanaryTRK.End != 0x80410000 ||
-		mailbox.CanaryArena.Start != 0x804130B0 || mailbox.CanaryArena.End != 0x804130BC ||
-		mailbox.CanaryArenaHigh.Start != 0x8041396C || mailbox.CanaryArenaHigh.End != 0x80413C00 ||
-		mailbox.EyePacketsRegion.End != 0x80413D50 || mailbox.FxRegion.End != 0x80414000 {
+		mailbox.CanaryArena.Start != 0x804150B0 || mailbox.CanaryArena.End != 0x804150BC ||
+		mailbox.CanaryArenaHigh.Start != 0x8041596C || mailbox.CanaryArenaHigh.End != 0x80415C00 ||
+		mailbox.EyePacketsRegion.End != 0x80415D50 || mailbox.FxRegion.End != 0x80416000 {
 		t.Fatalf("canary ranges moved: %+v %+v %+v", mailbox.CanaryTRK, mailbox.CanaryArena, mailbox.CanaryArenaHigh)
 	}
 	for _, r := range canaryRegions {
@@ -529,24 +529,24 @@ func TestCanaryRegions(t *testing.T) {
 		{Name: "into T2", Start: 0x8040FF00, End: 0x80410004},
 		{Name: "slack after T2", Start: 0x80412E00, End: 0x80412E10},
 		{Name: "mailbox", Start: mailbox.Mailbox, End: mailbox.Mailbox + 4},
-		{Name: "mailbox tail", Start: 0x8041309C, End: 0x80413100},
+		{Name: "mailbox tail", Start: 0x8041509C, End: 0x80415100},
 		{Name: "main stack", Start: 0x8040CFA4, End: 0x8040D000},
 		{Name: "stack header", Start: 0x8040CFA8, End: 0x8040D000},
 		{Name: "boot LR slot", Start: 0x8040CFAC, End: 0x8040CFB0},
-		{Name: "arena", Start: 0x80413F00, End: 0x80414004},
-		{Name: "enemy block", Start: 0x80413100, End: 0x80413104},
-		{Name: "enemy block tail", Start: 0x80413294, End: 0x80413298},
-		{Name: "enemy sphere image", Start: 0x804132A0, End: 0x804132A4},
-		{Name: "enemy stts tail", Start: 0x8041340C, End: 0x80413410},
-		{Name: "REL exec hook word", Start: 0x804130BC, End: 0x804130C0},
-		{Name: "REL swap state word", Start: 0x804130C0, End: 0x804130C4},
-		{Name: "remote-Link block", Start: 0x80413420, End: 0x80413424},
-		{Name: "remote-Link block tail", Start: 0x8041374C, End: 0x80413750},
-		{Name: "enemy knob table", Start: 0x80413750, End: 0x80413754},
-		{Name: "enemy knob table tail", Start: 0x804137AC, End: 0x804137B0},
-		{Name: "actor_refresh request", Start: 0x804137B0, End: 0x804137B4},
-		{Name: "actor_refresh request tail", Start: 0x804137CC, End: 0x804137D0},
-		{Name: "across the enemy block", Start: 0x804130B0, End: 0x80414000},
+		{Name: "arena", Start: 0x80415F00, End: 0x80414004},
+		{Name: "enemy block", Start: 0x80415100, End: 0x80415104},
+		{Name: "enemy block tail", Start: 0x80415294, End: 0x80415298},
+		{Name: "enemy sphere image", Start: 0x804152A0, End: 0x804152A4},
+		{Name: "enemy stts tail", Start: 0x8041540C, End: 0x80415410},
+		{Name: "REL exec hook word", Start: 0x804150BC, End: 0x804150C0},
+		{Name: "REL swap state word", Start: 0x804150C0, End: 0x804150C4},
+		{Name: "remote-Link block", Start: 0x80415420, End: 0x80415424},
+		{Name: "remote-Link block tail", Start: 0x8041574C, End: 0x80415750},
+		{Name: "enemy knob table", Start: 0x80415750, End: 0x80415754},
+		{Name: "enemy knob table tail", Start: 0x804157AC, End: 0x804157B0},
+		{Name: "actor_refresh request", Start: 0x804157B0, End: 0x804157B4},
+		{Name: "actor_refresh request tail", Start: 0x804157CC, End: 0x804157D0},
+		{Name: "across the enemy block", Start: 0x804150B0, End: 0x80416000},
 		{Name: "misaligned", Start: 0x8040CFAA, End: 0x8040D000},
 		{Name: "empty", Start: 0x8040D000, End: 0x8040D000},
 		{Name: "outside MEM1", Start: 0x7FFFFF00, End: 0x80000000},
@@ -601,8 +601,8 @@ func TestArmAndCheckCanaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"4 changed (3 now zero, 1 other)", "0x8040D0B0-0x8040D0BC (3 words)",
-		"below arena  0x804130B0-0x804130BC (3 words): all intact",
-		"below arena (past the boats block) 0x8041396C-0x80413C00 (165 words): all intact"} {
+		"below arena  0x804150B0-0x804150BC (3 words): all intact",
+		"below arena (past the boats block) 0x8041596C-0x80415C00 (165 words): all intact"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("region-probe check lacks %q:\n%s", want, out.String())
 		}

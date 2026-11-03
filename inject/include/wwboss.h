@@ -40,7 +40,7 @@
 // one line as `#define NAME value // comment`, a plain decimal or hex
 // number: no expressions, no negatives.
 //
-// Where: the 16 bytes at MAILBOX_ADDR + 0x510 (0x80413410), between the
+// Where: the 16 bytes at MAILBOX_ADDR + 0x510 (0x80415410), between the
 // enemy region's end (WWENEMY_REGION_END) and the remote-Link block
 // (WWREMOTE_OFF). They were the alignment gap at the head of the
 // remote-Link region (wwremote.h's slack map), which neither remote-Link
@@ -81,7 +81,7 @@
 #ifndef WW_WWBOSS_H
 #define WW_WWBOSS_H
 
-#define WWBOSS_OFF               0x510        // request start, from MAILBOX_ADDR (0x80413410)
+#define WWBOSS_OFF               0x510        // request start, from MAILBOX_ADDR (0x80415410)
 #define WWBOSS_SIZE              0x10         // ends at +0x520 = WWREMOTE_OFF
 
 #define WWBOSS_SEQ_OFF           0x00         // u32 request seq, never 0 (Go)

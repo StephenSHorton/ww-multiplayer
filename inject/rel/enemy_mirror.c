@@ -138,9 +138,9 @@
 #define EM_STTS_SIZE 0x3C
 
 // The block must lie past the REL words (wwrel.h) and below the arena
-// (0x80414000, inject/build.py's OSInit patch), and its pieces must nest.
+// (0x80416000, inject/build.py's OSInit patch), and its pieces must nest.
 typedef char em_check_block_start[(WWENEMY_OFF >= WWREL_FRAME_OFF + 4 && WWENEMY_OFF >= sizeof(Mailbox)) ? 1 : -1];
-typedef char em_check_block_end[(MAILBOX_ADDR + WWENEMY_OFF + WWENEMY_SIZE <= 0x80414000) ? 1 : -1];
+typedef char em_check_block_end[(MAILBOX_ADDR + WWENEMY_OFF + WWENEMY_SIZE <= ARENA_LO) ? 1 : -1];
 typedef char em_check_slots[(WWENEMY_SLOTS_OFF + WWENEMY_MAX_SLOTS * WWENEMY_SLOT_SIZE <= WWENEMY_HIT_APPLY_OFF) ? 1 : -1];
 typedef char em_check_hit_apply[(WWENEMY_HIT_APPLY_OFF + WWENEMY_HA_SIZE <= WWENEMY_SEQ_TAIL_OFF &&
                                  WWENEMY_HA_PID_OFF + 4 <= WWENEMY_HA_SIZE &&
@@ -213,7 +213,7 @@ typedef char em_check_annex_hkdx[(WWENEMY_ANNEX_INVW_OFF + WWENEMY_ANNEX_KINDS +
 // (WWENEMY_ANNEX_OVR_*) so one sub-offset set serves both.
 typedef char em_check_knob[(WWENEMY_KNOB_OFF >= WWREMOTE_REGION_END &&
                             WWENEMY_KNOB_OFF + WWENEMY_KNOB_SIZE <= 0x1100 &&
-                            MAILBOX_ADDR + WWENEMY_KNOB_OFF + WWENEMY_KNOB_SIZE <= 0x80414000 &&
+                            MAILBOX_ADDR + WWENEMY_KNOB_OFF + WWENEMY_KNOB_SIZE <= ARENA_LO &&
                             (WWENEMY_KNOB_OFF & 3) == 0 && WWENEMY_KNOB_GEN_HEAD_OFF == 0 &&
                             WWENEMY_KNOB_GEN_HEAD_OFF + 4 <= WWENEMY_KNOB_LAYOUT_OFF &&
                             WWENEMY_KNOB_LAYOUT_OFF + 2 <= WWENEMY_KNOB_COUNT_OFF &&
@@ -227,7 +227,7 @@ typedef char em_check_knob[(WWENEMY_KNOB_OFF >= WWREMOTE_REGION_END &&
 typedef char em_check_objects[(WWENEMY_OFF + WWENEMY_SIZE <= WWENEMY_SPH_OFF &&
                                WWENEMY_SPH_OFF + EM_SPH_SIZE <= WWENEMY_STTS_OFF &&
                                WWENEMY_STTS_OFF + EM_STTS_SIZE <= WWENEMY_REGION_END &&
-                               MAILBOX_ADDR + WWENEMY_REGION_END <= 0x80414000 &&
+                               MAILBOX_ADDR + WWENEMY_REGION_END <= ARENA_LO &&
                                (WWENEMY_SPH_OFF & 3) == 0 && (WWENEMY_STTS_OFF & 3) == 0) ? 1 : -1];
 typedef char em_check_state[(sizeof(em_slot) == 0x5C &&
                              __builtin_offsetof(em_slot, recently_dead) == 0x38 &&
