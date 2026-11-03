@@ -45,7 +45,7 @@ var browserMethods = map[string]bool{
 	// The first-run setup (App PR 6).
 	"Setup": true, "SaveProfile": true, "CheckColor": true,
 	"StartPatch": true, "CancelPatch": true, "PatchStatus": true,
-	"DetectDolphin": true, "UserDirFor": true, "SetDolphin": true, "PrepareDolphin": true, "FinishSetup": true,
+	"DetectDolphin": true, "UserDirFor": true, "SetDolphin": true, "PrepareDolphin": true, "UnprepareDolphin": true, "FinishSetup": true,
 	// The Lobby screen (App PR 7).
 	"Kick": true, "Retry": true, "ShareAddrs": true,
 	// The header's "Show IP addresses" switch.

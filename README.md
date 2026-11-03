@@ -44,7 +44,8 @@ Known limits:
   button (or `scripts/setup-mac-dolphin.sh`): it copies
   `/Applications/Dolphin.app` to `~/Applications/Dolphin.app` and re-signs
   it without the hardened runtime, which lets AMFI permit `task_for_pid`
-  against it. After that, no sudo is needed.
+  against it. After that, no sudo is needed. **Remove the copy** (or
+  `scripts/setup-mac-dolphin.sh --undo`) undoes it.
 - The downloads aren't code-signed yet: Windows SmartScreen and macOS
   Gatekeeper warn the first time (see [Quick start](#quick-start-end-users)).
 
@@ -97,7 +98,12 @@ current Windows 10 have; without it the app offers to install it.
    again after every Dolphin update (the app reminds you). It copies
    `/Applications/Dolphin.app` to `~/Applications/Dolphin.app` and re-signs
    the copy without the hardened runtime, so the app may read its memory;
-   your original Dolphin is left alone. No sudo.
+   your original Dolphin is left alone. No sudo. Setup explains this
+   before it starts. To undo it, press **Remove the copy** on the same
+   step: it unregisters the copy from macOS and deletes it, and the app
+   goes back to the original. If `~/Applications/Dolphin.app` is a
+   Dolphin you installed there yourself (not a prepared copy), the app
+   leaves it alone and asks you to move it first.
 4. **Host** or **Join**, then **Start** from the lobby, as on Windows.
 
 The app is ad-hoc signed with the `com.apple.security.cs.debugger`
@@ -125,8 +131,9 @@ under [Playing](#playing)):
 On macOS, in Terminal, `cd` into the unzipped `WW Multiplayer` folder and
 clear the download quarantine once (`xattr -cr .`), then use
 `./ww-multiplayer` the same way (it is a link to the app's own binary).
-`./scripts/setup-mac-dolphin.sh` does what Prepare Dolphin does; boot the
-patched ISO in the `~/Applications/Dolphin.app` copy.
+`./scripts/setup-mac-dolphin.sh` does what Prepare Dolphin does
+(`--undo` does what Remove the copy does); boot the patched ISO in the
+`~/Applications/Dolphin.app` copy.
 
 `patch` writes `your-wind-waker-multiplayer.iso` next to the input and
 leaves the original untouched; already-patched ISOs are detected and

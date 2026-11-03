@@ -81,6 +81,8 @@ type Bridge struct {
 	home       func() string
 	macStatus  func() (launch.MacState, launch.MacFacts, error)
 	prepareMac func(log.Reporter) error
+	// unprepareMac removes the prepared copy (Remove the copy, the undo).
+	unprepareMac func(log.Reporter) error
 
 	dlgMu sync.Mutex
 	dlg   fileDialogs // the window's file dialogs; nil in a browser
@@ -95,7 +97,7 @@ type Bridge struct {
 	job    *patchJob
 	jobSeq int
 
-	preparing sync.Mutex // held while Prepare Dolphin runs
+	preparing sync.Mutex // held while Prepare Dolphin or Remove the copy runs
 
 	// quitting is set once the window was closed during a patch: it stays
 	// open until the cancelled patch ends (beforeClose).
@@ -157,7 +159,7 @@ func NewBridge(o Options) *Bridge {
 	b := &Bridge{ctrl: o.Controller, version: o.Version, cfgPath: o.ConfigPath, getenv: o.Getenv, now: time.Now,
 		postPatch: o.PostPatch, patchRun: patch.Run, inspect: patch.Inspect, denv: o.DolphinEnv,
 		home:      func() string { h, _ := os.UserHomeDir(); return h },
-		macStatus: macStatusHere, prepareMac: launch.PrepareMacHere,
+		macStatus: macStatusHere, prepareMac: launch.PrepareMacHere, unprepareMac: launch.UnprepareMacHere,
 		emitters: map[int]func(EventView){}, hostIPs: o.HostIPs, findSave: findSave, openPath: openFolderHere,
 		mods: o.Mods, modFlag: o.ModFlag, devMods: o.DevMods}
 	if b.getenv == nil {

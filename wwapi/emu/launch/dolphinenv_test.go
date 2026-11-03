@@ -296,6 +296,9 @@ func TestPrepareMac(t *testing.T) {
 	plist := filepath.Join(dst, "Contents", "Info.plist")
 	bin := filepath.Join(dst, "Contents", "MacOS", "Dolphin")
 	want := []string{
+		// the old copy is read first: is it one PrepareMac may replace?
+		"codesign -d -vvv " + bin,
+		"plutil -extract CFBundleIdentifier raw " + plist,
 		"cp -R " + src + " " + dst,
 		"xattr -cr " + dst,
 		"plutil -replace CFBundleIdentifier -string " + MacBundleID + " " + plist,
@@ -391,5 +394,76 @@ func TestPrepareMacHere(t *testing.T) {
 	}
 	if err := PrepareMacHere(&lines{}); !errors.Is(err, ErrNotMac) {
 		t.Errorf("%v", err)
+	}
+}
+
+func TestPrepareMacLeavesAForeignDolphin(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "Applications", "Dolphin.app")
+	dst := filepath.Join(root, "home", "Applications", "Dolphin.app")
+	write(t, filepath.Join(src, "Contents", "Info.plist"), "<plist/>")
+	write(t, filepath.Join(dst, "theirs"), "a Dolphin someone installed here")
+	stock := &fakeRunner{signature: "CodeDirectory flags=0x10000(runtime)", bundleID: "org.dolphin-emu.dolphin"}
+	err := PrepareMac(&lines{}, stock, src, dst)
+	if !errors.Is(err, ErrNotOurCopy) || !strings.Contains(err.Error(), "move it somewhere else") {
+		t.Fatalf("got %v", err)
+	}
+	if err := UnprepareMac(&lines{}, stock, dst); !errors.Is(err, ErrNotOurCopy) {
+		t.Fatalf("unprepare: got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "theirs")); err != nil {
+		t.Errorf("the foreign Dolphin was touched: %v", err)
+	}
+	for _, c := range stock.calls {
+		if !strings.HasPrefix(c, "codesign -d") && !strings.HasPrefix(c, "plutil -extract") {
+			t.Errorf("ran %q on a foreign Dolphin", c)
+		}
+	}
+}
+
+func TestMacCopyIsOurs(t *testing.T) {
+	for _, c := range []struct {
+		sig, id string
+		want    bool
+	}{
+		{"CodeDirectory flags=0x2(adhoc)", MacBundleID + "\n", true},
+		{"CodeDirectory flags=0x10000(runtime)", MacBundleID, true},         // ours, re-sign failed: Prepare again
+		{"CodeDirectory flags=0x2(adhoc)", "org.dolphin-emu.dolphin", true}, // an older script's copy
+		{"CodeDirectory flags=0x10000(runtime)", "org.dolphin-emu.dolphin", false},
+	} {
+		if got := MacCopyIsOurs(c.sig, c.id); got != c.want {
+			t.Errorf("%q %q: %v", c.sig, c.id, got)
+		}
+	}
+}
+
+func TestUnprepareMac(t *testing.T) {
+	root := t.TempDir()
+	dst := filepath.Join(root, "home", "Applications", "Dolphin.app")
+	write(t, filepath.Join(dst, "Contents", "Info.plist"), "<plist/>")
+	r := &fakeRunner{signature: "CodeDirectory flags=0x2(adhoc)", bundleID: MacBundleID}
+	var l lines
+	if err := UnprepareMac(&l, r, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Errorf("the copy is still there: %v", err)
+	}
+	if len(r.calls) != 3 || r.calls[2] != "lsregister -u "+dst {
+		t.Errorf("commands:\n%s", strings.Join(r.calls, "\n"))
+	}
+	if len(l) != 3 || !strings.Contains(l[2], "Removed.") {
+		t.Errorf("log:\n%s", strings.Join(l, "\n"))
+	}
+	// Again: nothing to remove.
+	l = nil
+	if err := UnprepareMac(&l, &fakeRunner{}, dst); err != nil || len(l) != 1 || !strings.Contains(l[0], "nothing to remove") {
+		t.Errorf("missing copy: %v %q", err, l)
+	}
+	for _, bad := range []string{MacApp, filepath.Join(root, "home")} {
+		r := &fakeRunner{}
+		if err := UnprepareMac(&lines{}, r, bad); err == nil || len(r.calls) != 0 {
+			t.Errorf("dst %s: %v, %v", bad, err, r.calls)
+		}
 	}
 }

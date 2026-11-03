@@ -42,8 +42,10 @@ type MacView struct {
 	Text  string `json:"text"`
 	// Prepare offers the Prepare Dolphin button; Refresh words it as
 	// "Dolphin was updated — refresh the copy".
-	Prepare  bool   `json:"prepare"`
-	Refresh  bool   `json:"refresh"`
+	Prepare bool `json:"prepare"`
+	Refresh bool `json:"refresh"`
+	// Remove offers Remove the copy (the undo): the copy is there.
+	Remove   bool   `json:"remove"`
 	Original string `json:"original"`
 	Copy     string `json:"copy"`
 }
@@ -407,19 +409,23 @@ func (b *Bridge) macViewOf(st launch.MacState, err error) *MacView {
 	v := &MacView{Original: launch.MacApp, Copy: launch.MacPreparedApp(home)}
 	switch st {
 	case launch.MacReady:
-		v.State = "ready"
+		v.State, v.Remove = "ready", true
+		v.Text = "This app plays on the prepared copy of Dolphin in the Applications folder of your home. " +
+			"Remove the copy to undo the preparation; your original Dolphin stays as it is."
 	case launch.MacNoDolphin:
 		v.State = "no-dolphin"
 		v.Text = "Install Dolphin into your Applications folder first (dolphin-emu.org), then come back here."
 	case launch.MacNeedsCopy:
 		v.State, v.Prepare = "needs-copy", true
 		v.Text = "macOS only lets this app read Dolphin's memory from a copy without Apple's hardened runtime. " +
-			"Prepare Dolphin makes that copy in the Applications folder of your home; your original stays untouched and keeps updating."
+			"Prepare Dolphin copies Dolphin into the Applications folder of your home (about a minute), gives the copy its own name " +
+			"so macOS keeps the two apart, and signs it again without the hardened runtime. No password is needed. " +
+			"Your original Dolphin stays untouched and keeps updating, and Remove the copy undoes it."
 	case launch.MacHardened:
-		v.State, v.Prepare = "hardened", true
+		v.State, v.Prepare, v.Remove = "hardened", true, true
 		v.Text = "Your prepared copy of Dolphin still has Apple's hardened runtime, so this app can't read its memory. Prepare it again."
 	case launch.MacCopyOutdated:
-		v.State, v.Prepare, v.Refresh = "outdated", true, true
+		v.State, v.Prepare, v.Refresh, v.Remove = "outdated", true, true, true
 		v.Text = "Dolphin was updated. Refresh the copy so you play on the new version (your settings and saves stay)."
 	}
 	return v
@@ -463,10 +469,15 @@ func (b *Bridge) PrepareDolphin() PrepareView {
 		v.Lines = []string{}
 	}
 	if err != nil {
-		if errors.Is(err, launch.ErrNotMac) {
+		switch {
+		case errors.Is(err, launch.ErrNotMac):
 			v.Error = "Only macOS needs a prepared copy of Dolphin."
-		} else {
-			v.Error = err.Error()
+		case errors.Is(err, launch.ErrNotOurCopy):
+			v.Error = "Couldn't prepare Dolphin: " + err.Error() + "."
+		default:
+			v.Error = "Couldn't prepare Dolphin: " + err.Error() + ". Your original Dolphin in /Applications was not changed. " +
+				"Try again; if it fails the same way, Remove the copy and run scripts/setup-mac-dolphin.sh in Terminal, " +
+				"and attach its output to a bug report."
 		}
 		return v
 	}
@@ -480,6 +491,52 @@ func (b *Bridge) PrepareDolphin() PrepareView {
 			}
 		}
 		b.mu.Unlock()
+		if err := b.saveErr(); err != nil {
+			v.Lines = append(v.Lines, "Couldn't save the settings: "+err.Error())
+		}
+	}
+	return v
+}
+
+// UnprepareDolphin removes the prepared copy (Remove the copy: Prepare
+// Dolphin's undo) and, when the saved Dolphin was that copy, saves the
+// original instead. It refuses while Dolphin runs from the copy, and
+// leaves alone a Dolphin.app the app didn't make (launch.UnprepareMac).
+func (b *Bridge) UnprepareDolphin() PrepareView {
+	if !b.preparing.TryLock() {
+		return PrepareView{Lines: []string{}, Error: "Dolphin is being prepared; wait for it to finish."}
+	}
+	defer b.preparing.Unlock()
+	if b.home == nil || b.unprepareMac == nil {
+		return PrepareView{Lines: []string{}, Error: "Only macOS has a prepared copy of Dolphin."}
+	}
+	app := launch.MacPreparedApp(b.home())
+	for _, exe := range runningExes(b.denv()) {
+		if under(exe, app) {
+			return PrepareView{Lines: []string{}, Error: "Close Dolphin first, then remove the copy: it is running from " + app + "."}
+		}
+	}
+	var l lineLog
+	err := b.unprepareMac(&l)
+	v := PrepareView{OK: err == nil, Lines: l.lines}
+	if v.Lines == nil {
+		v.Lines = []string{}
+	}
+	if err != nil {
+		if errors.Is(err, launch.ErrNotMac) {
+			v.Error = "Only macOS has a prepared copy of Dolphin."
+		} else {
+			v.Error = "Couldn't remove the copy: " + err.Error() + "."
+		}
+		return v
+	}
+	b.mu.Lock()
+	changed := b.cfg.Dolphin.Exe != "" && under(b.cfg.Dolphin.Exe, app)
+	if changed {
+		b.cfg.Dolphin.Exe = macOriginalExe
+	}
+	b.mu.Unlock()
+	if changed {
 		if err := b.saveErr(); err != nil {
 			v.Lines = append(v.Lines, "Couldn't save the settings: "+err.Error())
 		}

@@ -19,16 +19,58 @@
 # command at the end). The original /Applications/Dolphin.app is left
 # untouched.
 
+#
+# Undo: scripts/setup-mac-dolphin.sh --undo unregisters and removes the
+# copy (the app's "Remove the copy" button does the same).
+#
+# Both modes leave a ~/Applications/Dolphin.app alone when it is a stock
+# Dolphin someone installed there (hardened runtime, Dolphin's own bundle
+# ID) rather than a copy this script or the app made.
+
 set -euo pipefail
 
 SRC="/Applications/Dolphin.app"
 DST="$HOME/Applications/Dolphin.app"
+NEW_ID="org.dolphin-emu.dolphin-unhardened"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+# is_our_copy: DST has our bundle ID, or no hardened runtime (a copy an
+# older version of this script re-signed before it set the bundle ID).
+is_our_copy() {
+    local id flags
+    id=$(plutil -extract CFBundleIdentifier raw "$DST/Contents/Info.plist" 2>/dev/null || true)
+    flags=$(codesign -d -vvv "$DST/Contents/MacOS/Dolphin" 2>&1 | grep "flags=" || true)
+    [ "$id" = "$NEW_ID" ] || ! echo "$flags" | grep -q "runtime"
+}
+
+refuse_foreign() {
+    if [ -d "$DST" ] && ! is_our_copy; then
+        echo "ERROR: $DST is a Dolphin you installed there, not a prepared copy; it was left alone."
+        echo "       Move it somewhere else (or into the Trash) and run this again."
+        exit 1
+    fi
+}
+
+if [ "${1:-}" = "--undo" ]; then
+    if [ ! -d "$DST" ]; then
+        echo "==> There is no prepared copy at $DST: nothing to remove."
+        exit 0
+    fi
+    refuse_foreign
+    echo "==> Unregistering $DST from LaunchServices..."
+    "$LSREGISTER" -u "$DST" || true
+    echo "==> Removing $DST..."
+    rm -rf "$DST"
+    echo "==> Removed. The original $SRC is unchanged."
+    exit 0
+fi
 
 if [ ! -d "$SRC" ]; then
     echo "ERROR: $SRC not found. Install Dolphin first."
     exit 1
 fi
 
+refuse_foreign
 if [ -d "$DST" ]; then
     echo "==> Removing existing $DST..."
     rm -rf "$DST"
@@ -48,7 +90,6 @@ xattr -cr "$DST" 2>/dev/null || true
 # child process then runs out of the hardened-runtime binary at
 # /Applications and AMFI denies task_for_pid against it. Giving the
 # user copy a distinct bundle ID breaks the LS dedup tie.
-NEW_ID="org.dolphin-emu.dolphin-unhardened"
 echo "==> Setting CFBundleIdentifier to $NEW_ID (avoids LaunchServices tie with /Applications)..."
 plutil -replace CFBundleIdentifier -string "$NEW_ID" "$DST/Contents/Info.plist"
 
@@ -59,7 +100,6 @@ codesign --force --sign - "$DST/Contents/MacOS/Dolphin"
 # bundle ID so future bundle-ID lookups don't silently fall back to
 # /Applications.
 echo "==> Registering with LaunchServices..."
-LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 "$LSREGISTER" -f "$DST" || true
 
 echo "==> Verifying..."
@@ -80,5 +120,5 @@ cat <<EOF
 ==> Done. Use this Dolphin from now on:
     $DST/Contents/MacOS/Dolphin -e <patched-iso>
 
-The original $SRC is unchanged.
+The original $SRC is unchanged. To undo: $0 --undo
 EOF
