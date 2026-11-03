@@ -209,6 +209,9 @@ WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/j
 WW_NAMETAGS=off / WW_EQUIP=off / WW_SEACHART=off / WW_HAIR=off   # puppet-sync (mods/multiplayer/vissync): no name tags over the mini-Links / no remote
                                             #   sword, shield (hero's or mirror) and scabbard (hero's or Master Sword's) on them / no remotes on the pause menu's
                                             #   sea chart / no katsura hair on a casual remote (default all on; the REL draws them, wwvis.h)
+WW_LOBBY=off                                # puppet-sync: no lobby presence (issue #38). Default on: on the title screen the remotes' Links stand in a row in
+                                            #   front of the title camera, facing it, with their name tags (mods/multiplayer/feed/lobby.go); on the file select
+                                            #   screen the REL prints "Here: A, B" (WWVIS_FLAG_LOBBY). Off hides both. Dev knobs: WW_LOBBY_{DIST,DROP,SPACING,SIDE}
 WW_BOATS=off|nosail|noparts                 # puppet-sync (mods/multiplayer/boatsync): no peer boats / no sail cloth / no cannon or crane on them. Default on:
                                             #   each remote's King of Red Lions drawn under it while it sails and where it was left (sea, Tower of the Gods), sail
                                             #   in its tunic colour (inject/rel/boats.c, include/wwboat.h; docs/05 "Peer boats", docs/TESTING.md BT-*)

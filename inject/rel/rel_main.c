@@ -341,6 +341,7 @@ static int wwrel_draw(void* actor) {
     wwrel_draw_beat = beat;
     wwrel_draw_seen = 1;
     boats_draw();
+    wwvis_lobby_draw();
     return TRUE;
 }
 

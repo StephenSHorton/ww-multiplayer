@@ -65,6 +65,7 @@
 #define WWVIS_FLAG_EQUIP        0x02        // draw the sword, shield and scabbard from WWVIS_EQUIP
 #define WWVIS_FLAG_SEACHART     0x04        // draw the sea chart markers
 #define WWVIS_FLAG_HAIR         0x08        // a casual remote (WWVIS_EQF_CASUAL): katsura hair, no hat, no buckle
+#define WWVIS_FLAG_LOBBY        0x10        // the file select screen lists the remotes' names ("Here: A, B"; issue #38)
 
 // Equip entry (4 bytes per slot): the remote's mSelectEquip[0] / [1]
 // (dItemNo_*, 0xFF none) and what it holds.

@@ -33,7 +33,7 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
 ```
 ~/ww-shared/disc/ww-vanilla.ciso, WW-mp.iso      the disc and the patched disc
 ~/ww-shared/fixtures/                             dolphin-user-3/-4 (PC user dirs), saves/ (GCIs),
-                                                  start-mac-76C1EE09.sav (the Mac start save, below; start-mac-CAC6980B.sav / WW-mp-CAC6980B.iso for builds before wind#80, start-mac-A9DE0F1E.sav / WW-mp-A9DE0F1E.iso and start-mac-1CE30685.sav / WW-mp-1CE30685.iso are kept for builds before #289 and #267)
+                                                  start-mac-3D7FEC97.sav (the Mac start save, below; start-mac-76C1EE09.sav / WW-mp-76C1EE09.iso for builds before wind#77, start-mac-CAC6980B.sav / WW-mp-CAC6980B.iso for builds before wind#80, start-mac-A9DE0F1E.sav / WW-mp-A9DE0F1E.iso and start-mac-1CE30685.sav / WW-mp-1CE30685.iso are kept for builds before #289 and #267)
 ~/ww-shared/bin/                                  wwdev, ww-multiplayer (entitled), mac-rig.sh
 ~/ww-shared/rigs/<rig>/u1, u2                     each rig's own Dolphin user dirs
 ```
@@ -57,8 +57,8 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
   silently ignored and the game sits on the title screen. Macs use their own start save, made
   unattended by the macOS `wwdev auto-recapture` (`scripts/mac-rig.sh recapture <rig>`): cold
   boot, menus through the pad override, then a held Shift+F1. The shared one is
-  `~/ww-shared/fixtures/start-mac-76C1EE09.sav` (REL 0x76C1EE09, main since wind#80 moved the mailbox to 0x80414F00, recaptured 2026-11-02 on `WW-mp-76C1EE09.iso`; file 1 of the fixture card, Link in
-  play). `start-mac-CAC6980B.sav` (REL 0xCAC6980B, #289 until wind#80) stays for older builds. A REL/C change invalidates it: recapture under the `ww/rel-blob` lease and replace it.
+  `~/ww-shared/fixtures/start-mac-3D7FEC97.sav` (REL 0x3D7FEC97, main since wind#77's title tags and file select line, recaptured 2026-11-02 on `WW-mp-3D7FEC97.iso`; file 1 of the fixture card, Link in
+  play). `start-mac-76C1EE09.sav` (REL 0x76C1EE09, wind#80's mailbox move until wind#77) and `start-mac-CAC6980B.sav` (REL 0xCAC6980B, #289 until wind#80) stay for older builds. A REL/C change invalidates it: recapture under the `ww/rel-blob` lease and replace it.
 - **Pre-Dragon Roost start save (wind#70):** `~/ww-shared/fixtures/start-mac-CAC6980B-4ww.sav`, recaptured
   2026-11-02 from CryZe `saves/100pct-E/4-WindWaker.gci` (REL 0xCAC6980B; at sea, Link in play). Event 0x1101
   (Medli's M_Dra09 line, which turns off the room-9 rider: d_a_bb.cpp:2701, d_a_mo2.cpp:4103) is clear, and DRC

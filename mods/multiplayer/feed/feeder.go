@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -145,6 +146,12 @@ type Feeder struct {
 	// apart, and poseSeen measures liveness from here until a pose newer
 	// than it comes.
 	gatedAt map[byte]time.Time
+
+	// Lobby presence (lobby.go): lobbyOn is WW_LOBBY (default on); lobby
+	// is this Feed's title camera (ok only on the title stage).
+	lobbyOn  bool
+	lobbyRow lobbyRow
+	lobby    lobbyCam
 }
 
 // NewFeeder returns a Feeder drawing into m. Remotes named selfFilter
@@ -179,6 +186,8 @@ func NewFeeder(m Mem, selfFilter string, rep log.Reporter) *Feeder {
 			f.offX, f.offY, f.offZ)
 	}
 	f.freezeAfter, f.despawnAfter = network.PoseLivenessDefaults()
+	f.lobbyOn = vissync.SettingsFromEnv().Lobby
+	f.lobbyRow = lobbyRowFromEnv()
 	return f
 }
 
@@ -256,6 +265,9 @@ func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now t
 	f.pollSpent = false
 	seen := map[byte]bool{}
 	gate := f.gateFor(remotes, now)
+	// On the title the remotes stand in front of the camera (lobby.go),
+	// whatever stage they are in; with WW_LOBBY off they are hidden there.
+	f.lobby = f.readLobbyCam()
 	for i := range remotes {
 		rp := &remotes[i]
 		if rp.Position == nil {
@@ -275,6 +287,9 @@ func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now t
 				rp.ID, rp.Name, rp.PoseJoints, len(rp.PoseMatrices), avatar.JointCount)
 		}
 		away := gate(rp)
+		if f.lobby.ok {
+			away = !f.lobbyOn
+		}
 		idx, ok := f.actorSlot(rp, hasPose, away, now)
 		if !ok {
 			// All slots full; drop this remote for now.
@@ -408,8 +423,13 @@ func (f *Feeder) feedPose(ctx context.Context, rp *network.RemotePlayer, idx int
 			adjusted := make([]byte, len(ls.displayed))
 			copy(adjusted, ls.displayed)
 			if os.Getenv("WW_POSE_RAW") == "" {
-				avatar.ApplyAt(adjusted, rp.PoseJoints,
-					st.curX+f.offX, st.curY+f.offY, st.curZ+f.offZ)
+				if x, y, z, yaw, ok := f.lobbyPlace(linkSlot); ok {
+					avatar.RotateY(adjusted, rp.PoseJoints, yaw-poseYaw(adjusted))
+					avatar.ApplyAt(adjusted, rp.PoseJoints, x, y, z)
+				} else {
+					avatar.ApplyAt(adjusted, rp.PoseJoints,
+						st.curX+f.offX, st.curY+f.offY, st.curZ+f.offZ)
+				}
 			}
 			// WritePose bumps pose_seq with NextSeq, which
 			// skips 0: C reads 0 as "no pose yet" and would

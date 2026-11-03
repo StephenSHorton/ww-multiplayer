@@ -9,6 +9,7 @@ const (
 	PlayOffNextStage            = 0x3EA0 // dStage_nextStage_c mNextStage (d_com_inf_game.h:724)
 	PlayOffStageData            = 0x3EB0 // dStage_stageDt_c mStageData (d_com_inf_game.h:726)
 	PlayOffEvtCtrl              = 0x3F38 // dEvt_control_c mEvtCtrl (d_com_inf_game.h:728)
+	PlayOffCameraInfo           = 0x4870 // dComIfG_camera_info_class mCameraInfo[1]; +0x00 camera_class* mpCamera (d_com_inf_game.h:218)
 	PlayOffPlayerInfo           = 0x48A4 // struct { fopAc_ac_c* mpPlayer; s8 mCameraID } mPlayerInfo[1] (d_com_inf_game.h:787-790)
 	PlayOffPlayerPtr            = 0x48AC // fopAc_ac_c* mpPlayerPtr[3]: Link, partner, ship (d_com_inf_game.h:791)
 	PlayOffItemLifeCount        = 0x48BC // f32 (d_com_inf_game.h:793)
@@ -114,6 +115,17 @@ const (
 
 	// MiniGameType is nonzero during a minigame.
 	MiniGameType uint32 = 0x803CA8E2
+)
+
+// CameraPtr is mCameraInfo[0].mpCamera, the play scene's camera_class*
+// (0 between stages). A camera_class is a view_class (f_op_view.h:43-50):
+// its f32 mFovy (vertical, degrees) and its lookat_class mLookat, which
+// holds the eye and the point it looks at, both cXyz.
+const (
+	CameraPtr     uint32 = Play + PlayOffCameraInfo
+	ViewOffFovy          = 0xD0 // f32 mFovy
+	ViewOffEye           = 0xD8 // cXyz mLookat.mEye
+	ViewOffCenter        = 0xE4 // cXyz mLookat.mCenter
 )
 
 // Stage names the gates special-case (§3.2 STABLE).
