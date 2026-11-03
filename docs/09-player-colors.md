@@ -144,7 +144,7 @@ The name memory is capped at 256 entries.
 **CMPR layout.** CMPR is 8x8 tiles of four DXT1 blocks: 8 bytes each, holding two big-endian RGB565 endpoints and sixteen 2-bit indices. The decoder picks 4-color mode when `c0 > c1`, else 3 colors plus transparent.
 
 **Recolor(data, target, mask, ref)** maps each endpoint:
-- **Hue:** `target.h + (h − ref.h)`.
+- **Hue:** `target.h + (h − ref.h)·0.25` (`hueSpread`). The sleeves are a yellower green than the tunic (hue 80 against 111 in GZLE01's `linktexS3TC`). Keeping the whole −31° offset put blue sleeves on cyan (193°) and red ones on pink, so they read as another color (issue #135, wind#75). A quarter keeps them a shade apart and inside the target's hue family. Live check on the Mac rig (2026-11-02): a blue remote's sleeves match its tunic.
 - **Saturation and value:** `s·target.s/ref.s` and `v·target.v/ref.v`.
 - **Blend:** by a hue/saturation/value **mask weight**, with feathered edges so blocks on the tunic/skin border don't step.
 - **Mode preservation:**

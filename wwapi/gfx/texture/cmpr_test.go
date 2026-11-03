@@ -211,3 +211,29 @@ func redmean(a, b Color) float64 {
 	db := float64(a.B) - float64(b.B)
 	return math.Sqrt((2+rm/256)*dr*dr + 4*dg*dg + (2+(255-rm)/256)*db*db)
 }
+
+// Link's sleeves are a yellower green than his tunic (hue 80 against 111 in
+// GZLE01's linktexS3TC). Recolored, they stay in the target's hue family:
+// blue sleeves on a blue tunic, not cyan ones (issue #135).
+func TestSleeveStaysInTheTargetsHue(t *testing.T) {
+	tunic := to565(fromHSV(hsv{110.8, 0.58, 0.70}))
+	tunicDark := to565(fromHSV(hsv{110.8, 0.58, 0.55}))
+	sleeve := to565(fromHSV(hsv{80.1, 0.71, 0.89}))
+	sleeveDark := to565(fromHSV(hsv{80.2, 0.72, 0.68}))
+	var img []byte
+	for i := 0; i < 8; i++ { // the tunic outweighs the sleeve, as in the texture
+		img = append(img, block(tunic, tunicDark, [4]byte{0x1B, 0xE4, 0x4E, 0xB1})...)
+	}
+	img = append(img, block(sleeve, sleeveDark, [4]byte{0x1B, 0xE4, 0x4E, 0xB1})...)
+	m, ref := Calibrate(img, DefaultMask)
+	for _, target := range []Color{{0x2C, 0x5C, 0xE0}, red, {0x8C, 0x3C, 0xD8}} {
+		out, _ := Recolor(img, target, m, ref)
+		want := toHSV(rgbOf(target)).h
+		for _, e := range []uint16{binary.BigEndian.Uint16(out[64:]), binary.BigEndian.Uint16(out[66:])} {
+			h := toHSV(from565(e))
+			if d := hueDist(h.h, want); d > 12 {
+				t.Errorf("%s: sleeve endpoint hue %.0f is %.0f degrees off the target's %.0f", target, h.h, d, want)
+			}
+		}
+	}
+}
