@@ -69,7 +69,8 @@
 #define WW_FEAT_INPUT 0x08
 #define WW_FEAT_TUNIC 0x10
 #define WW_FEAT_WARP 0x20
-#define WW_FEATURES 0x3F
+#define WW_FEAT_OPS 0x40
+#define WW_FEATURES 0x7F
 
 // The multiplayer mod's counts and its Puppet slot type. The Mailbox
 // struct below uses them, so they come first.

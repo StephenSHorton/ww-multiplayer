@@ -511,4 +511,16 @@ extern u8* face_tev[FACE_TEV_COUNT];
 void face_bind(J3DModelData* model_data);
 int face_tevs_ready(void);
 
+// The C runtime's rings (src/core/ops.c, include/wwops.h; wind#90).
+// ww_event_push queues an event for Go (kind from WWAP_EV_MOD_FIRST for a
+// mod); it returns 0 when the region is not up or the ring is full (the drop
+// is counted). ww_cmd_register binds op (1..WWAP_MAX_OPS-1; a mod's from
+// WWAP_OP_MOD_FIRST) to fn, once: 0 when the number is out of range or
+// taken. A module registers its ops from its WwModuleDesc init. fn runs
+// from the per-frame drain with the command's a, b, c and returns a
+// WWAP_R_* result (0 reads as WWAP_R_FAILED).
+typedef u32 (*ww_cmd_fn)(u32 a, u32 b, u32 c);
+int ww_event_push(u32 kind, u32 a, u32 b, u32 c);
+int ww_cmd_register(u32 op, ww_cmd_fn fn);
+
 #endif

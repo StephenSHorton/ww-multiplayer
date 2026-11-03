@@ -22,4 +22,10 @@ void tunic_alloc(void);
 void face_publish_local(void);
 void pose_publish(void* link);
 
+// ops.c, the API region's rings (include/wwops.h):
+//   ops_init  — from main01_init: header, directory, the core ops, the magic
+//   ops_frame — from multiplayer_update, every frame: the command drain
+void ops_init(void);
+void ops_frame(void);
+
 #endif

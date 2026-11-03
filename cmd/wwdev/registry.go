@@ -82,6 +82,8 @@ func commandTable() []command {
 		// path without re-running the full auto-recapture flow.
 		{name: "send-shift-f1", group: groupDev, run: func(string, []string) { runSendShiftF1() }},
 		{name: "dump", group: groupDev, run: func(string, []string) { runDump() }},
+		// The C runtime's rings (ops_cmd.go, wind#90).
+		{name: "ops", group: groupDev, run: cmdOps},
 		{name: "move-puppet", group: groupDev, run: cmdMovePuppet},
 		{name: "input", group: groupDev, run: cmdInput},
 		{name: "input-release", group: groupDev, run: func(string, []string) { runInputRelease() }},
