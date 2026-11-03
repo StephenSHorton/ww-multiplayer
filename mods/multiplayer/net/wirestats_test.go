@@ -29,7 +29,7 @@ func TestFrameCounterChunks(t *testing.T) {
 			f.feed(all[i:end], func(typ, sub byte, size int64) { got[[2]byte{typ, sub}] += size })
 		}
 		want := map[[2]byte]int64{
-			{MsgPose, 0}:               3 + 4 + 42*48 + 64,
+			{MsgPose, 0}:               3 + 4 + poseOriginLen + 42*poseInt16Joint + 64, // quantized (wind#85)
 			{MsgEnemy, EnemySubState}:  3 + 4,
 			{MsgPing, 0}:               3,
 			{MsgCoop, 0x04}:            3 + 3,

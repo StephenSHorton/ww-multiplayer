@@ -124,7 +124,11 @@ import (
 //	8  enemy mirror: the OSHIP warship kind row (kind 10, a new KindHash; off
 //	   by default, oship+u) and the projectile kind 7, a warship's
 //	   cannonball (MsgFx; FxWireVersion stays 1), for the same reason
-const ProtocolVersion uint16 = 8
+//	9  quantized poses (wind#85): MsgPose's header byte 2 names the block
+//	   format, int16 rotations and joint-0-relative translations (24 B a
+//	   joint) unless a value does not fit; an older build reads it as pad
+//	   and would take the int16 block for raw matrices
+const ProtocolVersion uint16 = 9
 
 // Connection roles, the hello's role byte.
 const (
