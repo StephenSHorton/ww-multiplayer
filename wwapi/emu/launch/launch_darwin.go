@@ -21,8 +21,8 @@ import (
 //
 // `open` exits immediately after spawning Dolphin and gives us no PID, so
 // we snapshot Dolphin PIDs before the call and poll until a new one shows
-// up. dolphin2 launches the two Dolphins sequentially, so the
-// snapshot/poll pattern is race-free.
+// up, taking the one whose command line names our -u folder (two players
+// on one Mac may launch at once; dolphin2 launches its two in turn).
 func launch(exe string, args []string) (int, error) {
 	appPath, err := AppBundle(exe)
 	if err != nil {
@@ -36,11 +36,17 @@ func launch(exe string, args []string) (int, error) {
 		return 0, fmt.Errorf("open: %w", err)
 	}
 
+	// The new Dolphin on this -u folder: another player on this Mac may
+	// start theirs at the same moment (issue #134).
+	userDir, _ := UserDirArg(args)
 	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		cur, _ := emu.ListPIDs()
-		if p, ok := newPID(before, cur); ok {
+	for {
+		last := !time.Now().Before(deadline)
+		if p, ok := launchedPID(before, processes(), userDir, last); ok {
 			return int(p), nil
+		}
+		if last {
+			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

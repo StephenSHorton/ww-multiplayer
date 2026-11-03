@@ -289,10 +289,50 @@ func (b *Bridge) startBeacon(id session.ID, port int) {
 	b.lan.mu.Unlock()
 	go func() {
 		defer s.Close()
+		// Host returns with a placeholder lobby while the engine publishes
+		// its members: a beacon now would tell joiners "0 players" for an
+		// interval (issue #134), so the first goes out once they're there.
+		if !b.waitLobbyMembers(ctx, id, beaconLobbyWait) {
+			return
+		}
 		s.Run(ctx, lan.BeaconInterval, func() (lan.Beacon, bool) {
 			return b.beacon(id, port)
 		})
 	}()
+}
+
+// beaconLobbyWait caps how long the first beacon waits for the lobby's
+// members; past it the beacon starts anyway (a host is better seen with a
+// wrong count than not at all).
+const beaconLobbyWait = 10 * time.Second
+
+// waitLobbyMembers waits until session id's lobby lists a member who isn't
+// away, or max passes; false if the session or ctx ended first.
+func (b *Bridge) waitLobbyMembers(ctx context.Context, id session.ID, max time.Duration) bool {
+	deadline := time.Now().Add(max)
+	t := time.NewTicker(20 * time.Millisecond)
+	defer t.Stop()
+	for {
+		st := b.ctrl.Snapshot()
+		if st.Session != id || st.Phase == session.Ended || st.Phase == session.Idle {
+			return false
+		}
+		if l := st.Lobby; l != nil {
+			for _, m := range l.Members {
+				if !m.Away {
+					return true
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-t.C:
+		}
+	}
 }
 
 // stopBeacon stops the running beacon, if any.

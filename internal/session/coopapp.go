@@ -45,11 +45,13 @@ type Founding struct {
 	// File describes the loaded file ("" before one is loaded).
 	File string
 	// Blocker and BlockText say why the file can't found a world while
-	// Blocked; TagWorld is the world its tag names (BlockBound), and
+	// Blocked (BlockText is the CLI's line, with its command hints; the
+	// app words it from Blocker, and BlockWhy is the bare technical reason
+	// for a foreign or garbage tag); TagWorld is the world its tag names (BlockBound), and
 	// TagWorldHere says that world is on this computer, so Continue can
 	// open it.
-	Blocker, BlockText, TagWorld string
-	TagWorldHere                 bool
+	Blocker, BlockText, BlockWhy, TagWorld string
+	TagWorldHere                           bool
 	// World is the world founded (Founded).
 	World string
 	// Err is why the founding failed (Failed).

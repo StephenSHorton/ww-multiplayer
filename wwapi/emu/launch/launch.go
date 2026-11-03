@@ -2,6 +2,7 @@ package launch
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -51,16 +52,49 @@ func AppBundle(exe string) (string, error) {
 	return appPath, nil
 }
 
-// newPID returns the first PID of cur that is not in before.
-func newPID(before, cur []uint32) (uint32, bool) {
+// launchedPID picks, among the Dolphins in cur that were not running
+// before a launch, the one started on userDir: its command line names that
+// -u folder. Two players starting their Dolphins on one Mac at once both
+// see the other's appear (issue #134), so a new PID alone isn't enough.
+// With no userDir, or when last is true (the wait ran out) and exactly one
+// new Dolphin's command line couldn't be read, that one is taken.
+func launchedPID(before []uint32, cur []Process, userDir string, last bool) (uint32, bool) {
 	seen := make(map[uint32]bool, len(before))
 	for _, p := range before {
 		seen[p] = true
 	}
+	var fresh []Process
 	for _, p := range cur {
-		if !seen[p] {
-			return p, true
+		if !seen[p.PID] {
+			fresh = append(fresh, p)
 		}
 	}
+	if len(fresh) == 0 {
+		return 0, false
+	}
+	if userDir == "" {
+		return fresh[0].PID, true
+	}
+	unknown := 0
+	var u uint32
+	for _, p := range fresh {
+		if !p.ArgsKnown {
+			unknown++
+			u = p.PID
+			continue
+		}
+		if d, ok := UserDirArg(p.Args); ok && sameDir(d, userDir) {
+			return p.PID, true
+		}
+	}
+	if last && unknown == 1 {
+		return u, true
+	}
 	return 0, false
+}
+
+// sameDir says a and b name one folder: cleaned, without case (macOS's
+// default file system ignores it).
+func sameDir(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }

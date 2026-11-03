@@ -113,10 +113,8 @@ func TestLanHostSeenByJoiner(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Host returns with the session's placeholder lobby (no members yet)
-	// and sends the first beacon at once, while the engine publishes its
-	// lobby concurrently: the first beacon heard may say 0 players, and
-	// the next one (lan.BeaconInterval later) says 2. So wait, with a
-	// deadline, for a beacon that says 2 rather than taking the first.
+	// while the engine publishes its lobby concurrently; the first beacon
+	// waits for the members, so no beacon heard says 0 players (#134).
 	var s LanSessionView
 	heard := func(s LanSessionView) bool {
 		return s.Host == "Tetra" && s.Addr == "127.0.0.1:25601" && s.Players == 2 && s.Phase == "lobby" && s.Compatible && s.Version == "v9.9.9"
@@ -129,6 +127,9 @@ func TestLanHostSeenByJoiner(t *testing.T) {
 		}
 		if len(v.Sessions) == 1 {
 			s = v.Sessions[0]
+			if s.Players == 0 {
+				t.Fatalf("a beacon said 0 players: %+v", s)
+			}
 			if heard(s) {
 				break
 			}

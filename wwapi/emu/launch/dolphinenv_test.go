@@ -180,11 +180,36 @@ func TestAppBundle(t *testing.T) {
 	}
 }
 
-func TestNewPID(t *testing.T) {
-	if p, ok := newPID([]uint32{3, 9}, []uint32{3, 9, 12}); !ok || p != 12 {
-		t.Errorf("%d %v", p, ok)
+// TestLaunchedPID: the launch takes the new Dolphin on its own -u folder,
+// not another player's that started at the same moment (issue #134).
+func TestLaunchedPID(t *testing.T) {
+	mine, theirs := "/Users/p/WW/P1", "/Users/p/WW/P2"
+	other := Process{PID: 12, ArgsKnown: true, Args: LaunchArgs(theirs, "/d/ww.iso", "")}
+	me := Process{PID: 14, ArgsKnown: true, Args: LaunchArgs(mine+"/", "/d/ww.iso", "")}
+	old := Process{PID: 9, ArgsKnown: true, Args: LaunchArgs(mine, "/d/ww.iso", "")}
+	if p, ok := launchedPID([]uint32{9}, []Process{old, other, me}, mine, false); !ok || p != 14 {
+		t.Errorf("both new: %d %v", p, ok)
 	}
-	if _, ok := newPID([]uint32{3}, []uint32{3}); ok {
+	if p, ok := launchedPID([]uint32{9}, []Process{old, other}, mine, false); ok {
+		t.Errorf("took the other player's: %d", p)
+	}
+	if p, ok := launchedPID([]uint32{9}, []Process{old, other}, mine, true); ok {
+		t.Errorf("took the other player's at the deadline: %d", p)
+	}
+	blind := Process{PID: 15}
+	if _, ok := launchedPID([]uint32{9}, []Process{old, blind}, mine, false); ok {
+		t.Error("took an unreadable one before the deadline")
+	}
+	if p, ok := launchedPID([]uint32{9}, []Process{old, blind}, mine, true); !ok || p != 15 {
+		t.Errorf("the only new one at the deadline: %d %v", p, ok)
+	}
+	if _, ok := launchedPID([]uint32{9}, []Process{old, blind, {PID: 16}}, mine, true); ok {
+		t.Error("guessed between two unreadable ones")
+	}
+	if p, ok := launchedPID([]uint32{3, 9}, []Process{{PID: 3}, {PID: 9}, {PID: 12}}, "", false); !ok || p != 12 {
+		t.Errorf("no folder: %d %v", p, ok)
+	}
+	if _, ok := launchedPID([]uint32{3}, []Process{{PID: 3}}, mine, true); ok {
 		t.Error("no new PID found one")
 	}
 }
