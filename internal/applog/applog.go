@@ -4,8 +4,9 @@
 // logs/<UTC time>-<role>.log, the lines the CLI would print, each with a
 // timestamp and level. The newest Keep files are kept; a file stops
 // growing at MaxBytes. Lines are redacted before they reach the file
-// (Redact): the home directory becomes ~, and anything labelled a token
-// is masked. Nothing is uploaded.
+// (Redact): the home directory becomes ~, anything labelled a token is
+// masked, and so are IP addresses and join codes (redact.Text, issue #133):
+// people attach these files to bug reports. Nothing is uploaded.
 //
 // Diagnostics builds the "Copy diagnostics" text a user pastes into a bug
 // report from the same redacted lines.
@@ -23,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/redact"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
@@ -104,10 +106,12 @@ func (l *File) Path() string { return l.path }
 
 var levelTag = map[log.Level]string{log.Info: "INFO", log.Net: "NET ", log.Warn: "WARN", log.Err: "ERR ", log.OK: "OK  "}
 
-// Log writes one line: "2006-01-02T15:04:05.000Z LEVEL msg", redacted. A
-// message of several lines is written as several, each stamped.
+// Log writes one line: "2006-01-02T15:04:05.000Z LEVEL msg", redacted
+// (Redact, then redact.Text: an address keeps only its last octet or group
+// and its port). A message of several lines is written as several, each
+// stamped.
 func (l *File) Log(level log.Level, msg string) {
-	msg = l.red.Redact(msg)
+	msg = redact.Text(l.red.Redact(msg))
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.closed {
