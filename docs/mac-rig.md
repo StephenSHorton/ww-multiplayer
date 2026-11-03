@@ -58,7 +58,9 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
   unattended by the macOS `wwdev auto-recapture` (`scripts/mac-rig.sh recapture <rig>`): cold
   boot, menus through the pad override, then a held Shift+F1. The shared one is
   `~/ww-shared/fixtures/start-mac-3D7FEC97.sav` (REL 0x3D7FEC97, main since wind#77's title tags and file select line, recaptured 2026-11-02 on `WW-mp-3D7FEC97.iso`; file 1 of the fixture card, Link in
-  play). `start-mac-76C1EE09.sav` (REL 0x76C1EE09, wind#80's mailbox move until wind#77) and `start-mac-CAC6980B.sav` (REL 0xCAC6980B, #289 until wind#80) stay for older builds. A REL/C change invalidates it: recapture under the `ww/rel-blob` lease and replace it.
+  play). Since wind#76 (the hidden puppet KAMOME, same REL id, BlobHash 0xA37EC8DB) the default is `start-mac-3D7FEC97-A37EC8DB.sav`, recaptured
+  2026-11-03 on that build (Hyrule); `start-mac-3D7FEC97.sav` (BlobHash 0xCCF7B3C1) stays for builds before it: a change to the T2 blob alone
+  keeps the REL id, so the save is named by both. `start-mac-76C1EE09.sav` (REL 0x76C1EE09, wind#80's mailbox move until wind#77) and `start-mac-CAC6980B.sav` (REL 0xCAC6980B, #289 until wind#80) stay for older builds. A REL/C change invalidates it: recapture under the `ww/rel-blob` lease and replace it.
 - **Pre-Dragon Roost start save (wind#70):** `~/ww-shared/fixtures/start-mac-CAC6980B-4ww.sav`, recaptured
   2026-11-02 from CryZe `saves/100pct-E/4-WindWaker.gci` (REL 0xCAC6980B; at sea, Link in play). Event 0x1101
   (Medli's M_Dra09 line, which turns off the room-9 rider: d_a_bb.cpp:2701, d_a_mo2.cpp:4103) is clear, and DRC

@@ -43,7 +43,7 @@ const poseLerpK float32 = 0.5
 const despawnReserve = 10 * time.Second
 
 // actorGrace is how long a remote must go without a usable pose and a
-// link slot before its actor puppet (KAMOME / NPC_OB1) comes up (see
+// link slot before its actor puppet (a hidden KAMOME) comes up (see
 // actorSlot). Position and pose are separate messages, so a remote whose
 // Link has just appeared (its game left the title screen, or it just
 // connected) is usually first seen with a position only; its pose
@@ -59,8 +59,8 @@ const actorGrace = 2 * time.Second
 // Feeder is PuppetSync's receive side over wwapi/avatar: it draws the
 // remote players in one Dolphin. A remote with a whole Link pose claims
 // one of the avatar.Cap pose-feed (mini-Link) slots, first come first
-// served; every remote also gets an actor-puppet slot (KAMOME / NPC_OB1 /
-// TSUBO, MaxPuppets of them) that carries its smoothed position, and the
+// served; every remote also gets an actor-puppet slot (a hidden KAMOME,
+// MaxPuppets of them) that carries its smoothed position, and the
 // actor is drawn only for a remote that, actorGrace after it was first
 // seen, still has no usable pose or no link slot to draw it in, and only
 // until its pose takes a link slot. So players beyond avatar.Cap fall
@@ -96,7 +96,7 @@ type Feeder struct {
 	// Pose-feed state. We can drive up to avatar.Cap Link puppets
 	// from incoming remote poses. First remote with pose claims Link
 	// slot 0, second claims slot 1, etc. Beyond that, additional
-	// remotes still get their actor-puppet (KAMOME / NPC / TSUBO).
+	// remotes still get their actor-puppet (a hidden KAMOME).
 	remoteToLinkSlot map[byte]int
 	linkSlots        [avatar.Cap]linkSlotState
 	announced        map[byte]bool // log "link slot := player N" once

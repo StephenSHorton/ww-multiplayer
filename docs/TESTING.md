@@ -106,7 +106,7 @@ After a change to the multiplayer pipeline (`mods/multiplayer/feed`, `wwapi/avat
 4. **Stage change**: one player goes through a loading zone. His Link leaves the other's screen, and both show again once they are back in the same stage.
 5. **Leave and reset**: one player stops (Ctrl+C, or leaves the lobby). His Link disappears from the other's game within the despawn time, and `mp-local` on Ctrl+C resets `shadow_mode` on both Dolphins. A new session afterwards works without restarting Dolphin.
 
-A third player (a `fake-client` or `pose-fake-loop` next to `mp-local`) is not on the list. It used to freeze both Dolphins (F1 in [05-known-issues.md](05-known-issues.md)); that was fixed and cleared live for both variants on cea51fe, and three remotes are now mini-Links (WWMB layout 3). Its check is "Three remotes and the soft reset" below (R3-1).
+A third player (a `fake-client` or `pose-fake-loop` next to `mp-local`) is not on the list. It used to freeze both Dolphins (F1 in [05-known-issues.md](05-known-issues.md)); that was fixed and cleared live for both variants on cea51fe, and three remotes are now mini-Links (WWMB layout 3). Its check is "Three remotes and the soft reset" below (R3-1). A position-only third player rides a hidden KAMOME actor puppet; the F1 recipe was rerun across stage hops on wind#76's build with no freeze ([live/wind76-puppet-churn-mac.md](live/wind76-puppet-churn-mac.md), #131).
 
 ### Co-op M2-M6 rerun
 

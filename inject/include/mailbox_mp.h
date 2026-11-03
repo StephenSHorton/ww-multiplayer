@@ -65,7 +65,8 @@
 //              is; slots still at 1 respawn in the new stage.
 //   actor_ptr — C publishes the live actor pointer after SearchByID
 //              succeeds so Go can read/poke the actor if needed
-//              (e.g. unhide-puppet writes mSwitchNo for KAMOME).
+//              (e.g. unhide-puppet writes mSwitchNo for KAMOME; a drawn
+//              KAMOME hangs non-sea stages, wind#76).
 //   pos_*     — big-endian f32s Go writes each tick (already lerp-
 //              smoothed if puppet-sync applies). C copies into the
 //              actor's current.pos (+0x1F8) every frame.
