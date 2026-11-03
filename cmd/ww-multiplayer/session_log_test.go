@@ -26,7 +26,7 @@ func TestOpenSessionLog(t *testing.T) {
 		t.Fatalf("files %v", ents)
 	}
 	b, _ := os.ReadFile(dir + "/" + ents[0].Name())
-	want := "2026-10-16T09:30:00.000Z INFO " + versionLine() + " " + runtime.GOOS + "/" + runtime.GOARCH + `: Join session 2 as "Bea" to 26.1.2.3 with co-op` + "\n" +
+	want := "2026-10-16T09:30:00.000Z INFO " + versionLine() + " " + runtime.GOOS + "/" + runtime.GOARCH + `: Join session 2 as "Bea" to •••.•••.•••.3 with co-op` /* issue #133: the file masks the address */ + "\n" +
 		"2026-10-16T09:30:00.000Z NET  connected\n"
 	if string(b) != want {
 		t.Errorf("log:\n%s\nwant:\n%s", b, want)

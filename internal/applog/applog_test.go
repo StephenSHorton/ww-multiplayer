@@ -236,6 +236,46 @@ func TestLogRedacts(t *testing.T) {
 	}
 }
 
+// TestLogMasksAddresses (issue #133): the file on disk holds no IP address
+// or join code, as a bug report attaches it. Each keeps only its last octet
+// or group and its port; text that only looks like one stays.
+func TestLogMasksAddresses(t *testing.T) {
+	f, err := Open(t.TempDir(), "host", clock(time.Unix(0, 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Log(log.Info, "Share: 192.168.1.42:25565, public 203.0.113.7:25565, join code WW-K7Q2-9XHM")
+	f.Log(log.Net, "peer [2001:db8::1a2b]:25565 connected from fe80::1%en0")
+	f.Log(log.Err, "dial tcp 26.12.34.56:25570: connection refused\nretry 10.0.0.227")
+	f.Log(log.Info, "v0.6.1 at 12:34:56, room 1.2")
+	f.Panic("boom 100.64.0.9", []byte("goroutine 1 [running]:"))
+	f.Close()
+	got := read(t, f.Path())
+	for _, raw := range []string{"192.168.1", "203.0.113", "2001:db8", "fe80::1", "26.12.34", "10.0.0", "100.64.0", "K7Q2", "9XHM"} {
+		if strings.Contains(got, raw) {
+			t.Errorf("file holds %q:\n%s", raw, got)
+		}
+	}
+	for _, want := range []string{
+		"Share: •••.•••.•••.42:25565, public •••.•••.•••.7:25565, join code WW-••••-••••",
+		"peer [••••:…:1a2b]:25565 connected from ••••:…:1",
+		"dial tcp •••.•••.•••.56:25570: connection refused",
+		"retry •••.•••.•••.227",
+		"v0.6.1 at 12:34:56, room 1.2",
+		"panic: boom •••.•••.•••.9",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("file lacks %q:\n%s", want, got)
+		}
+	}
+	// The in-memory tail (Copy diagnostics) gets the masked lines too.
+	for _, line := range f.Tail() {
+		if strings.Contains(line, "192.168.1") {
+			t.Errorf("tail holds an address: %q", line)
+		}
+	}
+}
+
 func TestDiagnosticsText(t *testing.T) {
 	logs := make([]string, TailLines+3)
 	for i := range logs {
