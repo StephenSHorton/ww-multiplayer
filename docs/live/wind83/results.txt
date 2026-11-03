@@ -1,0 +1,69 @@
+== base
+  fps: pid 98316: 30 fps
+  fps: pid 98408: 30 fps
+  fps: pid 98316: 30 fps
+  fps: pid 98408: 30 fps
+  walk A: walker 16.91 +- 7.54 a frame; remote 16.03 +- 5.76 (cv 0.360, ratio 0.948, 0 stalls, 2 jumps, jerk 5.84, 84 units behind; 0+0 frames missed)
+  walk B: walker 16.88 +- 7.52 a frame; remote 15.89 +- 4.73 (cv 0.297, ratio 0.941, 0 stalls, 0 jumps, jerk 2.73, 74 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.5s, B copies all gone +10.9s (1 s log grain)
+  kills: B bk left: 0
+  chest: no grant
+  boss: B set DRC boss defeated +32.4s after A's poke (includes A's death demo)
+  warnings: 11
+== n150
+  fps: pid 89089: 30 fps
+  fps: pid 89201: 30 fps
+  fps: pid 89089: 30 fps
+  fps: pid 89201: 30 fps
+  walk A: walker 16.98 +- 7.61 a frame; remote 17.69 +- 8.16 (cv 0.461, ratio 1.042, 0 stalls, 6 jumps, jerk 8.54, 126 units behind; 0+0 frames missed)
+  walk B: walker 16.88 +- 7.53 a frame; remote 15.93 +- 6.08 (cv 0.381, ratio 0.944, 0 stalls, 3 jumps, jerk 4.30, 114 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.6s, B copies all gone +11.7s (1 s log grain)
+  kills: B bk left: 0
+  chest: no grant
+  boss: B set DRC boss defeated +32.5s after A's poke (includes A's death demo)
+  warnings: 11
+  reader stalls: 4
+   [netem] Dolphin B dials 127.0.0.1:49457, shaped rtt=150ms,jitter=20ms,loss=0.01,rto=350ms, toward localhost:49456
+   [netem] conns 4, chunks 11143, bytes 11007779 (up 3682658, down 7325121), stalls 122, mean one-way 146ms
+   [netem] conns 4, chunks 22033, bytes 21955649 (up 7139254, down 14816395), stalls 235, mean one-way 143ms
+   [netem] conns 4, chunks 33012, bytes 31927996 (up 10636998, down 21290998), stalls 343, mean one-way 141ms
+   [netem] conns 4, chunks 43433, bytes 39826357 (up 14474541, down 25351816), stalls 459, mean one-way 140ms
+   [netem] final: conns 4, chunks 49736, bytes 44535062 (up 16763517, down 27771545), stalls 525, mean one-way 139ms
+== n150l5
+  fps: pid 67385: 30 fps
+  fps: pid 67410: 30 fps
+  fps: pid 67385: 30 fps
+  fps: pid 67410: 30 fps
+  walk A: walker 16.97 +- 7.60 a frame; remote 16.02 +- 6.65 (cv 0.415, ratio 0.944, 0 stalls, 3 jumps, jerk 3.92, 190 units behind; 0+0 frames missed)
+  walk B: walker 16.88 +- 7.52 a frame; remote 16.40 +- 6.87 (cv 0.419, ratio 0.972, 1 stalls, 3 jumps, jerk 4.75, 148 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.6s, B copies all gone +10.7s (1 s log grain)
+  kills: B bk left: 0
+  chest: no grant
+  boss: B set DRC boss defeated +32.4s after A's poke (includes A's death demo)
+  warnings: 11
+  reader stalls: 4
+   [netem] Dolphin B dials 127.0.0.1:49915, shaped rtt=150ms,jitter=20ms,loss=0.05,rto=350ms, toward localhost:49914
+   [netem] conns 4, chunks 11752, bytes 11007252 (up 3688637, down 7318615), stalls 584, mean one-way 269ms
+   [netem] conns 4, chunks 22735, bytes 21895414 (up 7125539, down 14769875), stalls 1140, mean one-way 269ms
+   [netem] conns 4, chunks 34614, bytes 31961270 (up 10648603, down 21312667), stalls 1694, mean one-way 270ms
+   [netem] conns 4, chunks 45407, bytes 39848816 (up 14488238, down 25360578), stalls 2254, mean one-way 269ms
+   [netem] final: conns 4, chunks 51968, bytes 44552971 (up 16770835, down 27782136), stalls 2612, mean one-way 270ms
+== n150off
+  fps: pid 40417: 30 fps
+  fps: pid 40574: 30 fps
+  fps: pid 40417: 30 fps
+  fps: pid 40574: 30 fps
+  walk A: walker 16.99 +- 7.61 a frame; remote 16.10 +- 11.70 (cv 0.727, ratio 0.948, 17 stalls, 9 jumps, jerk 11.20, 97 units behind; 0+0 frames missed)
+  walk B: walker 16.88 +- 7.52 a frame; remote 15.23 +- 11.89 (cv 0.780, ratio 0.902, 20 stalls, 11 jumps, jerk 10.91, 88 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.6s, B copies all gone +11.0s (1 s log grain)
+  kills: B bk left: 0
+  chest: no grant
+  boss: B set DRC boss defeated +32.5s after A's poke (includes A's death demo)
+  warnings: 11
+  reader stalls: 4
+   [netem] Dolphin B dials 127.0.0.1:51166, shaped rtt=150ms,jitter=20ms,loss=0.01,rto=350ms, toward localhost:51165
+   [netem] conns 4, chunks 10512, bytes 10962538 (up 3674101, down 7288437), stalls 103, mean one-way 130ms
+   [netem] conns 4, chunks 21381, bytes 21788240 (up 7086604, down 14701636), stalls 231, mean one-way 139ms
+   [netem] conns 4, chunks 32275, bytes 31755630 (up 10582103, down 21173527), stalls 341, mean one-way 138ms
+   [netem] conns 4, chunks 42136, bytes 39640657 (up 14413280, down 25227377), stalls 444, mean one-way 137ms
+   [netem] final: conns 4, chunks 47775, bytes 44052668 (up 16555875, down 27496793), stalls 502, mean one-way 136ms

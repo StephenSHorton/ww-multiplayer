@@ -84,7 +84,7 @@ pessimistic loss runs, cv rose to 0.65 to 1.14. The full lines are in `results.t
   stalls), while 5% still gives up to 11 jumps. The cause is in `mods/multiplayer/feed/feeder.go`: the receiver eases
   each frame toward the newest pose (poseLerpK 0.5, lerpK 0.2), with no playout buffer and no extrapolation. A TCP
   stall freezes the target, so the copy stops; the burst after it moves the target at once, so the copy jumps.
-  Carded as a follow-up: a small playout delay and short extrapolation for remote poses.
+  Followed up in wind#83 (`docs/live/wind83`): a playout buffer, which takes the stalls to 0 to 1.
 - **The host wins near-ties.** The host's own claim crosses loopback while the joiner's crosses the internet. With
   the link shaped, A (the host) won 10 of the 11 shaped races (B won at 80 ms without loss); unshaped, B won. This is the
   arbitration working as designed: first request in, first served. It means a joiner reaching a chest in the same
