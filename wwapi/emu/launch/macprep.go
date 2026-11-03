@@ -121,6 +121,9 @@ func PrepareMac(rep log.Reporter, r Runner, src, dst string) error {
 	if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
 		return fmt.Errorf("%s not found. Install Dolphin first", src)
 	}
+	if err := checkOurCopy(r, dst); err != nil {
+		return err
+	}
 	step := func(s string) { log.Logf(rep, log.Info, "==> %s", s) }
 	run := func(cmd []string) error {
 		out, err := r.Run(cmd[0], cmd[1:]...)
@@ -174,6 +177,61 @@ func PrepareMac(rep log.Reporter, r Runner, src, dst string) error {
 		return fmt.Errorf("bundle ID is %s, expected %s", got, MacBundleID)
 	}
 	log.Logf(rep, log.OK, "Done. The prepared Dolphin is %s; the original %s is unchanged.", dst, src)
+	return nil
+}
+
+// ErrNotOurCopy is why PrepareMac and UnprepareMac leave a Dolphin.app
+// alone: it is a stock Dolphin (hardened, with Dolphin's own bundle ID),
+// not a copy this app or scripts/setup-mac-dolphin.sh made.
+var ErrNotOurCopy = errors.New("not a prepared copy")
+
+// MacCopyIsOurs says whether a Dolphin.app whose `codesign -d -vvv` output
+// and CFBundleIdentifier are these is a prepared copy, which PrepareMac
+// may replace and UnprepareMac may remove: it has MacBundleID, or no
+// hardened runtime (a copy re-signed by an older setup script, before it
+// set the bundle ID). A stock Dolphin someone installed there has neither.
+func MacCopyIsOurs(codesignOut, bundleID string) bool {
+	return strings.TrimSpace(bundleID) == MacBundleID || !HasHardenedRuntime(codesignOut)
+}
+
+// checkOurCopy returns nil when dst doesn't exist or is a prepared copy
+// (MacCopyIsOurs, read through r), else an ErrNotOurCopy error saying to
+// move it away.
+func checkOurCopy(r Runner, dst string) error {
+	if _, err := os.Stat(dst); err != nil {
+		return nil
+	}
+	signCmd, idCmd := MacVerify(dst)
+	sig, _ := r.Run(signCmd[0], signCmd[1:]...)
+	id, _ := r.Run(idCmd[0], idCmd[1:]...)
+	if MacCopyIsOurs(string(sig), string(id)) {
+		return nil
+	}
+	return fmt.Errorf("%s is a Dolphin you installed there, %w this app made, so it was left alone: move it somewhere else (or into the Trash) and try again", dst, ErrNotOurCopy)
+}
+
+// UnprepareMac undoes PrepareMac: it unregisters dst from LaunchServices
+// and removes it, logging each step. It refuses a dst that isn't a
+// prepared copy (MacCopyIsOurs) or isn't another ".app" than MacApp; a
+// missing dst is nothing to do. The original is never touched.
+func UnprepareMac(rep log.Reporter, r Runner, dst string) error {
+	if filepath.Ext(dst) != ".app" || filepath.Clean(dst) == filepath.Clean(MacApp) {
+		return fmt.Errorf("remove the prepared copy: %q is not a copy this app may remove", dst)
+	}
+	if _, err := os.Stat(dst); err != nil {
+		log.Logf(rep, log.OK, "There is no prepared copy at %s: nothing to remove.", dst)
+		return nil
+	}
+	if err := checkOurCopy(r, dst); err != nil {
+		return err
+	}
+	log.Logf(rep, log.Info, "==> Unregistering %s from LaunchServices...", dst)
+	_, _ = r.Run(lsregister, "-u", dst) // best effort, as the script's -f
+	log.Logf(rep, log.Info, "==> Removing %s...", dst)
+	if err := os.RemoveAll(dst); err != nil {
+		return err
+	}
+	log.Logf(rep, log.OK, "Removed. The original %s is unchanged.", MacApp)
 	return nil
 }
 

@@ -69,7 +69,12 @@ another process read its memory. Run `scripts/setup-mac-dolphin.sh` once
 after you install or update Dolphin. It copies Dolphin to
 `~/Applications/Dolphin.app` and re-signs it without the hardened runtime
 (bundle id `org.dolphin-emu.dolphin-unhardened`). Use that copy from then
-on. To check it:
+on (the app's Setup has the same step: Prepare Dolphin). To undo it,
+`scripts/setup-mac-dolphin.sh --undo` (or Remove the copy in Setup)
+unregisters the copy from LaunchServices and deletes it; the original in
+`/Applications` is never touched. Both refuse a `~/Applications/Dolphin.app`
+that is a stock Dolphin (hardened, with Dolphin's own bundle id) rather
+than a prepared copy. To check it:
 
 ```bash
 codesign -d -vvv ~/Applications/Dolphin.app/Contents/MacOS/Dolphin 2>&1 | command grep flags=

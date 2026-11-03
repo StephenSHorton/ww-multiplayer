@@ -33,3 +33,12 @@ func MacStatusHere() (MacState, MacFacts, error) {
 	f := GatherMacFacts(home, statExists, os.ReadFile, ExecRunner{})
 	return MacCheck(f), f, nil
 }
+
+// UnprepareMacHere removes this Mac's prepared copy (UnprepareMac).
+func UnprepareMacHere(rep log.Reporter) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	return UnprepareMac(rep, ExecRunner{}, MacPreparedApp(home))
+}

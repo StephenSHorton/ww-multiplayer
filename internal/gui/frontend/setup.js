@@ -329,12 +329,16 @@ function same(a, b) {
 
 function renderMac(m) {
 	const box = $("s-mac");
-	box.hidden = !m || m.state === "ready";
+	box.hidden = !m || !m.text;
 	if (box.hidden) return;
 	$("s-mac-text").textContent = m.text;
 	const b = $("s-mac-prepare");
 	b.hidden = !m.prepare;
 	b.textContent = m.refresh ? "Refresh the copy" : "Prepare Dolphin";
+	const r = $("s-mac-remove");
+	r.hidden = !m.remove;
+	r.dataset.armed = "";
+	r.textContent = "Remove the copy";
 }
 
 async function browseDolphin() {
@@ -358,6 +362,33 @@ async function saveDolphin() {
 	}
 }
 
+// unprepare removes the prepared copy (the undo), on a second click: the
+// first asks to confirm.
+async function unprepare() {
+	const r = $("s-mac-remove");
+	if (!r.dataset.armed) {
+		r.dataset.armed = "1";
+		r.textContent = "Click again to remove " + (dolphin && dolphin.mac && dolphin.mac.copy ? dolphin.mac.copy : "the copy");
+		return;
+	}
+	r.disabled = true;
+	$("s-mac-log").hidden = false;
+	$("s-mac-log").replaceChildren(el("li", {}, "Removing the prepared copy…"));
+	try {
+		const v = await call("UnprepareDolphin");
+		$("s-mac-log").replaceChildren(...v.lines.map((l) => el("li", {}, l)), ...(v.error ? [el("li", { class: "err" }, v.error)] : []));
+		if (v.ok) {
+			toast("The prepared copy is gone; your original Dolphin is unchanged.");
+			await refresh();
+			await detect();
+		}
+	} catch (e) {
+		$("s-mac-log").append(el("li", { class: "err" }, e.message));
+	} finally {
+		r.disabled = false;
+	}
+}
+
 async function prepare() {
 	const b = $("s-mac-prepare");
 	b.disabled = true;
@@ -365,7 +396,7 @@ async function prepare() {
 	$("s-mac-log").replaceChildren(el("li", {}, "Preparing… (copying Dolphin can take a minute)"));
 	try {
 		const r = await call("PrepareDolphin");
-		$("s-mac-log").replaceChildren(...r.lines.map((l) => el("li", {}, l)), r.error ? el("li", { class: "err" }, r.error) : null);
+		$("s-mac-log").replaceChildren(...r.lines.map((l) => el("li", {}, l)), ...(r.error ? [el("li", { class: "err" }, r.error)] : []));
 		if (r.ok) {
 			toast("Dolphin is ready: the app plays on the prepared copy.");
 			await refresh();
@@ -451,6 +482,7 @@ function wire() {
 	$("s-dolphin-rescan").addEventListener("click", detect);
 	$("s-dolphin-save").addEventListener("click", saveDolphin);
 	$("s-mac-prepare").addEventListener("click", prepare);
+	$("s-mac-remove").addEventListener("click", unprepare);
 	$("s-finish").addEventListener("click", finish);
 	if (mode() === "browser") $("s-iso-path").placeholder = "C:\\Games\\Wind Waker.ciso";
 }

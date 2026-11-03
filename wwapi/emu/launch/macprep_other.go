@@ -9,3 +9,6 @@ func PrepareMacHere(log.Reporter) error { return ErrNotMac }
 
 // MacStatusHere returns ErrNotMac: only macOS needs a prepared copy.
 func MacStatusHere() (MacState, MacFacts, error) { return MacNoDolphin, MacFacts{}, ErrNotMac }
+
+// UnprepareMacHere returns ErrNotMac: only macOS has a prepared copy.
+func UnprepareMacHere(log.Reporter) error { return ErrNotMac }

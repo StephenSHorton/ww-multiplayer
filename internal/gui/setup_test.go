@@ -682,18 +682,18 @@ func TestBridgeMacPrepare(t *testing.T) {
 	home := t.TempDir()
 	b.home = func() string { return home }
 	for st, want := range map[launch.MacState]MacView{
-		launch.MacReady:        {State: "ready"},
+		launch.MacReady:        {State: "ready", Remove: true},
 		launch.MacNoDolphin:    {State: "no-dolphin"},
 		launch.MacNeedsCopy:    {State: "needs-copy", Prepare: true},
-		launch.MacHardened:     {State: "hardened", Prepare: true},
-		launch.MacCopyOutdated: {State: "outdated", Prepare: true, Refresh: true},
+		launch.MacHardened:     {State: "hardened", Prepare: true, Remove: true},
+		launch.MacCopyOutdated: {State: "outdated", Prepare: true, Refresh: true, Remove: true},
 	} {
 		b.macStatus = func() (launch.MacState, launch.MacFacts, error) { return st, launch.MacFacts{}, nil }
 		v := b.Setup().Mac
-		if v == nil || v.State != want.State || v.Prepare != want.Prepare || v.Refresh != want.Refresh || v.Copy != launch.MacPreparedApp(home) {
+		if v == nil || v.State != want.State || v.Prepare != want.Prepare || v.Refresh != want.Refresh || v.Remove != want.Remove || v.Copy != launch.MacPreparedApp(home) {
 			t.Errorf("%v: %+v", st, v)
 		}
-		if st != launch.MacReady && v.Text == "" {
+		if v.Text == "" {
 			t.Errorf("%v has no text", st)
 		}
 	}
@@ -712,7 +712,8 @@ func TestBridgeMacPrepare(t *testing.T) {
 		r.Log(log.Info, "==> Copying")
 		return errors.New("cp: exit status 1")
 	}
-	if v := b.PrepareDolphin(); v.OK || v.Error != "cp: exit status 1" || len(v.Lines) != 1 {
+	if v := b.PrepareDolphin(); v.OK || !strings.HasPrefix(v.Error, "Couldn't prepare Dolphin: cp: exit status 1.") ||
+		!strings.Contains(v.Error, "original Dolphin in /Applications was not changed") || len(v.Lines) != 1 {
 		t.Errorf("failed: %+v", v)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -740,6 +741,52 @@ func TestBridgeMacPrepare(t *testing.T) {
 		t.Errorf("concurrent: %+v", v)
 	}
 	b.preparing.Unlock()
+}
+
+func TestBridgeMacUnprepare(t *testing.T) {
+	b, _, path := newTestBridge(t)
+	home := t.TempDir()
+	b.home = func() string { return home }
+	b.denv = fakeEnv(home, t.TempDir())
+	copyExe := filepath.Join(launch.MacPreparedApp(home), "Contents", "MacOS", "Dolphin")
+
+	b.unprepareMac = func(log.Reporter) error { return launch.ErrNotMac }
+	if v := b.UnprepareDolphin(); v.OK || !strings.Contains(v.Error, "Only macOS") {
+		t.Errorf("not a Mac: %+v", v)
+	}
+	b.unprepareMac = func(log.Reporter) error {
+		return fmt.Errorf("x is a Dolphin you installed there, %w", launch.ErrNotOurCopy)
+	}
+	if v := b.UnprepareDolphin(); v.OK || !strings.HasPrefix(v.Error, "Couldn't remove the copy: x is a Dolphin") {
+		t.Errorf("foreign: %+v", v)
+	}
+
+	// The saved Dolphin was the copy: it goes back to the original.
+	b.mu.Lock()
+	b.cfg.Dolphin.Exe = copyExe
+	b.mu.Unlock()
+	ran := 0
+	b.unprepareMac = func(r log.Reporter) error { ran++; r.Log(log.OK, "Removed."); return nil }
+	if v := b.UnprepareDolphin(); !v.OK || v.Error != "" || len(v.Lines) != 1 || ran != 1 {
+		t.Fatalf("removed: %+v", v)
+	}
+	if c := loadCfg(t, path); c.Dolphin.Exe != macOriginalExe {
+		t.Errorf("saved %+v", c.Dolphin)
+	}
+	// A Dolphin the player chose elsewhere is kept.
+	b.mu.Lock()
+	b.cfg.Dolphin.Exe = "/elsewhere/Dolphin"
+	b.mu.Unlock()
+	if v := b.UnprepareDolphin(); !v.OK || b.cfg.Dolphin.Exe != "/elsewhere/Dolphin" {
+		t.Errorf("kept: %+v %+v", v, b.cfg.Dolphin)
+	}
+	// Never under a running Dolphin.
+	env := b.denv()
+	env.Running = func() []string { return []string{copyExe} }
+	b.denv = func() launch.Env { return env }
+	if v := b.UnprepareDolphin(); v.OK || !strings.Contains(v.Error, "Close Dolphin first") || ran != 2 {
+		t.Errorf("running: %+v (ran %d)", v, ran)
+	}
 }
 
 // FuzzApplyPatchLine: any line keeps the view sane: the percentage in
