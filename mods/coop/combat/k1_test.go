@@ -366,3 +366,42 @@ func unverify(t testing.TB, p stage.Proc) {
 	old := SetVerified(int16(p), false)
 	t.Cleanup(func() { SetVerified(int16(p), old) })
 }
+
+// TestBokoBabaMode: the Boko Baba's layout reads its u8 mode at +0x2C4
+// (wind#87, live): mode 2 is its death signature (DeathMode), and the
+// gate holds it while it bites Link (1) or dies (2).
+func TestBokoBabaMode(t *testing.T) {
+	l := Layouts()[int16(stage.ProcBO)]
+	if l.Mode != 0x2C4 || !l.ModeU8 || l.Ice != 0x9FC {
+		t.Fatalf("Boko Baba layout %+v", l)
+	}
+	bo := func(mode int32, ok bool) *actors.Actor {
+		return &actors.Actor{Proc: int16(stage.ProcBO), InitState: 2, Group: 2, SetID: addr.ActorSetIDNone,
+			Health: 1, MaxHealth: 1, Ice: actors.IceState{Read: true, SelfOK: true, Mode: 1}, Mode: mode, ModeOK: ok}
+	}
+	for _, c := range []struct {
+		mode  int32
+		ok    bool
+		dying bool
+		held  string
+	}{
+		{0, true, false, ""},
+		{1, true, false, "biting"},
+		{2, true, true, "dying"},
+		{2, false, false, "unreadable"},
+	} {
+		a := bo(c.mode, c.ok)
+		if got := DeathMode(a); got != c.dying {
+			t.Errorf("mode %d (read %v): DeathMode %v, want %v", c.mode, c.ok, got, c.dying)
+		}
+		why := Eligible(a, false, nil)
+		if (c.held == "") != (why == "") || c.held != "" && !strings.Contains(why, c.held) {
+			t.Errorf("mode %d (read %v): Eligible %q, want %q", c.mode, c.ok, why, c.held)
+		}
+	}
+	// Other classes have no death mode: a ReDead's mode never counts.
+	rd := &actors.Actor{Proc: int16(stage.ProcRD), Mode: 2, ModeOK: true}
+	if DeathMode(rd) {
+		t.Error("a ReDead's mode 2 counted as a death signature")
+	}
+}

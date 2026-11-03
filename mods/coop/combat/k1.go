@@ -72,9 +72,16 @@ type Class struct {
 	Hold    uint32
 	holdS8  bool
 	holding func(v int32) (held, settling bool)
-	// Mode is the offset of an s32 mode a gate reads (held), 0 for none.
-	Mode uint32
-	held func(mode int32) string
+	// Mode is the offset of the mode a gate reads (held) or the placed
+	// kill's class signature reads (dying), 0 for none: an s32, or a u8
+	// if modeU8.
+	Mode   uint32
+	modeU8 bool
+	held   func(mode int32) string
+	// dying, if set, is the class's own death signature for M6.1's placed
+	// kills (DeathMode): a mode only its death enters, for a class whose
+	// death never lowers its health or runs the light-shrink timer.
+	dying func(mode int32) bool
 }
 
 // The classes' weapons and modes (the plan's preludes and gates 18-19):
@@ -101,7 +108,14 @@ type Class struct {
 //     and MODE_SW_WAIT 0xA returns from _execute before enemy_ice runs
 //     (d_a_rd.cpp:1621-1630), so a timer written then would wait;
 //   - Floormaster mMode (d_a_fm.h:130): 13-16 are its grabs of Link and
-//     NPCs and 17 Link's start demo (mode_tbl, d_a_fm.cpp:2306-2420).
+//     NPCs and 17 Link's start demo (mode_tbl, d_a_fm.cpp:2306-2420);
+//   - Boko Baba u8 +0x2C4 (bo_class is unnamed past 0x2AC, d_a_bo.h:13;
+//     read live on the Mac rig, wind#87, docs/live/wind87): 0 while it
+//     waits and rises (actions 1-5 in the next byte), 1 while it bites
+//     Link (actions 0x0B-0x0E, then back to 0), and 2 from its death
+//     (actions 0x14, 0x15) until it is deleted. A sword kill leaves its
+//     health at 1/1 and its enemyice timer at 0, so mode 2 is its placed
+//     kill signature.
 const (
 	weaponBK = 0x1200
 	weaponST = 0x1DCC
@@ -110,6 +124,10 @@ const (
 	holdST   = 0x1DD0
 	modeRD   = 0x2AC
 	modeFM   = 0x2AC
+	modeBO   = 0x2C4
+
+	boModeBite  = 1
+	boModeDeath = 2
 )
 
 var classes = func() map[int16]Class {
@@ -140,6 +158,18 @@ var classes = func() map[int16]Class {
 				}
 				return ""
 			}
+		case stage.ProcBO:
+			k.Mode, k.modeU8 = modeBO, true
+			k.held = func(m int32) string {
+				switch m {
+				case boModeBite:
+					return "a Boko Baba biting Link (mode 1)"
+				case boModeDeath:
+					return "a Boko Baba dying (mode 2)"
+				}
+				return ""
+			}
+			k.dying = func(m int32) bool { return m == boModeDeath }
 		case stage.ProcFM:
 			k.Mode, k.held = modeFM, func(m int32) string {
 				if m >= 13 && m <= 17 {
@@ -167,7 +197,16 @@ func init() { actors.Names = ProcName }
 
 // Layout is what a walk reads of c beyond fopAc_ac_c.
 func (c Class) Layout() actors.Layout {
-	return actors.Layout{Ice: c.Ice, Mode: c.Mode, Weapon: c.Weapon, Hold: c.Hold, HoldS8: c.holdS8}
+	return actors.Layout{Ice: c.Ice, Mode: c.Mode, ModeU8: c.modeU8, Weapon: c.Weapon, Hold: c.Hold, HoldS8: c.holdS8}
+}
+
+// DeathMode reports whether a, an actor of a K1 class, shows its class's
+// own death signature (Class.dying): false for a class without one, or
+// when its mode was not read. M6.1's placed kills count it as dying, next
+// to the generic health <= 0 and the light-shrink timer.
+func DeathMode(a *actors.Actor) bool {
+	c, ok := classes[a.Proc]
+	return ok && c.dying != nil && a.ModeOK && c.dying(a.Mode)
 }
 
 // Layouts returns what a walk reads for M6 beyond fopAc_ac_c: every K1

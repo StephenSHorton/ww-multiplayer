@@ -6,7 +6,9 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/combat"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/proto"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/wire"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
 )
 
 // placedRig is the M6 rig granted placed-kill too, its partner in room 1,
@@ -306,5 +308,31 @@ func TestPlacedSaveState(t *testing.T) {
 	p.r.mu.Unlock()
 	if n != 0 {
 		t.Errorf("%d tracks after forget", n)
+	}
+}
+
+// TestPlacedSigBokoBaba: a Boko Baba's sword death keeps health 1/1 and
+// the shrink timer at 0 (wind#87, live), so its signature is its mode 2
+// (combat.DeathMode); its bite (mode 1) is no death, nor is a mode the
+// walk could not read.
+func TestPlacedSigBokoBaba(t *testing.T) {
+	bo := func(mode int32, ok bool) *actors.Actor {
+		return &actors.Actor{Proc: int16(stage.ProcBO), Health: 1, MaxHealth: 1,
+			Ice: actors.IceState{Read: true, SelfOK: true, Mode: 1}, Mode: mode, ModeOK: ok}
+	}
+	for _, c := range []struct {
+		mode  int32
+		ok    bool
+		dying bool
+	}{{0, true, false}, {1, true, false}, {2, true, true}, {2, false, false}} {
+		if dying, frozen := placedSig(bo(c.mode, c.ok)); dying != c.dying || frozen {
+			t.Errorf("mode %d (read %v): dying %v frozen %v, want dying %v", c.mode, c.ok, dying, frozen, c.dying)
+		}
+	}
+	// Frozen still wins over the class mode.
+	a := bo(2, true)
+	a.Ice.Mode = 2
+	if dying, frozen := placedSig(a); dying || !frozen {
+		t.Errorf("a frozen Boko Baba in mode 2: dying %v frozen %v", dying, frozen)
 	}
 }

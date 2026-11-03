@@ -99,7 +99,10 @@ scripts/mac-rig.sh stop <rig>         # end this rig's Dolphins by PID; then rel
   `patch` run moves. And it adds `--yes`, since nobody is at a TTY to answer the bind prompt and the
   rig's cards are copies of the fixtures. Flags after a `--` are passed through unchanged.
 - **Input**: `wwdev input` / `input-release` work unchanged (they write the mailbox; no OS
-  permission needed). Lock-on/guard still need the trigger poke (WW-MAC-RULES).
+  permission needed). Lock-on/guard still need the trigger poke after `input ... 0`: `poke-u32 80415078 FF000000`
+  (L) / `00FF0000` (R), the mailbox's `input_trigger_l`/`_r` at 0x80414F00 + 0x178. WW-MAC-RULES and records
+  before wind#80 say 0x80413078, the old mailbox's address. Since wind#80 that lies below the mailbox in
+  T2's code space, so never poke it (wind#87).
 - **Screenshots**: `wwdev screenshot` is Win32-only. `mac-rig.sh shot` finds the PID's render
   window (title contains ` | `) with CGWindowList and runs `screencapture -l`. Windows may
   overlap on screen; `-l` captures the window itself, not what covers it.
