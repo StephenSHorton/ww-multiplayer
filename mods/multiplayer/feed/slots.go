@@ -22,6 +22,8 @@ type slotState struct {
 	// away is the stage gate's decision this slot last moved under
 	// (Feed snaps the lerp when it changes).
 	away bool
+	// po is the remote's playout buffer (playout.go).
+	po playout
 }
 
 // linkSlotState is a pose-feed link slot's displayed pose and liveness.
