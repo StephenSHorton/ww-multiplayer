@@ -1,0 +1,4 @@
+A's actors walk (polla.sh, ~4 Hz) for the Armos A killed (second back-stab); changes only.
+08:58:52.678  pid 878 proc 0x00CC am2 set - enemy room 8 hp 1/2 params 0x8001FFFF enemyice ok, mode 1, shrink timer 0; K1 ok
+08:59:02.539  pid 878 proc 0x00CC am2 set - enemy room 8 hp 0/2 params 0x8001FFFF enemyice ok, mode 1, shrink timer 0; K1 held: health 0: dying
+08:59:07.183  (gone from the walk)

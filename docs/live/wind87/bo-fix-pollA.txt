@@ -1,0 +1,4 @@
+A's actors walk (polla.sh, ~4 Hz) for the Boko Baba A killed on the fix build; changes only.
+09:00:16.900  pid 1056 proc 0x00D7 bo set - enemy room 1 hp 1/1 params 0xFFFFFFFF enemyice ok, mode 1, shrink timer 0, class mode 0; K1 ok
+09:00:23.815  pid 1056 proc 0x00D7 bo set - enemy room 1 hp 1/1 params 0xFFFFFFFF enemyice ok, mode 1, shrink timer 0, class mode 2; K1 held: a Boko Baba dying (mode 2)
+09:00:25.864  (gone from the walk)
