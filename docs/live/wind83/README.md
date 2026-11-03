@@ -43,6 +43,7 @@ wind#82's did. `n150off` is the same 1% loss run with `WW_PLAYOUT_MS=0`, the old
   the boss relay landed 32.4 to 32.5 s after A's poke, and nothing disconnected.
 - **The chest race** produced no grant in any of the four runs, the buffer-off run included, so it isn't this
   change. The warp it starts (`~/ww-shared/bin/ww-multiplayer warp`, output discarded) didn't put the players at
-  the chest. It needs a look on its own.
+  the chest. wind#86 found why: that shared binary was built after wind#80's mailbox move, and the save state still
+  ran the old blob, so the warp went unanswered. The fixed `cond.sh` is described in `docs/live/wind82/README.md`.
 
 The full lines are in `results.txt`.

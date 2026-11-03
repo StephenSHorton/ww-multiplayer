@@ -5,6 +5,19 @@ One agent (pine), rig `wind82`, lease `ww/dolphin-slot-3`, branch `pine/wind82-n
 (`rigs/wind62/start-gohma.sav`, both cards from `card-gohma.gci`), then `mp-local --coop=new` (A host, B client,
 enemy sync and co-op on by default). Both Dolphins held 30 fps at the start and end of every run listed below.
 
+> **Rerunning it (wind#86).** That save state carries the C blob of its day (REL 0xCAC6980B, before wind#80 moved the
+> mailbox), and the battery's warp came from the shared `~/ww-shared/bin/ww-multiplayer`. Once that binary was rebuilt
+> on wind#80, its warp went unanswered in the old save, and `cond.sh` threw the error away: wind#83's reruns got no
+> chest grant at all. `cond.sh` and `run.sh` now take the rig as `RIG_NAME` and the checkout as `REPO`.
+> - Both tools come from the rig folder: its own `wwdev` and `ww-multiplayer`, built and entitled from one tree.
+> - The pair boots `SAVE`, by default `~/ww-shared/fixtures/start-gohma-3D7FEC97.sav` (wind#84's pre-Gohma recapture
+>   on REL 0x3D7FEC97).
+> - Before the battery, each Dolphin must read "matches this version" in `wwdev dump`, or the run stops.
+> - Each warp's answer goes to `warp-<label>.txt`, and a failed warp is printed.
+>
+> On main e5ac972 the base condition granted PlayerA at +0.09 s after the warps, and the deny reached B 0.096 s later
+> (rig `wind86`). The rest of the battery was as above: kills +10.9 s, boss +32.5 s, 30 fps.
+
 ## How the link was shaped
 
 The Mac's agent shell has no sudo, so dummynet (`dnctl`/`pfctl`) was out. Instead, `MP_LOCAL_NETEM` (new,
