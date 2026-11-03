@@ -1,0 +1,98 @@
+{
+  "players": 8,
+  "connections": 24,
+  "seconds": 1921,
+  "coop": true,
+  "pose_relay": {
+    "n": 2550512,
+    "p50_ms": 0.2,
+    "p90_ms": 0.3,
+    "p99_ms": 2.4,
+    "max_ms": 34.6
+  },
+  "kill_relay": {
+    "n": 23525,
+    "p50_ms": 0.5,
+    "p90_ms": 1,
+    "p99_ms": 5.4,
+    "max_ms": 28.4
+  },
+  "claim_rtt": {
+    "n": 7744,
+    "p50_ms": 0.4,
+    "p90_ms": 1.1,
+    "p99_ms": 5.4,
+    "max_ms": 28.5
+  },
+  "heartbeat_rtt": {
+    "n": 15328,
+    "p50_ms": 0.1,
+    "p90_ms": 0.2,
+    "p99_ms": 1.8,
+    "max_ms": 14.6
+  },
+  "counts": {
+    "chats": 496,
+    "chests_opened": 506,
+    "claim_asks": 7744,
+    "claim_consumed": 7056,
+    "claim_denies": 117,
+    "claim_grants": 1331,
+    "coop_refused": 0,
+    "drops": 0,
+    "hops": 383,
+    "kills_relayed": 23525,
+    "kills_replayed_on_entry": 38623,
+    "kills_sent": 14002,
+    "kills_skipped_no_bits": 1358,
+    "notices": 0,
+    "poses_received": 2550512,
+    "poses_sent": 921747,
+    "positions_sent": 307270,
+    "reconnects": 0,
+    "send_errors": 0
+  },
+  "up_kb_s_per_player": 120.2,
+  "down_pose_kb_s_per_player": 327.7,
+  "host": {
+    "cpu_cores_avg": 0.065,
+    "cpu_s": 125.730115,
+    "heap_mb_first": 3.4,
+    "heap_mb_last": 3.2,
+    "heap_mb_max": 4.7,
+    "rss_max_mb": 25,
+    "goroutines_max": 69,
+    "goroutines_last": 69,
+    "scope": {
+      "PosesSent": 2549382,
+      "PosesScoped": 11269956,
+      "PoseBytesSent": 5203288662,
+      "PoseBytesScoped": 23001980196,
+      "StatesFull": 0,
+      "StatesThinned": 0,
+      "StateBytesSent": 0,
+      "StateBytesSaved": 0,
+      "PlacesRejected": 0
+    },
+    "samples": 384
+  },
+  "panics": 0,
+  "host_log_lines": 1638,
+  "host_log_sample": [
+    "server: Server listening on port 0",
+    "server: stress-1 (ID:1) connected",
+    "server: stress-1 (co-op 1) connected",
+    "hub: co-op: stress-1 (co-op 1) joined world 5757535452455353 (seq 0; image|puzzle|combat|switches|story|inventory|keys|life|magic|chest-claim)",
+    "hub: co-op: chest claim: granted stress-1 (co-op 1) table 12 chest 3",
+    "hub: co-op: chest claim: table 12 chest 3 consumed",
+    "hub: co-op: chest claim: stress-8 (co-op 8) released table 4 chest 0",
+    "hub: co-op: chest claim: denied stress-7 (co-op 7) table 4 chest 3 (held by stress-8 (co-op 8))",
+    "server: [Chat] stress-8: stress-8 at 17:45:37",
+    "hub: co-op: dropped the KILL kindan (table 12, room 0) store: nobody is there",
+    "hub: co-op: dropped the KILL Asoko (table 8, room 0) store: nobody is there",
+    "hub: co-op: dropped the KILL sea (table 0, room 0) store: nobody is there",
+    "hub: co-op: dropped the KILL M_NewD2 (table 4, room 0) store: nobody is there",
+    "server: stress-6 (co-op 6) disconnected",
+    "server: stress-8 disconnected"
+  ]
+}

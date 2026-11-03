@@ -424,7 +424,7 @@ loop:
 		}
 	}
 	fmt.Println(string(b))
-	if rep.Panics > 0 || (host != nil && hostDied != nil) {
+	if rep.Panics > 0 || rep.Races > 0 || (host != nil && hostDied != nil) {
 		os.Exit(1)
 	}
 }
@@ -443,6 +443,7 @@ type stressReport struct {
 	DownKBsPose    float64          `json:"down_pose_kb_s_per_player"`
 	Host           *hostReport      `json:"host,omitempty"`
 	Panics         int              `json:"panics"`
+	Races          int              `json:"data_races"` // a -race build's host
 	HostExit       string           `json:"host_exit,omitempty"`
 	HostLogLines   int              `json:"host_log_lines"`
 	HostLogSample  []string         `json:"host_log_sample,omitempty"`
@@ -506,6 +507,9 @@ func (r *stressRun) report(n int, dur time.Duration, samples []hostSample, logTe
 	for _, l := range lines {
 		if strings.Contains(l, "panic") || strings.HasPrefix(l, "goroutine ") {
 			rep.Panics++
+		}
+		if strings.Contains(l, "WARNING: DATA RACE") {
+			rep.Races++
 		}
 		// A sample of the distinct kinds of log line (digits dropped).
 		k := strings.Map(func(r rune) rune {
