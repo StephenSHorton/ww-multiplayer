@@ -59,3 +59,26 @@ each stop (M_Dai 840 / 399, then 1289 / 846). mp-local logged no error. F1 does 
 Note: an earlier hop loop in this card passed `"sea 0 44"` as one argument, so its hops were
 refused ("stage name ... must be 1-7 characters") and the games never left Hyrule. The run
 above used a bash script and checked Link's position after each hop.
+
+## Rerun on the rebased build (main e5ac972, 2026-11-03)
+
+The branch was rebased onto main e5ac972 (#313's mailbox at 0x80414F00, #314's REL 0x3D7FEC97, #317
+and #318's pose changes) and the blob rebuilt. Rig `w76m`: `WW-mp-76m.iso` patched from the vanilla
+disc with that build, `start-76m.sav` recaptured on it (Hyrule), lease `ww/dolphin-slot-5`.
+
+F1 recipe again: `mac-rig.sh pair`, `mac-rig.sh mp-local w76m Aryll Tetra`, `ww-multiplayer
+fake-client Fake3` (position only: an actor puppet on both games). At each stop, 15 s after the hop,
+both games' fps and the puppet KAMOME (proc 0x00C3 at Fake3's position, y 200) sampled twice 3 s apart:
+
+| Stop | Puppet pid A / B (same 3 s later) | fps A / B |
+|---|---|---|
+| Hyrule (start) | 349 / 348 | 30 / 30 |
+| `sea 0 44` (Outset) | 709 / 708 | 30 / 30 |
+| `M_Dai 0 0` | 767 / 764 | 30 / 30 |
+| `M_NewD2 0 0` | 909 / 905 | 30 / 30 |
+| `sea 0 44` | 1270 / 1265 | 30 / 30 |
+| `M_Dai 0 0` | 1327 / 1320 | 30 / 30 |
+
+The puppet followed Fake3's circle (its position changed between the samples) and kept its pid: no
+churn. No game hung in the non-sea stages, so the gull stayed hidden. mp-local logged no error. The
+native Outset gulls (pids 512-516) were untouched.
