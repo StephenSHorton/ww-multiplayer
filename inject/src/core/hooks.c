@@ -28,8 +28,9 @@
 // minimal ABI dance).
 //
 // The hooks are core: they call the core services (services.c) and the
-// mods (mods.h) directly, in the fixed orders written at
-// multiplayer_update and daPy_draw_hook.
+// API region's rings (ops.c) directly, and the mods (mods.h) through the
+// ww_modules[] table, in the orders written at multiplayer_update and
+// daPy_draw_hook.
 
 #include "wwapi.h"
 #include "mailbox_core.h"
@@ -56,6 +57,14 @@
 _Static_assert(CALLBACK_PTR_ADDR == MAILBOX_ADDR + 8, "frame_shim reads the callback at mailbox+0x08");
 
 static int frame_count = 0;
+
+// The C mods, in priority order (mods.h). The multiplayer mod has no init
+// and no pre-draw step.
+#define MOD_ID_MP 0x4D502020   // 'MP  '
+static const WwModuleDesc ww_modules[] = {
+    { MOD_ID_MP, 0, mp_frame_any, mp_frame, 0, mp_draw_post },
+};
+#define WW_MODULE_COUNT ((int)(sizeof(ww_modules) / sizeof(ww_modules[0])))
 
 // main01_init's per-boot zeroing (below) clears these runs by word count.
 _Static_assert(__builtin_offsetof(Mailbox, pose_publish_seq) + 1 == __builtin_offsetof(Mailbox, pose_buf_ptrs) + 8 * 4 &&
@@ -117,6 +126,15 @@ void main01_init(void) {
     mailbox->hdr_abi = WWMB_ABI;
     mailbox->hdr_layout = WWMB_LAYOUT;
     mailbox->features = WW_FEATURES;
+    // The API region (wwops.h): its rings and the core ops, then each
+    // mod's init (which may register ops of its own).
+    ops_init();
+    {
+        int i;
+        for (i = 0; i < WW_MODULE_COUNT; i++)
+            if (ww_modules[i].init)
+                ww_modules[i].init();
+    }
     // Heartbeat: proves main01_init fired. frame_shim will start bumping
     // spawn_trigger once per-frame hook is wired.
     mailbox->spawn_trigger = 1;
@@ -276,22 +294,27 @@ void seachart_shim(void) {
 // Per-frame worker, called by frame_shim through CALLBACK_PTR_ADDR. The
 // order, written down as if it were a dispatcher (§6.6):
 //
-//   core:  heartbeat (spawn_trigger++)
-//   mods:  mp_frame_any(link)    every frame, Link or not
-//                                [today: the actor-puppet reap]
+//   core:  heartbeat (spawn_trigger++); the command drain (ops_frame)
+//   mods:  frame_any(link)       every frame, Link or not, in table order
+//                                [today: mp_frame_any, the actor-puppet reap]
 //   core:  no Link -> stop; warp handler; 300-frame boot gate
 //          (progress = 1 until it passes); tunic image allocation
-//   mods:  mp_frame(link)        [today: actor puppets, mini-Link models,
-//                                 the face hook's arm / disarm, progress]
+//   mods:  frame(link)           in table order [today: mp_frame: actor
+//                                 puppets, mini-Link models, the face hook's
+//                                 arm / disarm, progress]
 //
 // The warp handler sits ABOVE the frame_count gate so it fires the
 // moment Link's actor pointer is valid (just after the save-load-stable
 // point).
 void multiplayer_update(void) {
+    int i;
     mailbox->spawn_trigger++;
+    ops_frame();
 
     fopAc_ac_c* link = PLAYER_PTR_ARRAY[0];
-    mp_frame_any(link);
+    for (i = 0; i < WW_MODULE_COUNT; i++)
+        if (ww_modules[i].frame_any)
+            ww_modules[i].frame_any(link);
     if (!link) return;
 
     warp_frame(link);
@@ -303,7 +326,9 @@ void multiplayer_update(void) {
     }
 
     tunic_alloc();
-    mp_frame(link);
+    for (i = 0; i < WW_MODULE_COUNT; i++)
+        if (ww_modules[i].frame)
+            ww_modules[i].frame(link);
 }
 
 // --- Draw-phase hook -------------------------------------------------
@@ -315,10 +340,10 @@ void multiplayer_update(void) {
 // The order (§6.6), written down as if it were a dispatcher:
 //
 //   core pre:   face_publish_local -> local tunic swap
-//   mods pre:   (priority order)            [today: none]
+//   mods pre:   draw_pre, table order       [today: none]
 //   original:   daPy_lk_c::draw 0x80107308
 //   core post:  local tunic restore -> pose publish
-//   mods post:  (REVERSE priority order)    [today: mp_draw_post: the
+//   mods post:  draw_post, REVERSE order    [today: mp_draw_post: the
 //               mini-Link per slot, its face and tunic bracket, the eye fix]
 //
 // Post-draw steps run in the reverse of the pre-draw order, so each
@@ -331,6 +356,7 @@ void multiplayer_update(void) {
 // Link rendering is preserved; its return value propagates — daPy_Draw
 // just tail-returns it to its caller.
 int daPy_draw_hook(void* this_) {
+    int i;
     // SESSION 14: snapshot LOCAL Link's natural btp eye state into
     // mailbox.face_state_local for race-free broadcast-pose capture.
     // Must run BEFORE any face swap (mp_draw_post) — at this point
@@ -340,11 +366,16 @@ int daPy_draw_hook(void* this_) {
     face_publish_local();
 
     tunic_swap(this_, TUNIC_SLOT_LOCAL);
+    for (i = 0; i < WW_MODULE_COUNT; i++)
+        if (ww_modules[i].draw_pre)
+            ww_modules[i].draw_pre(this_);
     int result = daPy_lk_c_draw(this_);
     tunic_restore();
     pose_publish(this_);
 
-    mp_draw_post(this_);
+    for (i = WW_MODULE_COUNT - 1; i >= 0; i--)
+        if (ww_modules[i].draw_post)
+            ww_modules[i].draw_post(this_);
     return result;
 }
 

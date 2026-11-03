@@ -112,3 +112,20 @@ type HeartbeatLost struct {
 
 // EventName implements Event.
 func (HeartbeatLost) EventName() string { return "core.heartbeat_lost" }
+
+// RuntimeEvent is one entry of the C runtime's event ring (inject/include/
+// wwops.h; wwapi/ops): a one-frame edge the game's own code pushed with
+// ww_event_push, which a snapshot poll would miss. The Game's watcher
+// drains the ring each tick on a blob with the "ops" feature, so it is the
+// ring's one reader: subscribe here, don't read the ring. Kind is the
+// event's kind (ops.EvCmd for a command C ran, ops.EvModFirst on for a C
+// mod's own), N its count in the ring.
+type RuntimeEvent struct {
+	Base
+	N       uint32
+	Kind    uint16
+	A, B, C uint32
+}
+
+// EventName implements Event.
+func (RuntimeEvent) EventName() string { return "core.runtime_event" }
