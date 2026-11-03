@@ -48,6 +48,60 @@ type RemotePlayer struct {
 	Place    Place
 	HasPlace bool
 	PlaceAt  time.Time
+	// Recent is the remote's last samples in the order they arrived
+	// (wind#83): each position with the pose that followed it, numbered by
+	// arrival. The receiver plays them out a little late (feed playout.go)
+	// so a TCP stall and the burst after it don't stop and then jump its
+	// copy. The slice is replaced, never written in place, on each
+	// message, so a GetRemotePlayers snapshot may keep it.
+	Recent []Sample
+	seq    uint64
+}
+
+// RecentCap is how many samples RemotePlayer.Recent keeps: about 0.8 s at
+// the sender's 60 Hz, more than the playout buffer ever reaches back.
+const RecentCap = 48
+
+// Sample is one received position and the pose that followed it.
+type Sample struct {
+	// Seq numbers the remote's positions as they arrived, from 1. The
+	// sender sends one every frame, so Seq is its clock.
+	Seq uint64
+	// At is when the position arrived.
+	At  time.Time
+	Pos PlayerPosition
+	// PoseJoints, PoseMatrices and FaceState are the pose that followed
+	// this position (nil until it comes), as on RemotePlayer.
+	PoseJoints   int
+	PoseMatrices []byte
+	FaceState    []byte
+}
+
+// addSample appends a position to rp.Recent, as a new slice.
+func (rp *RemotePlayer) addSample(pos *PlayerPosition, at time.Time) {
+	rp.seq++
+	keep := rp.Recent
+	if len(keep) >= RecentCap {
+		keep = keep[len(keep)-RecentCap+1:]
+	}
+	next := make([]Sample, len(keep), len(keep)+1)
+	copy(next, keep)
+	rp.Recent = append(next, Sample{Seq: rp.seq, At: at, Pos: *pos})
+}
+
+// addPose gives the newest sample in rp.Recent its pose, as a new slice.
+// A pose with no position before it is left out: the position sets the
+// sample's time.
+func (rp *RemotePlayer) addPose(joints int, matrices, face []byte) {
+	n := len(rp.Recent)
+	if n == 0 {
+		return
+	}
+	next := make([]Sample, n)
+	copy(next, rp.Recent)
+	last := &next[n-1]
+	last.PoseJoints, last.PoseMatrices, last.FaceState = joints, matrices, face
+	rp.Recent = next
 }
 
 // PlaceFresh reports whether the remote's place is known at now: a place
@@ -521,6 +575,7 @@ func (c *Client) readLoop(conn net.Conn) {
 					c.remotes[playerID] = rp
 				}
 				rp.Position = pos
+				rp.addSample(pos, now)
 				rp.Place, rp.HasPlace = place, hasPlace
 				if hasPlace {
 					rp.PlaceAt = now
@@ -592,6 +647,7 @@ func (c *Client) readLoop(conn net.Conn) {
 				rp.PoseMatrices = poseCopy
 				rp.FaceState = faceCopy
 				rp.LastPose = now
+				rp.addPose(joints, poseCopy, faceCopy)
 				c.mu.Unlock()
 				if c.OnPose != nil {
 					c.OnPose(playerID, poseCopy)

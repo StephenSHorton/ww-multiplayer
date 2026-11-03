@@ -283,6 +283,9 @@ WW_ENEMY_REMOTE_HEAP=off|<game_largest>,<game_free>,<zelda_largest>   # full_bod
                                             #   FULL_MAX rules still hold); 0xFFFFFFF,0,0 shuts the gate (live check S4-10a)
 WW_ENEMY_REMOTE_FULL_MAX=<n>                # FULL bodies LIVE at once before the gate holds (default 1)
 WW_ENEMY_REMOTE_FLAGS2=<n|full_co>          # the block's FLAGS2 (host): full_co keeps the full bodies' mCyl Co Set bit (default 0: Co off)
+WW_PLAYOUT_MS=<ms> / WW_EXTRAPOLATE_MS=<ms>  # puppet-sync: remote positions and poses are played out this far behind the newest sample (default 100,
+                                            #   0 = off: ease toward the newest, as before wind#83) and extrapolated at most this far when the buffer runs dry
+                                            #   (default 200), so a TCP stall doesn't stop and then jump a remote Link (mods/multiplayer/feed/playout.go)
 WW_MINIMAP_SCALE=<f>                        # TUI minimap world units per cell (default 10)
 WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server listens on <addr> alone (local checks: 127.0.0.1)
                                             #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)

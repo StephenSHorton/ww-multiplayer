@@ -299,7 +299,12 @@ func (f *Feeder) Feed(ctx context.Context, remotes []network.RemotePlayer, now t
 			// Into or out of another stage: snap to where it is now
 			// rather than glide there from the other stage's spot.
 			sl.away, sl.haveCur = away, false
+			sl.po = playout{}
 		}
+		// Drawn from the playout buffer (playout.go): a little late, at
+		// the sender's pace, so a TCP stall doesn't stop and jump it.
+		shown := f.slots[idx].po.view(rp, now)
+		rp = &shown
 		st := f.moveActor(idx, rp.Position)
 
 		// Pose feed (shadow_mode=5). First remote to deliver any pose
