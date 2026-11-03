@@ -110,6 +110,12 @@ type Client struct {
 	// OnPlayerList callback pattern.
 	OnChat func(from, text string)
 
+	// OnPose, if set, gets every relayed pose frame as it is read, on the
+	// read loop (the matrices are a copy). The stress driver (wwdev
+	// stress, docs/stress-test.md) times the relay with it; the pipelines
+	// read GetRemotePlayers instead.
+	OnPose func(playerID byte, matrices []byte)
+
 	// role and caps go in the hello: RolePlayer for NewClient, RoleCoop
 	// for NewCoopClient (coop.go).
 	role byte
@@ -577,6 +583,9 @@ func (c *Client) readLoop(conn net.Conn) {
 				rp.FaceState = faceCopy
 				rp.LastPose = now
 				c.mu.Unlock()
+				if c.OnPose != nil {
+					c.OnPose(playerID, poseCopy)
+				}
 			}
 
 		case MsgPing:

@@ -174,6 +174,7 @@ go build -o wwdev.exe ./cmd/wwdev
 ./wwdev.exe broadcast-link <name> <addr>                # Position-only broadcast (cheaper; no pose)
 ./wwdev.exe pose-fake-loop <name> <addr>                # Loopback dev: capture pose once, stream as a fake remote
 ./wwdev.exe pose-test [mirror|freeze] [secs]            # Single-Dolphin sanity test for the pose pipeline
+./wwdev.exe stress [--players N] [--duration D] [--out F] [--addr A] [--no-coop]   # Server + co-op hub (a stress-host child) under N synthetic players: pose/sync/co-op conns, kills, claims, hops; latency, CPU, memory report (docs/stress-test.md)
 
 # Diagnostics
 ./wwdev.exe screenshot [path]                           # PNG of the selected Dolphin's window (Win32; default path = dolphin-<pid>-<ts>.png)
