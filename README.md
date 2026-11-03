@@ -31,9 +31,9 @@ What works today:
 
 Known limits:
 - Only Outset Island has been heavily tested. A friend in another stage
-  is hidden in your game until they are back in yours; that stage check
-  for every player (relay scoping) is new and has not been tested live
-  yet.
+  is hidden in your game until they are back in yours (tested live on
+  two Dolphins). A friend in another room of the same stage stays drawn
+  where they really are.
 - Other enemy types still run separately on each player's game. Only the
   first three other players get bodies, and each player mirrors at most 4
   enemies at once. Shared enemies have not yet been tested over the
