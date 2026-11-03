@@ -797,7 +797,10 @@ in `REL_TEXT_CALLBACKS`. Adapted from datstarkey/ww-online
   with `mDoExt_font0`, white over a black shadow, sized and faded by
   camera depth. Hidden when the HUD is (2D off, an event, the pause menu,
   the telescope or Picto Box view) and when `WWVIS_FLAG_NAMES` is clear
-  (`WW_NAMETAGS=off`). The packet is drawn by the next frame's painter,
+  (`WW_NAMETAGS=off`). The title screen (`sea_T`) runs as an event
+  (`mEvtCtrl.mMode` 2 the whole time), so the event test skips it: the
+  remotes standing in front of the title camera (lobby presence, issue #38,
+  `mods/multiplayer/feed/lobby.go`) carry their tags. The packet is drawn by the next frame's painter,
   which runs before process deletes (`fpcM_Management`), so the module is
   still linked when its draw runs.
 - **Sea chart markers** (ww-online review idea 14, adapted from their
@@ -814,6 +817,23 @@ in `REL_TEXT_CALLBACKS`. Adapted from datstarkey/ww-online
   (vtable 0x8039D730) and its state (0x0C..0xB0 and both colours) is
   restored after. Only when the chart was opened on the sea stage, and
   only with `WWVIS_FLAG_SEACHART` (`WW_SEACHART=off` clears it).
+- **The file select's lobby line** (issue #38). On stage `Name` (file
+  select and naming) there is no Link and no mini-Link, so the keeper's
+  draw (`wwrel_draw`, once a frame) calls `wwvis_lobby_draw`, which enters
+  one more name-tag packet into the 2D opaque list: "Here: A, B" from the
+  `WWVIS_NAMES` rows, centred at the bottom of the screen. The keeper
+  survives the title -> file select change in the root layer, and
+  `dScnName_c::draw` runs the root layer's draws, so no T2 hook is
+  needed (live on the Mac rig, wind#77: the module linked and its frame
+  counter moving on file select). Only with `WWVIS_FLAG_LOBBY` (Go sets it
+  unless `WW_LOBBY=off`); no names, no line.
+- **No string literals.** A literal goes to `.rodata.str1.4`, a merged
+  section whose size need not be a multiple of 4. Two stage names passed
+  as literals (13 bytes) left the REL an odd length, and the game's loader
+  then read past MEM1 checksumming the module
+  (`DynamicModuleControl::do_load`, `calcSum2`) and froze both Dolphins at
+  the module's first link (wind#77). Name such strings as `static const
+  char[]` arrays, which go to `.rodata`.
 
 ## fx.c: the other players' bombs, cannonballs and arrows
 

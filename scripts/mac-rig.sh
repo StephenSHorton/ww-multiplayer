@@ -20,7 +20,7 @@ WW_SHARED=${WW_SHARED:-$HOME/ww-shared}
 WWDEV=${WWDEV:-$WW_SHARED/bin/wwdev}
 DOLPHIN_APP=${DOLPHIN_APP:-$HOME/Applications/Dolphin.app}
 ISO=${ISO_PATH:-$WW_SHARED/disc/WW-mp.iso}
-SAVE_DEFAULT=$WW_SHARED/fixtures/start-mac-76C1EE09.sav  # REL 0x76C1EE09 (main since wind#80 moved the mailbox); start-mac-CAC6980B.sav, -A9DE0F1E.sav and -1CE30685.sav stay for older builds
+SAVE_DEFAULT=$WW_SHARED/fixtures/start-mac-3D7FEC97.sav  # REL 0x3D7FEC97 (main since wind#77's lobby line); start-mac-76C1EE09.sav, -CAC6980B.sav, -A9DE0F1E.sav and -1CE30685.sav stay for older builds
 [ -f "$SAVE_DEFAULT" ] || SAVE_DEFAULT=none
 
 die() { echo "mac-rig: $*" >&2; exit 1; }

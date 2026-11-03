@@ -44,6 +44,7 @@ const (
 	VisFlagEquip uint32 = 0x02
 	VisFlagSea   uint32 = 0x04
 	VisFlagHair  uint32 = 0x08
+	VisFlagLobby uint32 = 0x10 // the file select screen lists the remotes' names (issue #38)
 
 	VisEqSword  = 0x00
 	VisEqShield = 0x01

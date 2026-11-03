@@ -23,7 +23,7 @@ func TestVisHeaderPins(t *testing.T) {
 		"WWVIS_STAT_SEA_OFF": VisStatSeaOff, "WWVIS_STAT_ERR_OFF": VisStatErrOff, "WWVIS_MODELS2_OFF": VisModels2Off,
 		"WWVIS_MAGIC": uint64(VisMagic), "WWVIS_SLOTS": VisSlots, "WWVIS_NAME_BYTES": VisNameBytes,
 		"WWVIS_FLAG_NAMES": uint64(VisFlagNames), "WWVIS_FLAG_EQUIP": uint64(VisFlagEquip), "WWVIS_FLAG_SEACHART": uint64(VisFlagSea),
-		"WWVIS_FLAG_HAIR": uint64(VisFlagHair), "WWVIS_EQF_CASUAL": VisEqfCasual,
+		"WWVIS_FLAG_HAIR": uint64(VisFlagHair), "WWVIS_FLAG_LOBBY": uint64(VisFlagLobby), "WWVIS_EQF_CASUAL": VisEqfCasual,
 		"WWVIS_EQ_SWORD": VisEqSword, "WWVIS_EQ_SHIELD": VisEqShield, "WWVIS_EQ_FLAGS": VisEqFlags,
 		"WWVIS_EQF_VALID": VisEqfValid, "WWVIS_EQF_SWORD_HAND": VisEqfSwordHand, "WWVIS_EQF_SHIELD_HAND": VisEqfShieldHand,
 		"WWVIS_SEA_MAX": VisSeaMax, "WWVIS_SEA_SIZE": VisSeaSize,

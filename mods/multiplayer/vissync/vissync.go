@@ -176,16 +176,19 @@ func RemoteOnSea(face []byte) bool {
 
 // Settings picks what the REL draws. The zero value draws nothing.
 // Hair is a casual remote's katsura hair (its hat and buckle hidden).
+// Lobby is lobby presence (issue #38): the file select screen's "Here:"
+// line here, and the remotes standing on the title (mods/multiplayer/feed
+// lobby.go), which the feeder reads from these Settings too.
 type Settings struct {
-	Names, Equip, SeaChart, Hair bool
+	Names, Equip, SeaChart, Hair, Lobby bool
 }
 
 // SettingsFromEnv is every visual on, less those turned off:
-// WW_NAMETAGS=off, WW_EQUIP=off, WW_SEACHART=off, WW_HAIR=off (also 0,
-// false, no).
+// WW_NAMETAGS=off, WW_EQUIP=off, WW_SEACHART=off, WW_HAIR=off, WW_LOBBY=off
+// (also 0, false, no, none).
 func SettingsFromEnv() Settings {
 	return Settings{Names: !envOff("WW_NAMETAGS"), Equip: !envOff("WW_EQUIP"), SeaChart: !envOff("WW_SEACHART"),
-		Hair: !envOff("WW_HAIR")}
+		Hair: !envOff("WW_HAIR"), Lobby: !envOff("WW_LOBBY")}
 }
 
 func envOff(k string) bool {
@@ -215,6 +218,9 @@ func Build(s Settings, remotes []network.RemotePlayer, linkSlot map[byte]int, se
 	}
 	if s.Hair {
 		b.Flags |= mailbox.VisFlagHair
+	}
+	if s.Lobby {
+		b.Flags |= mailbox.VisFlagLobby
 	}
 	sorted := append([]network.RemotePlayer(nil), remotes...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })

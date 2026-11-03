@@ -452,6 +452,7 @@ typedef void (*vis_font_width_t)(void* font, int code, u8* width);
 #define GAMEINFO                0x803C4C08                   // g_dComIfG_gameInfo
 #define GI_2D_SHOW              (GAMEINFO + 0x5C19)          // play (+0x12A0) .m2dShow (+0x4979)
 #define GI_EVT_MODE             (GAMEINFO + 0x529A)          // play .mEvtCtrl (+0x3F38) .mMode (+0xC2)
+#define GI_CUR_STAGE            (GAMEINFO + 0x5134)          // play .mCurStage.mName (+0x3E94), char[8]
 #define GI_PLAYER_STATUS0       (GAMEINFO + 0x5CC8)          // play .mPlayerStatus[0][0] (+0x4A28)
 #define GI_PLAYER_STATUS1       (GAMEINFO + 0x5CCC)          // [0][1]
 #define GI_GRAF_PORT            (GAMEINFO + 0x5D00)          // play .mCurrentGrafPort (+0x4A60)
@@ -481,11 +482,15 @@ typedef void (*vis_font_width_t)(void* font, int code, u8* width);
 #define TAG_MARGIN       80.0f
 #define TAG_SHADOW       1.5f
 
+// The text a VisTag carries: one name tag, or the file select's lobby line
+// ("Here: " and up to WWVIS_SLOTS names, ", " between them).
+#define VIS_TEXT_MAX      (6 + WWVIS_SLOTS * (WWVIS_NAME_BYTES - 1) + (WWVIS_SLOTS - 1) * 2 + 1)
+
 typedef struct {
     const void* vtbl;          // dDlst_base_c: dDlst_list_c::draw calls vtable[3]
     f32 x, y, px;
     u32 alpha;
-    char name[WWVIS_NAME_BYTES];
+    char name[VIS_TEXT_MAX];
 } VisTag;
 
 void vis_tag_draw(VisTag* tag);
@@ -495,10 +500,32 @@ void vis_tag_noop(VisTag* tag) { (void)tag; }
 static const void* const vis_tag_vtbl[4] = {0, 0, (const void*)vis_tag_noop, (const void*)vis_tag_draw};
 static VisTag vis_tags[WWVIS_SLOTS];
 
+// The stages the visuals single out, as arrays: a string literal would go
+// to .rodata.str1.4, a section the module must not have (its odd size left
+// the REL an odd length, and the game's loader read past MEM1 summing it,
+// DynamicModuleControl::do_load, calcSum2; live, wind#77).
+static const char vis_stage_title[8] = "sea_T";
+static const char vis_stage_name[8] = "Name";
+
+// The current stage is name (mCurStage.mName, NUL padded).
+static int vis_stage_is(const char* name) {
+    volatile const char* cur = (volatile const char*)GI_CUR_STAGE;
+    int i;
+    for (i = 0; i < 8; i++) {
+        if (cur[i] != name[i]) return 0;
+        if (name[i] == 0) return 1;
+    }
+    return 1;
+}
+
 // What dMeter_statusCheck hides the HUD for (d_meter.cpp:746-824): 2D
-// off, an event, the pause menu, the telescope or Picto Box view.
+// off, an event, the pause menu, the telescope or Picto Box view. The title
+// screen (sea_T) runs as an event (mMode 2 for as long as it shows), and
+// its remotes stand in front of its camera for lobby presence (issue #38,
+// mods/multiplayer/feed/lobby.go): their tags show there.
 static int vis_hud_visible(void) {
-    if (*(volatile u8*)GI_2D_SHOW == 0 || *(volatile u8*)GI_EVT_MODE != 0) return 0;
+    if (*(volatile u8*)GI_2D_SHOW == 0) return 0;
+    if (*(volatile u8*)GI_EVT_MODE != 0 && !vis_stage_is(vis_stage_title)) return 0;
     if (*(volatile u8*)DMENU_PAUSE != 0) return 0;
     if ((*(volatile u32*)GI_PLAYER_STATUS0 & STTS0_TELESCOPE_LOOK) ||
         (*(volatile u32*)GI_PLAYER_STATUS1 & STTS1_PICTO_BOX_AIM)) return 0;
@@ -551,6 +578,51 @@ static void vis_tag_queue(int slot, J3DModel* model) {
 static void vis_font_color(u8* font, u32 rgba) {
     u32* c = (u32*)(font + JUTFONT_COLORS);
     c[0] = c[1] = c[2] = c[3] = rgba;
+}
+
+// --- lobby line (issue #38) -----------------------------------------------
+// On the file select screen (stage "Name") there is no Link and no
+// mini-Link, so the remotes are listed instead: "Here: A, B" at the bottom
+// of the screen, white with a shadow, the name tags' font and packet. The
+// keeper's draw calls this every frame (rel_main.c wwrel_draw): T2 creates
+// the keeper from the frame hook in the root layer, which the scene change
+// from the title keeps, and dScnName's draw runs the root layer's draws too.
+// Go fills the names (the mini-Link slots' rows) and sets WWVIS_FLAG_LOBBY
+// unless WW_LOBBY is off.
+#define LOBBY_X           320.0f   // centred on the 640-wide 2D port
+#define LOBBY_Y           452.0f   // the baseline, under the file panel
+#define LOBBY_PX          18.0f
+
+static VisTag vis_lobby_tag;
+
+void wwvis_lobby_draw(void) {
+    if (!vis_on(WWVIS_FLAG_LOBBY) || !vis_stage_is(vis_stage_name)) return;
+    VisTag* tag = &vis_lobby_tag;
+    static const char here[] = "Here: ";
+    int n = 0, names = 0, slot, i;
+    for (i = 0; here[i] != 0; i++) tag->name[n++] = here[i];
+    for (slot = 0; slot < WWVIS_SLOTS; slot++) {
+        u32 row = WWVIS_NAMES_OFF + (u32)slot * WWVIS_NAME_BYTES;
+        if (VIS_BYTE(row) == 0) continue;
+        if (names++) {
+            tag->name[n++] = ',';
+            tag->name[n++] = ' ';
+        }
+        for (i = 0; i < WWVIS_NAME_BYTES - 1; i++) {
+            char c = (char)VIS_BYTE(row + (u32)i);
+            if (c == 0) break;
+            if (c >= 0x20 && c <= 0x7E) tag->name[n++] = c;
+        }
+    }
+    tag->name[n] = 0;
+    if (names == 0) return;
+    u8* dl = (u8*)GI_DRAWLIST;
+    tag->vtbl = vis_tag_vtbl;
+    tag->x = LOBBY_X;
+    tag->y = LOBBY_Y;
+    tag->px = LOBBY_PX;
+    tag->alpha = 0xFF;
+    dDlst_list_set(dl, (void***)(dl + DL_2DOPA), (void***)(dl + DL_2DOPA_END), tag);
 }
 
 // dDlst_base_c::draw, in the painter's 2D pass.

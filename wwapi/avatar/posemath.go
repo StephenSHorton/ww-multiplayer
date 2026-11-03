@@ -70,3 +70,25 @@ func Lerp(dst, target []byte, k float32) {
 		writeBEFloat(dst, off, dv+(tv-dv)*k)
 	}
 }
+
+// RotateY turns every joint matrix about the world Y axis through the
+// origin by angle, an s16 game angle (0x10000 is a full turn; 0 faces +Z,
+// as an actor's shape_angle.y). Run it on a localized pose (Localize)
+// before ApplyAt to turn the whole body in place. Each 3x4 matrix M
+// becomes Ry*M, its translation column included:
+//
+//	x' =  cos*x + sin*z
+//	z' = -sin*x + cos*z
+func RotateY(buf []byte, joints int, angle int16) {
+	r := float64(angle) * math.Pi / 32768
+	c, s := float32(math.Cos(r)), float32(math.Sin(r))
+	for j := 0; j < joints; j++ {
+		base := j * MtxBytes
+		for col := 0; col < 4; col++ {
+			ox, oz := base+col*4, base+32+col*4
+			x, z := readBEFloat(buf, ox), readBEFloat(buf, oz)
+			writeBEFloat(buf, ox, c*x+s*z)
+			writeBEFloat(buf, oz, -s*x+c*z)
+		}
+	}
+}

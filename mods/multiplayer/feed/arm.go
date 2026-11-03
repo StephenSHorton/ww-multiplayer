@@ -13,7 +13,8 @@ import (
 // into, driving shadow_mode=5 and polling (60 x 50 ms) for the C side to
 // publish one. It reports whether the slot is armed; poseBufPtrs[slot]
 // is then the buffer. It does not poll out of play (the C side allocates
-// only while Link exists, inject/src/mp/minilink.c mp_frame), and once a
+// only while Link exists, inject/src/mp/minilink.c mp_frame), the title
+// with lobby presence on excepted (the title stage has a Link), and once a
 // poll has timed out in a Feed call the other slots wait for the next
 // call, so one Feed blocks for at most one poll whatever the slot count.
 func (f *Feeder) armPoseSlot(ctx context.Context, slot int) bool {
@@ -71,7 +72,9 @@ func (f *Feeder) armPoseSlot(ctx context.Context, slot int) bool {
 		avatar.SetFaceSync(d, true) // the same snapshot cleared this flag (F20)
 		f.shadowModeArmed = true
 	}
-	if f.pollSpent || !f.inPlay() {
+	// The title counts as play for lobby presence (lobby.go): the title
+	// stage has a Link whose draw allocates the buffers as in play.
+	if f.pollSpent || !(f.inPlay() || (f.lobbyOn && f.lobby.ok)) {
 		return false
 	}
 	for i := 0; i < 60; i++ {

@@ -115,8 +115,8 @@ func TestBuild(t *testing.T) {
 		{ID: 5, Name: "me", FaceState: trailer(AppSea, 0, 0), Position: &network.PlayerPosition{}},
 		{ID: 9, Name: "Medli", FaceState: trailer(AppSea, 0xFF, 0xFF)}, // no position yet
 	}
-	b := Build(Settings{Names: true, Equip: true, SeaChart: true, Hair: true}, remotes, map[byte]int{7: 1, 3: 0, 5: 1, 9: 2}, "me")
-	if b.Flags != mailbox.VisFlagNames|mailbox.VisFlagEquip|mailbox.VisFlagSea|mailbox.VisFlagHair {
+	b := Build(Settings{Names: true, Equip: true, SeaChart: true, Hair: true, Lobby: true}, remotes, map[byte]int{7: 1, 3: 0, 5: 1, 9: 2}, "me")
+	if b.Flags != mailbox.VisFlagNames|mailbox.VisFlagEquip|mailbox.VisFlagSea|mailbox.VisFlagHair|mailbox.VisFlagLobby {
 		t.Errorf("flags %#x", b.Flags)
 	}
 	if b.Names != [mailbox.VisSlots]string{"Aryll", "Tetra", "Medli"} {
@@ -138,10 +138,12 @@ func TestSettingsFromEnv(t *testing.T) {
 	t.Setenv("WW_EQUIP", "")
 	t.Setenv("WW_SEACHART", "0")
 	t.Setenv("WW_HAIR", "")
-	if s := SettingsFromEnv(); s != (Settings{Equip: true, Hair: true}) {
+	t.Setenv("WW_LOBBY", "")
+	if s := SettingsFromEnv(); s != (Settings{Equip: true, Hair: true, Lobby: true}) {
 		t.Errorf("SettingsFromEnv = %+v", s)
 	}
 	t.Setenv("WW_HAIR", "off")
+	t.Setenv("WW_LOBBY", "none")
 	if s := SettingsFromEnv(); s != (Settings{Equip: true}) {
 		t.Errorf("SettingsFromEnv = %+v", s)
 	}

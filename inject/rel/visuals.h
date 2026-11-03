@@ -19,6 +19,8 @@ void wwvis_draw_hook(int slot, J3DModel* model, void* link, int phase);
 void wwvis_seachart_draw(u8* fmap_dl, void* graf);
 
 // _prolog: publish the function words (last); _epilog: clear them (first).
+// The file select's lobby line ("Here: A, B"), queued from the keeper's draw.
+void wwvis_lobby_draw(void);
 void wwvis_link(void);
 void wwvis_unlink(void);
 
