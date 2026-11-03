@@ -757,6 +757,25 @@ T2 grew from 0x29C8 to 0x2A88 bytes (devkitPPC 16.2). It ends at `0x80412A88`, 0
 bytes below the mailbox. The mailbox layout is unchanged; the blob hash changed, so
 `saves/start.sav` was recaptured and players must re-patch.
 
+## Actor puppets respawned every 0.5 s; a drawn one hangs non-sea stages — FIXED (2026-11-03, #131)
+
+Slot 0 was a KAMOME with parameter 0 and slot 1 an NPC_OB1 (Rose). Both creates failed in
+many rooms: KAMOME parameter 0 asks for path 0 of the spawn room (`d_a_kamome.cpp:1496`, none
+in `M_Dai`), and Rose needs a room path plus the right story bit (event 0x520) and time of
+day. The engine deleted each failed actor and `puppets.c` phase 2 spawned it again, about every
+0.5 s. On main the KAMOME, when its create worked, was hidden anyway: parameter 0 also sets
+`mSwitchNo` 1, and `daKamome_Draw` returns while it is non-zero.
+
+Drawing it is not safe: a visible KAMOME puppet hangs the game in an endless loop under
+`J3DDrawBuffer::draw` on every non-sea stage tried (Hyrule, dungeons, GanonK), on main too
+after `wwdev unhide-puppet`. Sea rooms draw it fine.
+
+Fix: every slot is a KAMOME with `KAMOME_PUPPET_PARAM` (`inject/src/mp/mp.h`): no path, and
+hidden behind dungeon switch 0xBF. A zone switch (0xC0 and up) is not usable: it looks up the
+room's zone, and a puppet spawned with Link in room -1 froze Outset. Remotes beyond the
+mini-Link slots stay invisible, as before; a visible stand-in needs another actor or the draw
+hang understood. Live record: [live/wind76-puppet-churn-mac.md](live/wind76-puppet-churn-mac.md).
+
 ## Actor puppets outlived their slot and froze the next stage — FIXED (2026-10-17)
 
 ### The symptom

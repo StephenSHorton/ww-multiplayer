@@ -214,7 +214,7 @@ func TestFeederSlotAssignment(t *testing.T) {
 }
 
 // TestFeederActorPuppetFallback: with every link slot taken (avatar.Cap
-// remotes), the next player stays on its actor puppet (KAMOME / NPC_OB1),
+// remotes), the next player stays on its actor puppet (a hidden KAMOME),
 // and moves to a link slot when one frees up.
 func TestFeederActorPuppetFallback(t *testing.T) {
 	f, c, rep := newTestFeeder(t)

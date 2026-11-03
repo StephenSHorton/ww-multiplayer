@@ -1,6 +1,7 @@
 // Wind Waker Multiplayer — the multiplayer mod's actor puppets (src/mp;
-// Phase E3 split multiplayer.c into src/core and src/mp). The KAMOME /
-// NPC_OB1 stand-ins draw every remote beyond the mini-Link slots
+// Phase E3 split multiplayer.c into src/core and src/mp). The KAMOME
+// stand-ins (hidden, see KAMOME_PUPPET_PARAM) carry every remote beyond the
+// mini-Link slots
 // (docs/api/00-design.md decision 5).
 
 #include "mp.h"
@@ -70,7 +71,9 @@ void mp_frame_any(fopAc_ac_c* link) {
 //                      Param 0 asked for path 0 of the spawn room and
 //                      switch 0: no path there (M_Dai) failed the create,
 //                      and switch 0 hid it. KAMOME_PUPPET_PARAM asks for
-//                      neither. *Current proc, every slot* (wind#76).
+//                      no path and hides it behind dungeon switch 0xBF
+//                      (drawn, it hangs non-sea stages; see mp.h).
+//                      *Current proc, every slot* (wind#76).
 //   PROC_NPC_OB1 pm=0 -> Rose, slot 1 until wind#76. Never stable: her
 //                      create (d_a_npc_ob1.rel createInit, init_OB1_0..2)
 //                      fails when the param names a path the room lacks,

@@ -24,9 +24,15 @@
 // The actor puppets' KAMOME parameter (daKamome_Create, d_a_kamome.cpp:1482-1507):
 // byte 0 type 0 (a plain gull), byte 1 mKoMaxCount 0, byte 2 path 0xFF (no
 // path: path 0 of the spawn room is NULL in rooms without one, M_Dai, and
-// the create fails), byte 3 switch 0xFF (mSwitchNo stays 0: param 0 set it to
-// 1, which hides the gull until switch 0 of the room is on). wind#76.
-#define KAMOME_PUPPET_PARAM 0xFFFF0000U
+// the create fails, which was the respawn churn of #131), byte 3 switch 0xBF.
+// The switch keeps the gull hidden (daKamome_Draw returns while mSwitchNo !=
+// 0): a drawn gull hangs the game in J3DDrawBuffer::draw on non-sea stages
+// (Hyrule, dungeons), so the puppet stays invisible, as it always was. 0xBF
+// is the last dungeon switch (0x80-0xBF, cleared on each stage change), which
+// stages rarely set; param 0 used memory switch 0. Not a zone switch (0xC0+):
+// those look the room's zone up, and a puppet spawned with Link in room -1
+// (Outset arrival) read mStatus[-1] every frame and froze the game. wind#76.
+#define KAMOME_PUPPET_PARAM 0xBFFF0000U
 
 // "Always" archive constants (used as a non-shared model probe for the
 // mini-Link modelEntryDL sky-breakage investigation). mpm_tubo is the
