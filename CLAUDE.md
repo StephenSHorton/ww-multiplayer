@@ -52,6 +52,7 @@ ww-multiplayer/
 │   │   └── rels/                # RELS.arc patcher: the mod's REL in an actor module's place, the profile list repointed, the 64 KB ARAM growth guard;
 │   │                            #   optional in-place byte patches to vanilla RELs (seaheap.go: BytePatch, SeaHeapFix over rel.PatchBytes, checked by inject.CheckOverlaps)
 │   ├── seachart/                # The app's Great Sea chart: island art read from the player's own disc (Fmap.arc tiles, FmapDat.bin, each stage's 2DMA square), upscaled, cached in the config dir; never in git
+│   ├── netem/                   # A shaped TCP proxy (RTT, jitter, loss as retransmit stalls) for internet-condition tests: MP_LOCAL_NETEM, `wwdev netem` (wind#82)
 │   ├── netutil/                 # Address parsing shared by host/join/server; join codes (WW-XXXX-XXXX, joincode.go)
 │   ├── dolphintool/             # Dolphin's DolphinTool beside its Dolphin: probe `convert --help`, RVZ/WIA/GCZ -> temporary ISO (patch's Converter), free space
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors; convert.go: an RVZ/WIA/GCZ input converted first)
@@ -312,6 +313,9 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 #   MP_LOCAL_STOP_FILE=<path>  mp-local stops, with its normal teardown, once that file exists (smoke's child run)
 #   MP_LOCAL_PORT=<n>  mp-local's server port (default 25565); 0 = a free port on 127.0.0.1, named in "Server listening on"
 #                 (one per rig when several rigs share a Mac: docs/mac-rig.md)
+#   MP_LOCAL_NETEM=rtt=150ms,jitter=20ms,loss=1%[,rto=D][,seed=N]  Dolphin B's clients dial mp-local's server through a shaped
+#                 TCP proxy on 127.0.0.1 (internal/netem: delay both ways, jitter without reordering, loss as retransmit stalls), A stays
+#                 on loopback; `wwdev netem <listen> <server> <spec>` runs the same proxy alone for a host and a join (docs/live/wind82)
 # Env knobs honored by `dolphin2` and `auto-recapture` (defaults: wwapi/emu/launch Defaults;
 # DOLPHIN_EXE, ISO_PATH and USER_DIR_1 also override the app's saved settings, as WW_COLOR does):
 #   DOLPHIN_EXE   path to Dolphin (Windows default: %USERPROFILE%\Desktop\Dolphin-x64\Dolphin.exe;

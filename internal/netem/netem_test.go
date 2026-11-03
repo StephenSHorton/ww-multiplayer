@@ -94,7 +94,7 @@ func TestRTT(t *testing.T) {
 			t.Fatalf("round trip %d took %v, want about 60ms", i, d)
 		}
 	}
-	if s := px.Stats(); s.Conns != 1 || s.Chunks != 10 || s.Stalls != 0 {
+	if s := px.Stats(); s.Conns != 1 || s.Chunks != 10 || s.Stalls != 0 || s.Bytes != 40 || s.Up != 20 {
 		t.Fatalf("stats %v", s)
 	}
 }

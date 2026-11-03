@@ -113,6 +113,7 @@ type Stats struct {
 	Conns  int64 // connections accepted
 	Chunks int64 // chunks forwarded, both directions
 	Bytes  int64 // bytes forwarded, both directions
+	Up     int64 // of Bytes, client to server
 	Stalls int64 // retransmit stalls applied
 	// DelaySum is the total delay the chunks were given (send - read),
 	// stalls included; DelaySum/Chunks is the mean one-way delay.
@@ -124,8 +125,8 @@ func (s Stats) String() string {
 	if s.Chunks > 0 {
 		mean = s.DelaySum / time.Duration(s.Chunks)
 	}
-	return fmt.Sprintf("conns %d, chunks %d, bytes %d, stalls %d, mean one-way %v",
-		s.Conns, s.Chunks, s.Bytes, s.Stalls, mean.Round(time.Millisecond))
+	return fmt.Sprintf("conns %d, chunks %d, bytes %d (up %d, down %d), stalls %d, mean one-way %v",
+		s.Conns, s.Chunks, s.Bytes, s.Up, s.Bytes-s.Up, s.Stalls, mean.Round(time.Millisecond))
 }
 
 // Proxy forwards each connection it accepts to To through a shaped link.
@@ -138,6 +139,7 @@ type Proxy struct {
 	conns  atomic.Int64
 	chunks atomic.Int64
 	bytes  atomic.Int64
+	up     atomic.Int64
 	stalls atomic.Int64
 	delay  atomic.Int64
 
@@ -171,6 +173,7 @@ func (px *Proxy) Stats() Stats {
 		Conns:    px.conns.Load(),
 		Chunks:   px.chunks.Load(),
 		Bytes:    px.bytes.Load(),
+		Up:       px.up.Load(),
 		Stalls:   px.stalls.Load(),
 		DelaySum: time.Duration(px.delay.Load()),
 	}
@@ -235,8 +238,8 @@ func (px *Proxy) handle(client net.Conn) {
 	}()
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); px.pipe(server, client, px.seed.Add(1)) }()
-	go func() { defer wg.Done(); px.pipe(client, server, px.seed.Add(1)) }()
+	go func() { defer wg.Done(); px.pipe(server, client, px.seed.Add(1), true) }()
+	go func() { defer wg.Done(); px.pipe(client, server, px.seed.Add(1), false) }()
 	wg.Wait()
 }
 
@@ -247,7 +250,8 @@ type chunk struct {
 }
 
 // pipe copies src to dst through the shaped link, then half-closes dst.
-func (px *Proxy) pipe(dst, src net.Conn, seed uint64) {
+// up is the client-to-server direction.
+func (px *Proxy) pipe(dst, src net.Conn, seed uint64, up bool) {
 	rng := rand.New(rand.NewPCG(seed, seed^0x9E3779B97F4A7C15))
 	p := px.Params
 	oneWay := p.RTT / 2
@@ -294,6 +298,9 @@ func (px *Proxy) pipe(dst, src net.Conn, seed uint64) {
 			last = at
 			px.chunks.Add(1)
 			px.bytes.Add(int64(n))
+			if up {
+				px.up.Add(int64(n))
+			}
 			q <- chunk{data: append([]byte(nil), buf[:n]...), at: at, read: now}
 		}
 		if err != nil {
