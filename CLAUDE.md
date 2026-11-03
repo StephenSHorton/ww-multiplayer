@@ -52,7 +52,7 @@ ww-multiplayer/
 │   │   └── rels/                # RELS.arc patcher: the mod's REL in an actor module's place, the profile list repointed, the 64 KB ARAM growth guard;
 │   │                            #   optional in-place byte patches to vanilla RELs (seaheap.go: BytePatch, SeaHeapFix over rel.PatchBytes, checked by inject.CheckOverlaps)
 │   ├── seachart/                # The app's Great Sea chart: island art read from the player's own disc (Fmap.arc tiles, FmapDat.bin, each stage's 2DMA square), upscaled, cached in the config dir; never in git
-│   ├── netem/                   # A shaped TCP proxy (RTT, jitter, loss as retransmit stalls) for internet-condition tests: MP_LOCAL_NETEM, `wwdev netem` (wind#82)
+│   ├── netem/                   # A shaped TCP proxy (RTT, jitter, loss as retransmit stalls) and its UDP twin (udp.go: real drops) for internet-condition tests: MP_LOCAL_NETEM, `wwdev netem` (wind#82, wind#91)
 │   ├── netutil/                 # Address parsing shared by host/join/server; join codes (WW-XXXX-XXXX, joincode.go)
 │   ├── dolphintool/             # Dolphin's DolphinTool beside its Dolphin: probe `convert --help`, RVZ/WIA/GCZ -> temporary ISO (patch's Converter), free space
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors; convert.go: an RVZ/WIA/GCZ input converted first)
@@ -76,7 +76,7 @@ ww-multiplayer/
 │   └── multiplayer/             # The multiplayer mod (D1): mod.go + mod.json (provides net, PublicAPI ValidatePlayerName), listed in compiledMods()
 │       ├── engine/              # Session core: Engine (session.Engine: host/join/lobby, NewTUIEngine/NewCLIEngine), lobby.go, game.go (the app's Start: Dolphin + pipelines), LiveState, RunHostSession/RunJoinSession, co-op via the seam in coop.go (Coop, CoopApp, LobbyCoop, CoopSide), RunPipelines, server + fake client, color-pref clients; enginetest/ = fake Dolphins
 │       ├── feed/                # Pose pipelines: BroadcastPose, PuppetSync (Feeder: link/actor slot assignment, lerp, arming over wwapi/avatar), PoseFakeLoop
-│       ├── net/                 # package network: TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
+│       ├── net/                 # package network: TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go), the UDP pose transport (udp.go, WW_UDP)
 │       ├── fxsync/              # Projectile events: the REL's outbox -> MsgFx (broadcast-pose), MsgFx -> its inbox, scoped to stage and room (puppet-sync)
 │       ├── boatsync/            # Peer boats: this game's ship as a pose-trailer run (broadcast-pose), the remotes' boats into the REL's boats block (puppet-sync)
 │       ├── playercolor/         # Tunic color palette + --color / WW_COLOR parsing (docs/09)
@@ -117,7 +117,7 @@ ww-multiplayer/
     ├── 01-architecture.md, 02-dolphin-memory.md, 03-code-injection.md
     ├── 04-ww-addresses.md, 05-known-issues.md, 06-history.md
     ├── 07-bettersunshine-research.md (Kuribo/BetterSunshineEngine notes, input to docs/api Phase E)
-    ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md, 11-self-hosting.md (the dedicated server: Tailscale, port forwarding, owner key, status, Docker)
+    ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md, 11-self-hosting.md (the dedicated server: Tailscale, port forwarding, owner key, status, Docker), 12-udp-pose.md (WW_UDP)
     ├── coop-remaining.md        # what is left for a whole-game co-op run: blockers, owed live checks, release, polish (as of a named main)
     ├── mac-rig.md               # the macOS test rig: MEM1 override, Mac start save, screenshots, hotkeys, dolphin-slot leases
     ├── api/                     # the modding API: 00-design, 01-events, 02-mods, 03-writing-a-mod
@@ -293,6 +293,9 @@ WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server 
                                             #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)
 WW_LAN_PORT=<n>                             # App only: LAN discovery's UDP beacon port (default 25565; docs/10-lobby.md §10)
 WW_LAN=off                                  # App only: no LAN discovery (no beacon, no listening)
+WW_UDP=1                                    # Server and clients (host, join, server, the app, mp-local): positions and poses as UDP datagrams with
+                                            #   sequence numbers, newest wins, on the TCP port + 1 (wind#91, mods/multiplayer/net/udp.go, docs/12-udp-pose.md).
+                                            #   Default off. A client whose PING gets no PONG within 3 s, or a server without it, stays on TCP
 WW_RELAY_SCOPE=off                          # Server (host, server, mp-local): no relay scoping (mods/multiplayer/net/place.go). Default on: a pose goes only to the
                                             #   puppet-sync connections in the sender's stage (by the place trailer on its positions), never to a broadcaster; an enemy
                                             #   STATE goes as its header alone to an enemy client whose PSTATE names another stage or room. Unknown places fail open
@@ -319,7 +322,8 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 #   MP_LOCAL_PORT=<n>  mp-local's server port (default 25565); 0 = a free port on 127.0.0.1, named in "Server listening on"
 #                 (one per rig when several rigs share a Mac: docs/mac-rig.md)
 #   MP_LOCAL_NETEM=rtt=150ms,jitter=20ms,loss=1%[,rto=D][,seed=N]  Dolphin B's clients dial mp-local's server through a shaped
-#                 TCP proxy on 127.0.0.1 (internal/netem: delay both ways, jitter without reordering, loss as retransmit stalls), A stays
+#                 TCP proxy on 127.0.0.1 (internal/netem: delay both ways, jitter without reordering, loss as retransmit stalls; beside it, on the
+#                 proxy's port + 1, a UDP proxy toward the server's port + 1 that really drops and may reorder, for WW_UDP), A stays
 #                 on loopback; `wwdev netem <listen> <server> <spec>` runs the same proxy alone for a host and a join (docs/live/wind82)
 #   MP_WIRE_STATS=<secs>  mp-local's server counts each connection's frames (network.WireStats, wind#84) and logs a [wire] line per player
 #                 every <secs>: up and down kbit/s, then each stream (pose, pos, enemy/STATE, coop/0x03, ...) biggest first; the run's totals at teardown

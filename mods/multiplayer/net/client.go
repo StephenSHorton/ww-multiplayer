@@ -56,6 +56,12 @@ type RemotePlayer struct {
 	// message, so a GetRemotePlayers snapshot may keep it.
 	Recent []Sample
 	seq    uint64
+	// udpOn, udpLast and udpOff map a UDP sender's frame seq onto Seq
+	// (udp.go): Seq = wire seq + udpOff. A TCP sample clears udpOn, so
+	// the next UDP frame sets the offset again and Seq keeps rising.
+	udpOn   bool
+	udpLast uint32
+	udpOff  int64
 }
 
 // RecentCap is how many samples RemotePlayer.Recent keeps: about 0.8 s at
@@ -80,6 +86,7 @@ type Sample struct {
 // addSample appends a position to rp.Recent, as a new slice.
 func (rp *RemotePlayer) addSample(pos *PlayerPosition, at time.Time) {
 	rp.seq++
+	rp.udpOn = false
 	keep := rp.Recent
 	if len(keep) >= RecentCap {
 		keep = keep[len(keep)-RecentCap+1:]
@@ -140,6 +147,8 @@ type Client struct {
 	lastRTT       atomic.Int64  // last measured round-trip, nanoseconds
 	serverEpoch   atomic.Uint64 // server boot epoch from the welcome
 	stopHeartbeat chan struct{} // closed by Disconnect to stop the ticker
+	// udp is this connection's UDP side (udp.go), nil while it has none.
+	udp *udpLink
 
 	// Timing captured at construction so the read/heartbeat goroutines never
 	// read the package-level tunables directly (which tests retune). The
@@ -220,7 +229,16 @@ func NewClient(name string) *Client {
 		writeTimeout:   writeTimeout,
 		dialTimeout:    dialTimeout,
 		dialContext:    (&net.Dialer{}).DialContext,
+		caps:           udpCapFromEnv(),
 	}
+}
+
+// udpCapFromEnv is CapUDP when WW_UDP is on (udp.go).
+func udpCapFromEnv() uint16 {
+	if UDPFromEnv() {
+		return CapUDP
+	}
+	return 0
 }
 
 // SkipSelfEcho asks the server, in this player client's hello, not to
@@ -292,10 +310,12 @@ func (c *Client) ConnectContext(ctx context.Context, addr string) error {
 	prevEpoch := c.serverEpoch.Swap(epoch)
 
 	stop := make(chan struct{})
+	udp := c.startUDP(conn, msg.Data)
 	c.mu.Lock()
 	c.myID = id
 	c.conn = conn
 	c.stopHeartbeat = stop
+	c.udp = udp
 	if prevEpoch != 0 && epoch != prevEpoch {
 		// The server restarted: it hands out IDs afresh, so every remote
 		// we hold is stale, and one may even carry the ID we now have.
@@ -317,6 +337,9 @@ func (c *Client) ConnectContext(ctx context.Context, addr string) error {
 
 	go c.readLoop(conn)
 	go c.heartbeatLoop(conn, stop)
+	if udp != nil {
+		udp.start(c, stop)
+	}
 	return nil
 }
 
@@ -330,7 +353,11 @@ func (c *Client) handshake(conn net.Conn) (*Message, error) {
 	if c.writeTimeout > 0 {
 		conn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
 	}
-	if err := writeJoinRole(conn, c.name, c.role, c.caps, c.colorPref, c.mods.hashPtr()); err != nil {
+	caps := c.caps
+	if c.role != RolePlayer {
+		caps &^= CapUDP // caps mean something per role; CapUDP is a player's
+	}
+	if err := writeJoinRole(conn, c.name, c.role, caps, c.colorPref, c.mods.hashPtr()); err != nil {
 		return nil, fmt.Errorf("send join: %w", err)
 	}
 
@@ -364,6 +391,7 @@ func (c *Client) Disconnect() {
 	stop := c.stopHeartbeat
 	c.conn = nil
 	c.stopHeartbeat = nil
+	c.udp = nil
 	c.mu.Unlock()
 	if stop != nil {
 		close(stop)
