@@ -187,11 +187,16 @@ var ErrNotOurCopy = errors.New("not a prepared copy")
 
 // MacCopyIsOurs says whether a Dolphin.app whose `codesign -d -vvv` output
 // and CFBundleIdentifier are these is a prepared copy, which PrepareMac
-// may replace and UnprepareMac may remove: it has MacBundleID, or no
-// hardened runtime (a copy re-signed by an older setup script, before it
-// set the bundle ID). A stock Dolphin someone installed there has neither.
+// may replace and UnprepareMac may remove: it has MacBundleID, or codesign
+// read its signature (a flags line) and it has no hardened runtime (a copy
+// re-signed by an older setup script, before it set the bundle ID). A
+// stock Dolphin someone installed there has neither; a signature codesign
+// couldn't read proves nothing, so it never counts as ours on its own.
 func MacCopyIsOurs(codesignOut, bundleID string) bool {
-	return strings.TrimSpace(bundleID) == MacBundleID || !HasHardenedRuntime(codesignOut)
+	if strings.TrimSpace(bundleID) == MacBundleID {
+		return true
+	}
+	return CodesignFlags(codesignOut) != "" && !HasHardenedRuntime(codesignOut)
 }
 
 // checkOurCopy returns nil when dst doesn't exist or is a prepared copy
@@ -202,7 +207,10 @@ func checkOurCopy(r Runner, dst string) error {
 		return nil
 	}
 	signCmd, idCmd := MacVerify(dst)
-	sig, _ := r.Run(signCmd[0], signCmd[1:]...)
+	sig, err := r.Run(signCmd[0], signCmd[1:]...)
+	if err != nil {
+		sig = nil // a failed codesign proves nothing
+	}
 	id, _ := r.Run(idCmd[0], idCmd[1:]...)
 	if MacCopyIsOurs(string(sig), string(id)) {
 		return nil

@@ -325,7 +325,7 @@ func TestPrepareMac(t *testing.T) {
 	}{
 		{&fakeRunner{signature: "CodeDirectory flags=0x10000(runtime)", bundleID: MacBundleID}, "hardened runtime still set"},
 		{&fakeRunner{signature: r.signature, bundleID: "org.dolphin-emu.dolphin"}, "bundle ID is org.dolphin-emu.dolphin"},
-		{&fakeRunner{fail: "codesign"}, "codesign: exit status 1: boom"},
+		{&fakeRunner{fail: "codesign", bundleID: MacBundleID}, "codesign: exit status 1: boom"},
 		{&fakeRunner{fail: "cp"}, "cp: exit status 1"},
 	} {
 		if err := PrepareMac(&lines{}, c.r, src, dst); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -411,6 +411,11 @@ func TestPrepareMacLeavesAForeignDolphin(t *testing.T) {
 	if err := UnprepareMac(&lines{}, stock, dst); !errors.Is(err, ErrNotOurCopy) {
 		t.Fatalf("unprepare: got %v", err)
 	}
+	// codesign failing on it is no reason to call it ours.
+	broken := &fakeRunner{fail: "codesign", bundleID: "org.dolphin-emu.dolphin"}
+	if err := UnprepareMac(&lines{}, broken, dst); !errors.Is(err, ErrNotOurCopy) {
+		t.Fatalf("unprepare, codesign failing: got %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(dst, "theirs")); err != nil {
 		t.Errorf("the foreign Dolphin was touched: %v", err)
 	}
@@ -430,6 +435,9 @@ func TestMacCopyIsOurs(t *testing.T) {
 		{"CodeDirectory flags=0x10000(runtime)", MacBundleID, true},         // ours, re-sign failed: Prepare again
 		{"CodeDirectory flags=0x2(adhoc)", "org.dolphin-emu.dolphin", true}, // an older script's copy
 		{"CodeDirectory flags=0x10000(runtime)", "org.dolphin-emu.dolphin", false},
+		{"", "org.dolphin-emu.dolphin", false},     // codesign read nothing: not proof
+		{"boom", "org.dolphin-emu.dolphin", false}, // codesign failed
+		{"", "", false},
 	} {
 		if got := MacCopyIsOurs(c.sig, c.id); got != c.want {
 			t.Errorf("%q %q: %v", c.sig, c.id, got)
