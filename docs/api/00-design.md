@@ -59,7 +59,7 @@ The plan:
 
  0x8040EFC0   original __ArenaLo (vanilla)
  0x80410000   T2 code start (injected .text/.data/.bss)
- 0x80413428   T2 end since wind#90 (the C runtime's rings, src/core/ops.c) -> 0xBD8 bytes free below the API region; T2's budget ends at 0x80414000
+ 0x80413408   T2 end since wind#90 (the C runtime's rings, src/core/ops.c) -> 0xBF8 bytes free below the API region; T2's budget ends at 0x80414000
  0x80414000   API region (inject/include/wwops.h, wind#90): 'WWAP' header and directory, event ring, command queue (to +0x260);
               the co-op world region at +0x300..+0xF00 (0x80414300..0x80414F00, reserved for co-op M7's image)
               (before wind#90: T2 end 0x80412D08 -> 0x21F8 bytes free below the mailbox since wind#80 moved it +0x2000 (issue #130; 0x1F8 before, 0x258 with the REL loader, T2 end 0x80412CA8; 0x478 after F20, T2 end 0x80412A88; 0x538 after F19; 0x478 after E3; 0x958 after E1/E2; 0x978 after E0; 0x18 before E0, T2 end 0x80412EE8))

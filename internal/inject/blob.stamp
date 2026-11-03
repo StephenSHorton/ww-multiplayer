@@ -4,7 +4,7 @@
 # (internal/inject/blobstamp). Do not edit by hand.
 # Any PR that edits inject/src, inject/include or inject/build.py,
 # comment-only edits included, must carry its own restamp.
-blob 640caa8de6423b0bc0625e5e3bf705a2dc324091310006dc553794ff82eca549
+blob 1c2ef3aa95661159c50a3a0212c742ca1c36465a96b8f72512b8f548d30c2342
 rel 6a5f2374bf502e9ac79d889738f995596af7a473c88f1a6682112c123f63dfff
 input daa916cb60f71e9b52f1bcf7b9149e4207ba462d749d6942f47074b78e08618c inject/build.py
 input 01cf31e1974c9962b6700d08844bd52f5a752fd1e12167bbe6a8952a215905bc inject/include/mailbox_core.h
@@ -46,7 +46,7 @@ input 32df1f557c552c5b2cb3a8763572c75b8771188041a941ebd0c9e8ad1bbd18ed inject/re
 input fcba321b9b385956cf630842621996d3ff6bd2303f827cccddb511d87b402db5 inject/src/core/core.h
 input 0a2472b2109b69da0ea86725143f0520fc65f1e6dcf29b219767fc142b8c59ca inject/src/core/hooks.c
 input b4a5a64284a925caad7c5bca915b34921f8989afedaf488c0890aee90bf28f64 inject/src/core/mods.h
-input f98aad57ec77d68c7adcfe6b1d45fd3d6a8c8f25f7b9ee4c9af04808504c0f6e inject/src/core/ops.c
+input 6e38de29afea4e78be4ecc4fc23ad6e4d4095e4bf2143edf59e80623599c3df1 inject/src/core/ops.c
 input 4fd4bda010ac4fcea66e26bb0f16144423a121ff25d3960260c8e78e74ee2528 inject/src/core/services.c
 input 2fb3e8e74e3ac4b3a6e2c7a1749e85669158283d7210a4142803c387f4e75135 inject/src/mp/face.c
 input 868c4f0b0bc815088b3616c73daae21763be72df7feba29a653f88ebed017e60 inject/src/mp/minilink.c

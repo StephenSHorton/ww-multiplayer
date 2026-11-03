@@ -78,7 +78,7 @@ static u32 op_kill(u32 pid, u32 proc, u32 set_id) {
         return WWAP_R_REFUSED;
     if (pid == fpcM_ERROR_PROCESS_ID_e || !fopAcM_SearchByID(pid, &act) || !act)
         return WWAP_R_NOTFOUND;
-    for (i = 0; i < 4; i++)
+    for (i = 0; i < 3; i++)   // mpPlayerPtr[3]: Link, the companion, the ship
         if (PLAYER_PTR_ARRAY[i] == act)
             return WWAP_R_REFUSED;
     if (ACTOR_PROC_NAME(act) != (s16)proc || (set_id != 0xFFFFFFFFU && ACTOR_SET_ID(act) != (u16)set_id))
