@@ -14,8 +14,8 @@ import (
 // visuals block. Go (multiplayer's boatsync) writes the magic, the flags
 // and the entries; the REL writes its two counters.
 const (
-	BoatOff  uint32 = 0x9E4 // block start, from Mailbox (0x804138E4)
-	BoatSize uint32 = 0x88  // ends +0xA6C (0x8041396C), where CanaryArenaHigh starts
+	BoatOff  uint32 = 0x9E4 // block start, from Mailbox (0x804158E4)
+	BoatSize uint32 = 0x88  // ends +0xA6C (0x8041596C), where CanaryArenaHigh starts
 
 	BoatMagicOff     = 0x00 // u32 Go: BoatMagic, 0 = off
 	BoatFlagsOff     = 0x04 // u32 Go: BoatF*
@@ -58,7 +58,7 @@ const (
 	BoatErrSail  = 3
 )
 
-// BoatAddr is the block's absolute address (0x804138E4).
+// BoatAddr is the block's absolute address (0x804158E4).
 const BoatAddr = Mailbox + BoatOff
 
 // BoatRegion is the peer boats block. Go writes it every tick and the REL

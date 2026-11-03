@@ -37,7 +37,7 @@ func TestFxHeaderPins(t *testing.T) {
 // events; the high canary ends where it starts; the copy bit is none of
 // daBomb_c's params fields (d_a_bomb.h:149-160).
 func TestFxLayout(t *testing.T) {
-	if FxAddr != 0x80413D50 || FxOff+FxSize != RefreshSlackEnd || Mailbox+FxOff+FxSize != PatchedArenaLo || FxOff < VisOff+VisSize {
+	if FxAddr != 0x80415D50 || FxOff+FxSize != RefreshSlackEnd || Mailbox+FxOff+FxSize != PatchedArenaLo || FxOff < VisOff+VisSize {
 		t.Fatalf("projectile block at +0x%X (0x%08X), size 0x%X", FxOff, FxAddr, FxSize)
 	}
 	if FxStatClearedOff+4 != FxOutRingOff || FxOutRingOff+FxRing*FxEvSize != FxInRingOff || FxInRingOff+FxRing*FxEvSize != int(FxSize) {

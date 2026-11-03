@@ -33,7 +33,7 @@ func TestBoatHeaderPins(t *testing.T) {
 // an entry's fields tile an entry, and the high canary starts at its end
 // and stops at the eye packets.
 func TestBoatLayout(t *testing.T) {
-	if BoatOff != VisOff+VisSize || BoatAddr != 0x804138E4 || BoatOff+BoatSize > MpEyePacketsOff {
+	if BoatOff != VisOff+VisSize || BoatAddr != 0x804158E4 || BoatOff+BoatSize > MpEyePacketsOff {
 		t.Fatalf("boats block at +0x%X (0x%08X), size 0x%X", BoatOff, BoatAddr, BoatSize)
 	}
 	if BoatStatErrOff+4 != BoatEntriesOff || BoatEntriesOff+BoatMax*BoatESize != int(BoatSize) {

@@ -25,7 +25,7 @@ import (
 // seq the slack holds (ack = seq, result BossRNone), so a stale request is
 // never run and one that raced a relink comes back as BossRNone.
 const (
-	BossOff  uint32 = 0x510 // request start, from Mailbox (0x80413410)
+	BossOff  uint32 = 0x510 // request start, from Mailbox (0x80415410)
 	BossSize uint32 = 0x10  // ends at RemoteOff
 
 	BossSeqOff    = 0x00 // u32 request seq, never 0 (Go)

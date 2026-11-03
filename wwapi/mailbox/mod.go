@@ -36,7 +36,7 @@ const (
 
 	// PatchedArenaLo is the __OSArenaLo the patched OSInit computes
 	// (addi r3,r3,0x4000 at 0x80301820, inject/build.py:144).
-	PatchedArenaLo uint32 = 0x80414000
+	PatchedArenaLo uint32 = ArenaLo
 )
 
 // Memory the M0 region probe arms with canaries and checks after boot,

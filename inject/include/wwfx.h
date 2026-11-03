@@ -12,7 +12,7 @@
 // comment`, a plain decimal or hex number: no expressions, no negatives.
 //
 // Place: the top 0x2B0 bytes of the free slack, MAILBOX_ADDR + 0xE50
-// (0x80413D50) up to the arena (+0x1100, 0x80414000; wwrefresh.h
+// (0x80415D50) up to the arena (+0x1100, 0x80416000; wwrefresh.h
 // WWRF_SLACK_END). The mini-Links' eye packets (mailbox_mp.h
 // MP_EYE_PACKETS_OFF, +0xD00..+0xE50) sit right below it, and the free span
 // below those (+0x9E4..+0xD00, the region probe's CanaryArenaHigh) stays in
@@ -60,7 +60,7 @@
 #ifndef WW_WWFX_H
 #define WW_WWFX_H
 
-#define WWFX_OFF                0xE50       // block start, from MAILBOX_ADDR (0x80413D50)
+#define WWFX_OFF                0xE50       // block start, from MAILBOX_ADDR (0x80415D50)
 #define WWFX_SIZE               0x2B0       // ends +0x1100, the arena (WWRF_SLACK_END)
 
 #define WWFX_SEND_MAGIC_OFF     0x00        // u32 Go (broadcast-pose): WWFX_MAGIC = report, 0 = off

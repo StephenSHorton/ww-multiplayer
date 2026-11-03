@@ -45,12 +45,15 @@
 //   v3 (mod ~0x900 B): 0x80410908. Broke when mod grew past 0x900.
 //   v4 (mod ~0x9A8 B): 0x80410F08 @ __OSArenaLo = 0x80411000.
 //   v5 (mod ~0x11C8 B): 0x80411F08 @ __OSArenaLo = 0x80412000.
-//   v6 (current, mod ~0x1FC8 B): 0x80412F08 @ __OSArenaLo = 0x80413000.
+//   v6 (mod ~0x1FC8 B): 0x80412F08 @ __OSArenaLo = 0x80413000 (0x80414000 later).
 //       Eye-fix recipe pushed .text past 0x80411F00, so the whole
 //       mailbox + __OSArenaLo pair shifted up by another 0x1000. See
 //       inject/build.py for the matching OSInit patch.
-// MUST match the `lwz 12, 0x2F08(12)` offset in frame_shim asm below.
-#define CALLBACK_PTR_ADDR 0x80412F08
+//   v7 (current, T2 0x2D08 B): 0x80414F08 @ __OSArenaLo = 0x80416000
+//       (wind#80: room for co-op M7's code below the mailbox).
+// MUST match the `lwz 12, 0x4F08(12)` offset in frame_shim asm below.
+#define CALLBACK_PTR_ADDR 0x80414F08
+_Static_assert(CALLBACK_PTR_ADDR == MAILBOX_ADDR + 8, "frame_shim reads the callback at mailbox+0x08");
 
 static int frame_count = 0;
 
@@ -155,7 +158,7 @@ void frame_shim(void) {
 
         // --- multiplayer_update ---
         "lis   12, 0x8041       \n"
-        "lwz   12, 0x2F08(12)   \n"  // = CALLBACK_PTR_ADDR (mailbox+0x08) = 0x80412F08
+        "lwz   12, 0x4F08(12)   \n"  // = CALLBACK_PTR_ADDR (mailbox+0x08) = 0x80414F08
         "cmpwi 12, 0            \n"
         "beq-  1f               \n"
         "mtctr 12               \n"
@@ -195,8 +198,8 @@ void frame_shim(void) {
 // while an execute is in flight; _prolog writes the word last and _epilog
 // clears it first (rel_main.c).
 //
-// MUST match the `lwz 12, 0x30BC(12)` offset in exec_shim asm below.
-#define EXEC_HOOK_PTR_ADDR 0x804130BC
+// MUST match the `lwz 12, 0x50BC(12)` offset in exec_shim asm below.
+#define EXEC_HOOK_PTR_ADDR 0x804150BC
 _Static_assert(EXEC_HOOK_PTR_ADDR == MAILBOX_ADDR + WWREL_EXEC_HOOK_OFF,
                "exec_shim's lwz offset must load mailbox+WWREL_EXEC_HOOK_OFF");
 _Static_assert((EXEC_HOOK_PTR_ADDR >> 16) == 0x8041 && (EXEC_HOOK_PTR_ADDR & 0x8000) == 0,
@@ -207,7 +210,7 @@ __attribute__((naked))
 void exec_shim(void) {
     asm volatile(
         "lis   12, 0x8041       \n"
-        "lwz   12, 0x30BC(12)   \n"  // = EXEC_HOOK_PTR_ADDR (mailbox+0x1BC) = 0x804130BC
+        "lwz   12, 0x50BC(12)   \n"  // = EXEC_HOOK_PTR_ADDR (mailbox+0x1BC) = 0x804150BC
         "cmpwi 12, 0            \n"
         "beq-  1f               \n"
         "mtctr 12               \n"
@@ -236,8 +239,8 @@ void exec_shim(void) {
 // the same kind of call (GameMod/src/patches/seachart_players.asm, MIT);
 // we replace the bl instead, as our other hooks do. 15 instructions.
 //
-// MUST match the `lwz 12, 0x37D4(12)` offset in seachart_shim asm below.
-#define SEACHART_FN_PTR_ADDR 0x804137D4
+// MUST match the `lwz 12, 0x57D4(12)` offset in seachart_shim asm below.
+#define SEACHART_FN_PTR_ADDR 0x804157D4
 _Static_assert(SEACHART_FN_PTR_ADDR == MAILBOX_ADDR + WWVIS_OFF + WWVIS_SEACHART_FN_OFF,
                "seachart_shim's lwz offset must load the visuals block's sea chart word");
 _Static_assert((SEACHART_FN_PTR_ADDR >> 16) == 0x8041 && (SEACHART_FN_PTR_ADDR & 0x8000) == 0,
@@ -255,7 +258,7 @@ void seachart_shim(void) {
         "mtctr 12               \n"
         "bctrl                  \n"  // scrn->draw(0, 0, port): r3/f1/f2/r4 as the caller set them
         "lis   12, 0x8041       \n"
-        "lwz   12, 0x37D4(12)   \n"  // = SEACHART_FN_PTR_ADDR (mailbox+0x8D4) = 0x804137D4
+        "lwz   12, 0x57D4(12)   \n"  // = SEACHART_FN_PTR_ADDR (mailbox+0x8D4) = 0x804157D4
         "cmpwi 12, 0            \n"
         "beq-  1f               \n"
         "mr    3, 30            \n"  // dDlst_FMAP_c* this

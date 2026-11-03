@@ -313,7 +313,7 @@ func (v *fgU32) UnmarshalText(t []byte) error {
 }
 
 // fgBodyStatus is body_status[i] (WWREMOTE_BODY_STATUS_OFF 0x1F8 of the
-// block at 0x80413420, 0x10 each).
+// block at 0x80415420, 0x10 each).
 type fgBodyStatus struct {
 	Actor      fgU32  `json:"actor"`
 	PID        uint32 `json:"pid"`

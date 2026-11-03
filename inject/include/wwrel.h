@@ -6,7 +6,7 @@
 // RELFrameOff), so keep each on one line in this exact form.
 //
 // The Mailbox struct (mailbox_core.h) ends at MAILBOX_ADDR + 0x1B0 and
-// __OSArenaLo is 0x80414000 (inject/build.py), so 0xF50 bytes past the
+// __OSArenaLo is 0x80416000 (inject/build.py), so 0xF50 bytes past the
 // struct belong to nobody; the module uses the first six words. T2's
 // exec_shim (the bl fpcMtd_Execute site in fopAc_Execute) reads the
 // fourth, WWREL_EXEC_HOOK_OFF, and branches to it when non-zero (remote-

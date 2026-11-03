@@ -1,6 +1,6 @@
 // Shared memory mailbox for communication between the Go host and the
 // injected PPC code. Lives in the orphan region between our T2 code
-// and __OSArenaLo (0x80414000): outside any DOL section, outside the
+// and __OSArenaLo (ARENA_LO, 0x80416000): outside any DOL section, outside the
 // game's arena, nothing else touches it.
 //
 // Phase E3 split the old mailbox.h in two with every offset unchanged:
@@ -14,7 +14,7 @@
 
 #include "wwapi.h"
 
-// History: 0x80410800 → 0x80410900 → 0x80410F00 → 0x80411F00 → 0x80412F00.
+// History: 0x80410800 → 0x80410900 → 0x80410F00 → 0x80411F00 → 0x80412F00 → 0x80414F00.
 // Every time we add injected code the mod end crept up and crossed the
 // mailbox address, corrupting game instructions. 0x80410F00 fell inside
 // .text once the mini-Link / echo-ring code pushed mod size past 0x0F00.
@@ -37,7 +37,21 @@
 // against the arena, so we can add a few more diagnostic fields here
 // without revisiting build.py. MAILBOX_ADDR itself stays at
 // 0x80412F00 (no struct-offset breakage on the Go side).
-#define MAILBOX_ADDR 0x80412F00
+//
+// 2026-11-02 (wind#80, issue #130): co-op M7 needs about 0x700 bytes
+// of code and T2 ended at 0x80412D08, 0x1F8 below the mailbox. The
+// mailbox's blocks (enemy, boss, remote, refresh, visuals, boats, fx)
+// by then filled mailbox+0x000..+0x1100 up to the arena. Bumped
+// __OSArenaLo by 8 KB to 0x80416000 and moved the mailbox +0x2000 to
+// 0x80414F00, so every mailbox-relative offset is unchanged and the
+// blocks still end at the arena. Free code space: T2 end..0x80414F00.
+#define MAILBOX_ADDR 0x80414F00
+
+// ARENA_LO is the __OSArenaLo the patched OSInit sets (inject/build.py:
+// lis r3,0x8041; addi r3,r3,0x6000). Everything mailbox-relative must
+// end at or below it; the static asserts in the C units check that.
+// TestT2EndsBelowMailbox checks build.py's immediates against it (via wwapi/mailbox.ArenaLo).
+#define ARENA_LO 0x80416000
 
 // The WWMB header (Phase E1) main01_init writes at mailbox +0x180, and
 // the features word at +0x1A0. Bump WWMB_LAYOUT on any change to the

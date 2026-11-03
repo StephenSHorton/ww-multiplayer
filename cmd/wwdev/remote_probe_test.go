@@ -166,7 +166,7 @@ func TestRemoteWatch(t *testing.T) {
 	}
 	s := out.String()
 	for _, want := range []string{
-		"remote-Link block at 0x80413420 (0x330 bytes), hook words at 0x804130BC/0x804130C0",
+		"remote-Link block at 0x80415420 (0x330 bytes), hook words at 0x804150BC/0x804150C0",
 		"m714 at mo2+0xD28",
 		"policy (1): 0x00BD ALLOW",
 		"exec_hook 0x80500000 swap_state 0x80C80458 (keeper 0x80C80000 proc 0x00B5 ok)",

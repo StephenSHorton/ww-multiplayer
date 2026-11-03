@@ -158,7 +158,7 @@ func TestRefreshPlace(t *testing.T) {
 		t.Fatalf("actor_refresh +0x%X..+0x%X, want right after the knob table (+0x%X) and below +0x%X",
 			RefreshOff, RefreshOff+RefreshSize, EnemyKnobOff+EnemyKnobSize, RefreshSlackEnd)
 	}
-	if RefreshAddr != 0x804137B0 || RefreshRegion.End != 0x804137D0 || VisRegion.Start != RefreshRegion.End {
+	if RefreshAddr != 0x804157B0 || RefreshRegion.End != 0x804157D0 || VisRegion.Start != RefreshRegion.End {
 		t.Fatalf("actor_refresh %#x..%#x, visuals block from %#x", RefreshRegion.Start, RefreshRegion.End, VisRegion.Start)
 	}
 	for _, c := range []struct{ s, e uint32 }{{CanaryArena.Start, CanaryArena.End}, {CanaryArenaHigh.Start, CanaryArenaHigh.End}, {CanaryTRK.Start, CanaryTRK.End}} {

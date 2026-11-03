@@ -26,7 +26,7 @@ import (
 const (
 	RefreshEnable = 1 // WWREFRESH_ENABLE, the REL's compile switch
 
-	RefreshOff        uint32 = 0x8B0  // request start, from Mailbox (0x804137B0)
+	RefreshOff        uint32 = 0x8B0  // request start, from Mailbox (0x804157B0)
 	RefreshSize       uint32 = 0x20   // ends at +0x8D0, where the visuals block starts (vis.go VisOff)
 	RefreshSlackEnd   uint32 = 0x1100 // the free slack's end (wwremote.h)
 	RefreshSeqOff            = 0x00   // u32 request seq, never 0 (Go)

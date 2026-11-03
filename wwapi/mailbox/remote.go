@@ -54,8 +54,8 @@ const (
 
 const (
 	RemoteMagic           uint32 = 0x57575250 // 'WWRP'
-	RemoteOff             uint32 = 0x520      // block start, from Mailbox (0x80413420)
-	RemoteSize            uint32 = 0x330      // whole block, ends +0x850 (0x80413750)
+	RemoteOff             uint32 = 0x520      // block start, from Mailbox (0x80415420)
+	RemoteSize            uint32 = 0x330      // whole block, ends +0x850 (0x80415750)
 	RemoteLayout          uint16 = 1          // u16 at +0x08: bump on any layout change
 	RemoteRegionStart     uint32 = 0x510      // what remote-Link owns, from Mailbox: EnemyRegionEnd..
 	RemoteRegionEnd       uint32 = 0x850      // ..RemoteOff + RemoteSize
@@ -421,7 +421,7 @@ const (
 
 )
 
-// RemoteBlockAddr is the block's address (0x80413420).
+// RemoteBlockAddr is the block's address (0x80415420).
 const RemoteBlockAddr = Mailbox + RemoteOff
 
 // RemoteSlotAddr is the address of field off (a RemoteSL* offset) in slot i.

@@ -228,7 +228,7 @@ func TestBuildPyMatchesBlob(t *testing.T) {
 }
 
 // TestFrameShimLoadsCallbackSlot: frame_shim's hand-written
-// `lis 12, 0x8041; lwz 12, 0x2F08(12)` is the one place the mailbox
+// `lis 12, 0x8041; lwz 12, 0x4F08(12)` is the one place the mailbox
 // address is baked into PPC code. It must load CALLBACK_PTR_ADDR, which
 // must be MAILBOX_ADDR+8, and the committed blob must contain that pair.
 func TestFrameShimLoadsCallbackSlot(t *testing.T) {
@@ -305,7 +305,7 @@ func TestExecShimLoadsHookSlot(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("blob.go T2Bytes has no exec_shim run (lis/lwz 0x30BC, cmpwi, beq, bctr, fpcMtd_Execute fallback): the blob is stale against hooks.c")
+		t.Error("blob.go T2Bytes has no exec_shim run (lis/lwz 0x50BC, cmpwi, beq, bctr, fpcMtd_Execute fallback): the blob is stale against hooks.c")
 	}
 }
 

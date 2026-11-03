@@ -364,12 +364,12 @@ func TestMtExecTextMiss(t *testing.T) {
 	}
 }
 
-// TestRegionProbeCoversRefresh: P0-L5's span 0x804137B0..0x804137D0
+// TestRegionProbeCoversRefresh: P0-L5's span 0x804157B0..0x804157D0
 // (the refresh block, R-D4) passed, so G-D5 moved CanaryArenaHigh past it:
 // the block is now mailbox.RefreshRegion, which region-probe never arms
 // (canaryForbidden lists it) and no canary region covers.
 func TestRegionProbeCoversRefresh(t *testing.T) {
-	const start, end = uint32(0x804137B0), uint32(0x804137D0)
+	const start, end = uint32(0x804157B0), uint32(0x804157D0)
 	if mailbox.Mailbox+0x8B0 != start || mailbox.RefreshRegion.Start != start || mailbox.RefreshRegion.End != end {
 		t.Fatalf("the refresh block moved: mailbox 0x%08X, %+v", mailbox.Mailbox, mailbox.RefreshRegion)
 	}

@@ -367,7 +367,7 @@ void mp_frame(fopAc_ac_c* link) {
 enum { MY_PKT_ON_CUP_OFF1, MY_PKT_ON_CUP_OFF2, MY_PKT_OFF_CUP_ON1, MY_PKT_OFF_CUP_ON2, MY_PKT_COUNT };
 #define my_packets ((u32 (*)[MY_PKT_COUNT][MY_PACKET_SIZE / 4])(MAILBOX_ADDR + MP_EYE_PACKETS_OFF))
 _Static_assert(MAX_REMOTE_LINKS * MY_PKT_COUNT * MY_PACKET_SIZE <= MP_EYE_PACKETS_SIZE &&
-               (MP_EYE_PACKETS_OFF & 3) == 0 && MAILBOX_ADDR + MP_EYE_PACKETS_OFF + MP_EYE_PACKETS_SIZE <= 0x80414000,
+               (MP_EYE_PACKETS_OFF & 3) == 0 && MAILBOX_ADDR + MP_EYE_PACKETS_OFF + MP_EYE_PACKETS_SIZE <= ARENA_LO,
                "mailbox_mp.h MP_EYE_PACKETS_* must hold every slot's eye packets below __OSArenaLo");
 // ... and between the visuals and peer boats blocks and the projectile
 // events block, which the REL and Go write (wwvis.h, wwboat.h, wwfx.h), so

@@ -1215,7 +1215,7 @@ func regionArmWarning() string {
 		fmt.Fprintf(&b, "  %-12s 0x%08X-0x%08X (0x%X bytes)\n", r.Name, r.Start, r.End, r.Size())
 	}
 	b.WriteString("Both are free only by inference (docs/08 §4.5). If anything does use them, the game can\n")
-	b.WriteString("crash or misbehave. Nothing else is written: never T2 (0x80410000), the mailbox (0x80412F00)\n")
+	b.WriteString("crash or misbehave. Nothing else is written: never T2 (0x80410000), the mailbox (0x80414F00)\n")
 	b.WriteString("or the arena. A save state loaded afterwards restores the old RAM and wipes the canaries.\n")
 	return b.String()
 }

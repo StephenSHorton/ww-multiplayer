@@ -72,8 +72,8 @@ func TestMailboxLayout(t *testing.T) {
 		t.Errorf("pose arrays end at +0x%X (pose_publish +0x%X), face_state at +0x%X (face_seqs +0x%X)",
 			OffPoseSeqs+LenPoseSeqs, OffPosePublishPtr, OffFaceState+LenFaceState*FaceStateSize, OffFaceSeqs)
 	}
-	// The mailbox (0x80412F00) must end below the docs/08 co-op region
-	// at +0x200 and below __OSArenaLo (0x80414000).
+	// The mailbox (0x80414F00) must end below the docs/08 co-op region
+	// at +0x200 and below __OSArenaLo (0x80416000).
 	if MailboxSize > 0x200 || Mailbox+MailboxSize > PatchedArenaLo {
 		t.Errorf("Mailbox is 0x%X bytes at 0x%08X: past +0x200 or the arena", MailboxSize, Mailbox)
 	}
@@ -116,13 +116,13 @@ func TestLayoutMatchesHandWritten(t *testing.T) {
 		old       string
 		was, have uint64
 	}{
-		{"mailboxBase", 0x80412F00, uint64(Mailbox)},
-		{"mailbox.Mailbox", 0x80412F00, uint64(Mailbox)},
+		{"mailboxBase", 0x80414F00, uint64(Mailbox)},
+		{"mailbox.Mailbox", 0x80414F00, uint64(Mailbox)},
 		{"mailbox.MailboxSize", 0x1B0, MailboxSize},
-		{"mailbox.SpawnTrigger", 0x80412F00, uint64(SpawnTrigger)},
-		{"mailbox.WarpSeq", 0x80412FC8, uint64(WarpSeq)},
+		{"mailbox.SpawnTrigger", 0x80414F00, uint64(SpawnTrigger)},
+		{"mailbox.WarpSeq", 0x80414FC8, uint64(WarpSeq)},
 		{"maxPuppets", 4, MaxPuppets},
-		{"puppetSlotBase", 0x80412F10, uint64(Mailbox + OffPuppets)},
+		{"puppetSlotBase", 0x80414F10, uint64(Mailbox + OffPuppets)},
 		{"puppetSlotSize", 0x20, PuppetSize},
 		{"slotOffActor", 0x00, PuppetOffActorPtr},
 		{"slotOffAct", 0x04, PuppetOffActive},
