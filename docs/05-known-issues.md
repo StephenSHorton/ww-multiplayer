@@ -1082,6 +1082,9 @@ the real ones, every other game mirrors them, and remote bodies run at step6 wit
   under `wwdev mp-local` (one process, two Dolphins); the one exception is a CLI `host` and
   `join 127.0.0.1` loopback on one machine before v0.5.0. docs/TESTING.md "Release defaults"
   is the checklist that covers the app, two machines and WAN.
+  Emulated internet conditions (80-250 ms RTT, jitter, 1-5% loss on the joiner's link) ran on one Mac
+  in wind#82 (docs/TESTING.md NC-1..NC-4, `docs/live/wind82/`). No session broke, and kills, chest claims and the
+  boss relay held. Loss makes remote Links stop and jump, since there is no playout buffer.
 
 ### When it fails
 

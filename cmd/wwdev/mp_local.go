@@ -380,6 +380,15 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	}
 	addr := mpLocalDialAddr(srv.Addr())
 	rep.Log(log.OK, "Server listening on "+addr)
+	// MP_LOCAL_NETEM: Dolphin B joins over a shaped link (wind#82), as a
+	// joiner over the internet would, while A stays the host on loopback.
+	addrB, stopNetem, err := mpLocalNetem(ctx, rep, addr)
+	if err != nil {
+		srv.Stop()
+		coop.Stop()
+		fail(err.Error())
+	}
+	defer stopNetem()
 
 	// Give the listener a tick before the first connect — mirrors the
 	// 2 s sleep in the retired mplay2.sh that suppressed accept-races on Windows.
@@ -401,10 +410,10 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 			}
 		}()
 	}
-	broadcast := func(name string, pid uint32) func(log.Reporter) error {
+	broadcast := func(name, addr string, pid uint32) func(log.Reporter) error {
 		return func(r log.Reporter) error { return feed.BroadcastPose(ctx, feedEnv, name, addr, pid, r, nil, nil, nil) }
 	}
-	puppet := func(name string, pid uint32) func(log.Reporter) error {
+	puppet := func(name, addr string, pid uint32) func(log.Reporter) error {
 		// With --coop, each Dolphin's warp to the partner takes the other's
 		// position from this client; without, onClient stays nil.
 		onClient := coop.WithPoseClient(name, nil)
@@ -417,13 +426,13 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	// a freshly-listening server occasionally produced "expected welcome,
 	// got error or wrong type" on Windows pre-staggering (TCP accept +
 	// welcome-write race). Same delay as the retired scripts/mplay2.sh.
-	spawn("bcast-A", broadcast(nameA, pidA))
+	spawn("bcast-A", broadcast(nameA, addr, pidA))
 	time.Sleep(300 * time.Millisecond)
-	spawn("puppet-A", puppet(nameA, pidA))
+	spawn("puppet-A", puppet(nameA, addr, pidA))
 	time.Sleep(300 * time.Millisecond)
-	spawn("bcast-B", broadcast(nameB, pidB))
+	spawn("bcast-B", broadcast(nameB, addrB, pidB))
 	time.Sleep(300 * time.Millisecond)
-	spawn("puppet-B", puppet(nameB, pidB))
+	spawn("puppet-B", puppet(nameB, addrB, pidB))
 	// Dolphin B's enemy claims (enemy-mirror-general.json D8): enemy-B
 	// fills them and coop-B's K1 refuses what they claim. Per game, never
 	// shared: A is the host and mirrors nothing, so coop-A gets none.
@@ -438,18 +447,18 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 		time.Sleep(300 * time.Millisecond)
 		spawn("enemy-B", func(r log.Reporter) error {
 			defer claimsB.Replace(nil) // a stopped client claims nothing
-			return enemysync.ClientPipeline(ctx, envB, nameB, addr, pidB, r, nil)
+			return enemysync.ClientPipeline(ctx, envB, nameB, addrB, pidB, r, nil)
 		})
 	}
 	if coop != nil {
 		for _, d := range []struct {
-			label, name string
-			pid         uint32
-			claims      *enemysync.ClaimSet
-		}{{"coop-A", nameA, pidA, claimsA}, {"coop-B", nameB, pidB, claimsB}} {
+			label, name, addr string
+			pid               uint32
+			claims            *enemysync.ClaimSet
+		}{{"coop-A", nameA, addr, pidA, claimsA}, {"coop-B", nameB, addrB, pidB, claimsB}} {
 			time.Sleep(300 * time.Millisecond)
 			spawn(d.label, func(r log.Reporter) error {
-				return coopsession.RunSync(ctx, coopEnv, d.name, addr, d.pid, r, coop, mpLocalClaimFunc(d.claims))
+				return coopsession.RunSync(ctx, coopEnv, d.name, d.addr, d.pid, r, coop, mpLocalClaimFunc(d.claims))
 			})
 		}
 	}

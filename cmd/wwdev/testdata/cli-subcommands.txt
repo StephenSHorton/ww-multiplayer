@@ -51,6 +51,7 @@ j3dsys-probe
 move-puppet
 mp-local
 mt2-probe
+netem
 peek
 peek-demo
 poke-u32

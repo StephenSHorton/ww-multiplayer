@@ -1,0 +1,222 @@
+== base
+  fps: pid 15116: 30 fps
+  fps: pid 15126: 30 fps
+  fps: pid 15116: 30 fps
+  fps: pid 15126: 30 fps
+  walk A: walker 16.90 +- 7.54 a frame; remote 15.87 +- 5.69 (cv 0.358, ratio 0.939, 0 stalls, 1 jumps, jerk 5.88, 38 units behind; 0+0 frames missed)
+  walk B: walker 16.89 +- 7.53 a frame; remote 15.85 +- 4.54 (cv 0.286, ratio 0.939, 0 stalls, 1 jumps, jerk 1.68, 47 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.5s, B copies all gone +11.0s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerB +0.08s after the warps; grant reached B +0.000s; deny reached A +0.003s after the grant
+  boss: B set DRC boss defeated +32.5s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 2
+== n80z
+  fps: pid 31131: 30 fps
+  fps: pid 31141: 30 fps
+  fps: pid 31131: 30 fps
+  fps: pid 31141: 30 fps
+  walk A: walker 16.96 +- 7.60 a frame; remote 16.03 +- 5.79 (cv 0.361, ratio 0.945, 0 stalls, 4 jumps, jerk 5.79, 57 units behind; 0+0 frames missed)
+  walk B: walker 16.89 +- 7.53 a frame; remote 15.95 +- 5.04 (cv 0.316, ratio 0.944, 0 stalls, 2 jumps, jerk 4.40, 58 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.6s, B copies all gone +10.9s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerB +0.10s after the warps; grant reached B +0.049s; deny reached A +0.054s after the grant
+  boss: B set DRC boss defeated +32.4s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 6
+   [netem] Dolphin B dials 127.0.0.1:50461, shaped rtt=80ms,jitter=10ms,loss=0,rto=280ms, toward localhost:50460
+   [netem] conns 4, chunks 12793, bytes 11142150, stalls 0, mean one-way 42ms
+   [netem] conns 4, chunks 25173, bytes 22098838, stalls 0, mean one-way 42ms
+   [netem] conns 4, chunks 35930, bytes 30893537, stalls 0, mean one-way 42ms
+   [netem] conns 4, chunks 47622, bytes 38867192, stalls 0, mean one-way 42ms
+   [netem] final: conns 4, chunks 53761, bytes 43097468, stalls 0, mean one-way 42ms
+== n150j0
+  fps: pid 9251: 30 fps
+  fps: pid 9261: 30 fps
+  fps: pid 9251: 30 fps
+  fps: pid 9261: 30 fps
+  walk A: walker 16.89 +- 7.53 a frame; remote 15.88 +- 6.29 (cv 0.396, ratio 0.940, 0 stalls, 4 jumps, jerk 7.49, 75 units behind; 0+0 frames missed)
+  walk B: walker 16.89 +- 7.53 a frame; remote 15.94 +- 4.90 (cv 0.307, ratio 0.944, 0 stalls, 1 jumps, jerk 2.93, 66 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.5s, B copies all gone +11.1s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerA +0.13s after the warps; grant reached A +0.000s; deny reached B +0.150s after the grant
+  boss: B set DRC boss defeated +32.7s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 6
+   [netem] Dolphin B dials 127.0.0.1:51237, shaped rtt=150ms,jitter=0s,loss=0,rto=350ms, toward localhost:51236
+   [netem] conns 4, chunks 13370, bytes 11012509, stalls 0, mean one-way 76ms
+   [netem] conns 4, chunks 26314, bytes 21863697, stalls 0, mean one-way 75ms
+   [netem] conns 4, chunks 37662, bytes 30591992, stalls 0, mean one-way 76ms
+   [netem] conns 4, chunks 49856, bytes 38485984, stalls 0, mean one-way 76ms
+   [netem] final: conns 4, chunks 56789, bytes 42950299, stalls 0, mean one-way 76ms
+== n150z
+  fps: pid 57101: 30 fps
+  fps: pid 57111: 30 fps
+  fps: pid 57101: 30 fps
+  fps: pid 57111: 30 fps
+  walk A: walker 16.89 +- 7.53 a frame; remote 15.79 +- 5.61 (cv 0.355, ratio 0.935, 0 stalls, 0 jumps, jerk 5.81, 70 units behind; 0+0 frames missed)
+  walk B: walker 16.90 +- 7.53 a frame; remote 15.89 +- 5.73 (cv 0.361, ratio 0.941, 0 stalls, 3 jumps, jerk 6.31, 77 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.5s, B copies all gone +10.8s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerA +0.15s after the warps; grant reached A +0.000s; deny reached B +0.177s after the grant
+  boss: B set DRC boss defeated +32.5s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 6
+   [netem] Dolphin B dials 127.0.0.1:50712, shaped rtt=150ms,jitter=20ms,loss=0,rto=350ms, toward localhost:50711
+   [netem] conns 4, chunks 12212, bytes 11071855, stalls 0, mean one-way 80ms
+   [netem] conns 4, chunks 24268, bytes 21968758, stalls 0, mean one-way 80ms
+   [netem] conns 4, chunks 34914, bytes 30733371, stalls 0, mean one-way 80ms
+   [netem] conns 4, chunks 46327, bytes 38672557, stalls 0, mean one-way 80ms
+   [netem] final: conns 4, chunks 52741, bytes 43151801, stalls 0, mean one-way 80ms
+== n250z
+  fps: pid 83115: 30 fps
+  fps: pid 83125: 30 fps
+  fps: pid 83115: 30 fps
+  fps: pid 83125: 30 fps
+  walk A: walker 16.89 +- 7.53 a frame; remote 15.93 +- 6.02 (cv 0.378, ratio 0.943, 0 stalls, 3 jumps, jerk 7.08, 97 units behind; 0+0 frames missed)
+  walk B: walker 16.90 +- 7.53 a frame; remote 15.86 +- 5.97 (cv 0.376, ratio 0.939, 0 stalls, 2 jumps, jerk 5.62, 98 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.6s, B copies all gone +10.9s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerA +0.17s after the warps; grant reached A +0.000s; deny reached B +0.281s after the grant
+  boss: B set DRC boss defeated +32.6s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 6
+   [netem] Dolphin B dials 127.0.0.1:50982, shaped rtt=250ms,jitter=30ms,loss=0,rto=450ms, toward localhost:50981
+   [netem] conns 4, chunks 12267, bytes 11034932, stalls 0, mean one-way 135ms
+   [netem] conns 4, chunks 24293, bytes 21926832, stalls 0, mean one-way 134ms
+   [netem] conns 4, chunks 34783, bytes 30654489, stalls 0, mean one-way 134ms
+   [netem] conns 4, chunks 45879, bytes 38550566, stalls 0, mean one-way 134ms
+   [netem] final: conns 4, chunks 52088, bytes 42999623, stalls 0, mean one-way 134ms
+== n80
+  fps: pid 52709: 30 fps
+  fps: pid 52719: 30 fps
+  fps: pid 52709: 30 fps
+  fps: pid 52719: 30 fps
+  walk A: walker 16.99 +- 7.61 a frame; remote 15.86 +- 12.28 (cv 0.774, ratio 0.933, 13 stalls, 13 jumps, jerk 12.29, 81 units behind; 0+0 frames missed)
+  walk B: walker 16.89 +- 7.54 a frame; remote 15.48 +- 10.08 (cv 0.651, ratio 0.916, 11 stalls, 8 jumps, jerk 10.57, 62 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.5s, B copies all gone +11.1s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerA +0.08s after the warps; grant reached A +0.000s; deny reached B +0.084s after the grant
+  boss: B set DRC boss defeated +32.5s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 6
+   [netem] Dolphin B dials 127.0.0.1:61358, shaped rtt=80ms,jitter=10ms,loss=0.01,rto=280ms, toward localhost:61357
+   [netem] conns 4, chunks 11382, bytes 10922620, stalls 123, mean one-way 86ms
+   [netem] conns 4, chunks 23433, bytes 21791790, stalls 233, mean one-way 82ms
+   [netem] conns 4, chunks 34399, bytes 30578562, stalls 329, mean one-way 83ms
+   [netem] conns 4, chunks 46214, bytes 38492408, stalls 463, mean one-way 84ms
+   [netem] final: conns 4, chunks 52875, bytes 42926851, stalls 533, mean one-way 84ms
+== n150
+  fps: pid 79491: 30 fps
+  fps: pid 79501: 30 fps
+  fps: pid 79491: 30 fps
+  fps: pid 79501: 30 fps
+  walk A: walker 16.90 +- 7.54 a frame; remote 15.35 +- 15.38 (cv 1.002, ratio 0.909, 21 stalls, 16 jumps, jerk 15.66, 114 units behind; 0+0 frames missed)
+  walk B: walker 16.89 +- 7.53 a frame; remote 15.03 +- 12.42 (cv 0.826, ratio 0.890, 17 stalls, 9 jumps, jerk 10.48, 110 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.5s, B copies all gone +11.0s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerA +0.15s after the warps; grant reached A +0.000s; deny reached B +0.111s after the grant
+  boss: B set DRC boss defeated +32.5s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 6
+   [netem] Dolphin B dials 127.0.0.1:61691, shaped rtt=150ms,jitter=20ms,loss=0.01,rto=350ms, toward localhost:61690
+   [netem] conns 4, chunks 12755, bytes 10939809, stalls 143, mean one-way 161ms
+   [netem] conns 4, chunks 25155, bytes 21859513, stalls 281, mean one-way 160ms
+   [netem] conns 4, chunks 35932, bytes 30550022, stalls 402, mean one-way 157ms
+   [netem] conns 4, chunks 47414, bytes 38465508, stalls 520, mean one-way 153ms
+   [netem] final: conns 4, chunks 53734, bytes 42785470, stalls 577, mean one-way 152ms
+== n150l5
+  fps: pid 11902: 30 fps
+  fps: pid 11912: 30 fps
+  fps: pid 11902: 30 fps
+  fps: pid 11912: 30 fps
+  walk A: walker 16.90 +- 7.54 a frame; remote 15.71 +- 13.17 (cv 0.839, ratio 0.929, 9 stalls, 17 jumps, jerk 11.61, 172 units behind; 0+0 frames missed)
+  walk B: walker 16.89 +- 7.53 a frame; remote 14.63 +- 16.41 (cv 1.121, ratio 0.867, 27 stalls, 19 jumps, jerk 13.60, 146 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.5s, B copies all gone +10.9s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerA +0.13s after the warps; grant reached A +0.000s; deny reached B +0.155s after the grant
+  boss: B set DRC boss defeated +32.5s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 6
+   [netem] Dolphin B dials 127.0.0.1:62095, shaped rtt=150ms,jitter=20ms,loss=0.05,rto=350ms, toward localhost:62094
+   [netem] conns 4, chunks 12746, bytes 10905502, stalls 609, mean one-way 281ms
+   [netem] conns 4, chunks 25229, bytes 21844261, stalls 1250, mean one-way 282ms
+   [netem] conns 4, chunks 36150, bytes 30644598, stalls 1816, mean one-way 284ms
+   [netem] conns 4, chunks 47674, bytes 38656437, stalls 2349, mean one-way 279ms
+   [netem] final: conns 4, chunks 54152, bytes 43016606, stalls 2684, mean one-way 279ms
+== n250
+  fps: pid 45441: 30 fps
+  fps: pid 45503: 30 fps
+  fps: pid 45441: 30 fps
+  fps: pid 45503: 30 fps
+  walk A: walker 16.98 +- 7.61 a frame; remote 15.57 +- 17.73 (cv 1.139, ratio 0.917, 32 stalls, 21 jumps, jerk 14.40, 158 units behind; 0+0 frames missed)
+  walk B: walker 16.88 +- 7.52 a frame; remote 14.96 +- 14.49 (cv 0.969, ratio 0.886, 26 stalls, 8 jumps, jerk 14.14, 119 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.6s, B copies all gone +10.9s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerA +0.17s after the warps; grant reached A +0.000s; deny reached B +0.207s after the grant
+  boss: B set DRC boss defeated +32.5s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 7
+   [netem] Dolphin B dials 127.0.0.1:62412, shaped rtt=250ms,jitter=30ms,loss=0.01,rto=450ms, toward localhost:62411
+   [netem] conns 4, chunks 11216, bytes 11035810, stalls 132, mean one-way 248ms
+   [netem] conns 4, chunks 22533, bytes 21804226, stalls 242, mean one-way 247ms
+   [netem] conns 4, chunks 33186, bytes 30717724, stalls 339, mean one-way 240ms
+   [netem] conns 4, chunks 44561, bytes 38783240, stalls 432, mean one-way 232ms
+   [netem] final: conns 4, chunks 51067, bytes 43440591, stalls 489, mean one-way 231ms
+== n250l5
+  fps: pid 1886: 30 fps
+  fps: pid 1896: 30 fps
+  fps: pid 1886: 30 fps
+  fps: pid 1896: 30 fps
+  walk A: walker 16.89 +- 7.53 a frame; remote 16.36 +- 13.37 (cv 0.817, ratio 0.969, 10 stalls, 16 jumps, jerk 14.07, 243 units behind; 0+0 frames missed)
+  walk B: walker 16.88 +- 7.52 a frame; remote 15.07 +- 15.50 (cv 1.028, ratio 0.893, 26 stalls, 16 jumps, jerk 12.33, 180 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.6s, B copies all gone +11.0s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerA +0.17s after the warps; grant reached A +0.000s; deny reached B +0.245s after the grant
+  boss: B set DRC boss defeated +32.5s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 7
+   [netem] Dolphin B dials 127.0.0.1:50171, shaped rtt=250ms,jitter=30ms,loss=0.05,rto=450ms, toward localhost:50170
+   [netem] conns 4, chunks 12863, bytes 10908035, stalls 666, mean one-way 419ms
+   [netem] conns 4, chunks 25554, bytes 21721092, stalls 1268, mean one-way 416ms
+   [netem] conns 4, chunks 36528, bytes 30415612, stalls 1860, mean one-way 418ms
+   [netem] conns 4, chunks 48331, bytes 38328136, stalls 2473, mean one-way 417ms
+   [netem] final: conns 4, chunks 54867, bytes 42752062, stalls 2794, mean one-way 416ms
+== n150fr
+  fps: pid 40677: 29 fps
+  fps: pid 40687: 29 fps
+  fps: pid 40677: 30 fps
+  fps: pid 40687: 30 fps
+  walk A: walker 16.91 +- 7.55 a frame; remote 15.54 +- 7.23 (cv 0.465, ratio 0.919, 0 stalls, 2 jumps, jerk 6.65, 83 units behind; 0+0 frames missed)
+  walk B: walker 16.96 +- 7.60 a frame; remote 16.11 +- 6.23 (cv 0.387, ratio 0.950, 2 stalls, 2 jumps, jerk 6.16, 75 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.5s, B copies all gone +11.1s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerA +0.30s after the warps; grant reached A +0.000s; deny reached B +0.148s after the grant
+  boss: B set DRC boss defeated +32.8s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 6
+   [netem] Dolphin B dials 127.0.0.1:51567, shaped rtt=150ms,jitter=20ms,loss=0.01,rto=150ms, toward localhost:51566
+   [netem] conns 4, chunks 12240, bytes 11002016 (up 3688826, down 7313190), stalls 117, mean one-way 93ms
+   [netem] conns 4, chunks 24311, bytes 21896218 (up 7117874, down 14778344), stalls 247, mean one-way 94ms
+   [netem] conns 4, chunks 34751, bytes 30576115 (up 10228202, down 20347913), stalls 354, mean one-way 94ms
+   [netem] conns 4, chunks 46038, bytes 38483007 (up 14069974, down 24413033), stalls 464, mean one-way 93ms
+   [netem] final: conns 4, chunks 52256, bytes 42866517 (up 16199844, down 26666673), stalls 523, mean one-way 93ms
+== n150fr5
+  fps: pid 66941: 30 fps
+  fps: pid 67021: 30 fps
+  fps: pid 66941: 28 fps
+  fps: pid 67021: 29 fps
+  walk A: walker 16.89 +- 7.53 a frame; remote 15.81 +- 9.63 (cv 0.610, ratio 0.936, 0 stalls, 11 jumps, jerk 9.84, 105 units behind; 0+0 frames missed)
+  walk B: walker 16.89 +- 7.53 a frame; remote 15.52 +- 7.92 (cv 0.510, ratio 0.919, 2 stalls, 3 jumps, jerk 6.82, 79 units behind; 0+0 frames missed)
+  kills: 3 poked; host room empty +10.8s, B copies all gone +11.8s (1 s log grain)
+  kills: B bk left: 0
+  chest: granted PlayerA +0.12s after the warps; grant reached A +0.000s; deny reached B +0.149s after the grant
+  boss: B set DRC boss defeated +32.4s after A's poke (includes A's death demo)
+  warnings: 12
+  reader stalls: 6
+   [netem] Dolphin B dials 127.0.0.1:51824, shaped rtt=150ms,jitter=20ms,loss=0.05,rto=150ms, toward localhost:51823
+   [netem] conns 4, chunks 12437, bytes 10969898 (up 3676625, down 7293273), stalls 645, mean one-way 136ms
+   [netem] conns 4, chunks 24772, bytes 21792940 (up 7093707, down 14699233), stalls 1252, mean one-way 135ms
+   [netem] conns 4, chunks 35366, bytes 30495465 (up 10195730, down 20299735), stalls 1839, mean one-way 135ms
+   [netem] conns 4, chunks 46791, bytes 38374190 (up 14018440, down 24355750), stalls 2420, mean one-way 134ms
+   [netem] final: conns 4, chunks 52741, bytes 42552885 (up 16048594, down 26504291), stalls 2709, mean one-way 134ms

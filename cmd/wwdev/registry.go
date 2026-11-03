@@ -97,6 +97,8 @@ func commandTable() []command {
 		// Server + co-op hub under N synthetic players (stress.go, docs/stress-test.md).
 		{name: "stress", group: groupDev, run: cmdStress},
 		{name: "stress-host", group: groupDev, run: cmdStressHost},
+		// A shaped TCP proxy for a real join over a bad link (wind#82).
+		{name: "netem", group: groupDev, run: cmdNetem},
 		{name: "tunic-probe", group: groupDev, run: func(string, []string) { runTunicProbe() }},
 		{name: "tunic-recolor", group: groupDev, run: cmdTunicRecolor},
 		{name: "tunic-slot", group: groupDev, run: cmdTunicSlot},
