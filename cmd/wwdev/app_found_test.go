@@ -75,9 +75,8 @@ func TestAppFoundRequest(t *testing.T) {
 	if err != nil || r.Mode != "new" || !r.LiveSwitches || r.ISO != "d.iso" || appFoundSetting(r) != "new" {
 		t.Fatalf("new: %+v, %v", r, err)
 	}
-	r, err = appFoundRequest(base, "continue:00112233AABBCCDD")
-	if err != nil || r.Mode != "continue" || appFoundSetting(r) != "00112233aabbccdd" {
-		t.Fatalf("continue: %+v, %v", r, err)
+	if _, err := appFoundRequest(base, "off"); err == nil {
+		t.Fatal("off: no error")
 	}
 }
 

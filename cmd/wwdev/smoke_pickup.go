@@ -1307,8 +1307,9 @@ func (r *smokeRun) pickupApproach(chest pickupChest, timeout time.Duration, logf
 	return fmt.Sprintf("not at the chest after %s: %.0f away (best %.0f), facing %.0f deg off", timeout, dist, bestDist, face)
 }
 
-// pickupShot saves A's window beside the logs (a failed press: what the
-// A button offered, where Link stood).
+// pickupShot saves A's window under logs/pickup/ (a failed press: what
+// the A button offered, where Link stood); not logs/latest, which the
+// next mp-local start rotates away.
 func (r *smokeRun) pickupShot(name string, logf func(string, ...any)) {
 	root := devLogsRoot(os.Getenv)
 	if root == "" {
@@ -1322,7 +1323,11 @@ func (r *smokeRun) pickupShot(name string, logf func(string, ...any)) {
 	if err != nil {
 		return
 	}
-	p := filepath.Join(root, "latest", name)
+	dir := filepath.Join(root, "pickup")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	p := filepath.Join(dir, name)
 	if err := writePNG(p, img); err == nil {
 		logf("screenshot: %s", p)
 	}

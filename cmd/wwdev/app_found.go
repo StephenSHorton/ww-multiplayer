@@ -126,34 +126,19 @@ func parseAppFoundArgs(args []string, getenv func(string) string) (appFoundOpts,
 	return o, nil
 }
 
-// appFoundRequest is the host's co-op choice base with --mode applied:
-// "auto", "new", "off", or "continue:<world>".
+// appFoundRequest is the host's co-op choice base with --mode applied;
+// parseAppFoundArgs lets only "new" through (the 11-08 host's choice).
 func appFoundRequest(base gui.CoopRequest, mode string) (gui.CoopRequest, error) {
-	r := base
-	switch m, w, _ := strings.Cut(mode, ":"); m {
-	case "auto", "new", "off":
-		if w != "" {
-			return r, fmt.Errorf("--mode %s takes no world", m)
-		}
-		r.Mode = m
-	case "continue":
-		if w == "" {
-			return r, errors.New("--mode continue needs its world: continue:<16 hex digits>")
-		}
-		r.Mode, r.World = m, w
-	default:
-		return r, fmt.Errorf("bad --mode %q: auto, new, off or continue:<world>", mode)
+	if mode != "new" {
+		return base, fmt.Errorf("bad --mode %q: only new", mode)
 	}
+	r := base
+	r.Mode = mode
 	return r, nil
 }
 
 // appFoundSetting is the lobby's co-op setting a request leads to.
-func appFoundSetting(r gui.CoopRequest) string {
-	if r.Mode == "continue" {
-		return strings.ToLower(r.World)
-	}
-	return r.Mode
-}
+func appFoundSetting(r gui.CoopRequest) string { return r.Mode }
 
 // defaultAppExe is ww-multiplayer next to wwdev, else in the working
 // folder.
