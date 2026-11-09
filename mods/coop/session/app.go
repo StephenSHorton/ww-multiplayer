@@ -228,7 +228,7 @@ func (ac *appCoop) OnStart(s network.LobbySettingsBody) {
 			var gu *foundingGaveUp
 			switch {
 			case errors.As(err, &gu):
-				why = "the host's save file can't found a world, as " + gu.reason
+				why = "the host's save file can't found a world, as " + blockReason(gu.blocker)
 				ac.found1(session.Founding{Phase: session.FoundingFailed, Err: gu.appText()})
 			case f.world == coopWorldNew:
 				why = "the host's game couldn't found the world"
@@ -420,14 +420,18 @@ func (ac *appCoop) found1(f session.Founding) {
 func (ac *appCoop) setStatus(text string) {
 	ac.mu.Lock()
 	lc, same := ac.lc, ac.status == text
-	ac.status = text
 	ac.mu.Unlock()
 	if lc == nil || same {
 		return
 	}
 	if err := lc.SetCoopStatus(text); err != nil {
+		// Not kept as sent: the founding's next look tries again.
 		log.Logf(ac.out, log.Warn, "Couldn't tell the players co-op's status: %v", err)
+		return
 	}
+	ac.mu.Lock()
+	ac.status = text
+	ac.mu.Unlock()
 }
 
 // foundingStatus is the host's lobby status line for a founding that
@@ -437,8 +441,8 @@ func (ac *appCoop) setStatus(text string) {
 func foundingStatus(f session.Founding, giveUp time.Duration) string {
 	switch {
 	case f.Phase == session.FoundingBlocked:
-		return fmt.Sprintf("the host's save file can't found a world, as %s. Unless the host loads another file or removes its tag, the session goes on without co-op in %s.",
-			blockReason(f.Blocker), session.AboutDuration(giveUp))
+		return fmt.Sprintf("the host's save file can't found a world, as %s. Unless the host %s, the session goes on without co-op in %s.",
+			blockReason(f.Blocker), fixHint(f.Blocker, "loads another file", "or removes its tag"), session.AboutDuration(giveUp))
 	case f.File != "" || f.Why != whyNoGame:
 		return "the host is founding the world and waits for their save file in game."
 	}
@@ -460,11 +464,10 @@ func blockReason(kind string) string {
 }
 
 // foundingGaveUp is found's error for a file that stayed blocked for
-// appCoopDeps.giveUp: reason is blockReason's, world the tag's world
-// for a bound file.
+// appCoopDeps.giveUp: blocker is foundCheck's kind, text its refusal.
 type foundingGaveUp struct {
-	reason string
-	text   string // the CLI's refusal (foundCheck), for the log
+	blocker string
+	text    string // the CLI's refusal (foundCheck), for the log
 }
 
 func (e *foundingGaveUp) Error() string {
@@ -474,7 +477,17 @@ func (e *foundingGaveUp) Error() string {
 // appText is the window's reason for the founding's end, in the app's
 // words (never the CLI's --coop and coop-tag hints).
 func (e *foundingGaveUp) appText() string {
-	return "Your loaded file can't found a world: " + e.reason + ". To play co-op, load another file or remove its tag, then Leave and Start again."
+	return "Your loaded file can't found a world: " + blockReason(e.blocker) + ". To play co-op, " + fixHint(e.blocker, "load another file", "or remove its tag") + ", then Leave and Start again."
+}
+
+// fixHint is what fixes a blocked file: load, then "or remove its tag"
+// as rm says it, for a file whose tag is what blocks it (a second quest
+// has none to remove).
+func fixHint(kind, load, rm string) string {
+	if kind == session.BlockSecondQuest {
+		return load
+	}
+	return load + " " + rm
 }
 
 // Stop ends the co-op side: after the game side (coop-sync) and the
@@ -495,8 +508,9 @@ func (ac *appCoop) Stop() {
 // be in game and idle, logging the CLI's line every 5 s, and for a file
 // that can't found a world (bound already, a second quest, ...) it says
 // why once and waits for another file, or for the window's "Remove the
-// tag" (UnbindFile), at most deps.giveUp: then it gives up
-// (foundingGaveUp), so the lobby never sits on Starting for good.
+// tag" (UnbindFile), at most deps.giveUp for one file however the host
+// plays on meanwhile: then it gives up (foundingGaveUp), so the lobby
+// never sits on Starting for good.
 func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, error) {
 	unbind := make(chan unbindReq)
 	ac.mu.Lock()
@@ -513,8 +527,14 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 		closeMem = func() {}
 		memPID   uint32
 		told     time.Time
+		// blocked is the blocked file the give-up clock runs for (its
+		// description and foundCheck's refusal), since when; zero while
+		// no file is blocked. Only another file, a removed tag or a
+		// Dolphin gone starts it over: playing on (an event, the pause
+		// menu, a room change) does not.
 		blocked  string
-		since    time.Time // when the founding last became blocked; zero while it isn't
+		since    time.Time
+		gaveUpOn *foundingGaveUp
 		last     session.Founding
 	)
 	defer func() { closeMem() }()
@@ -524,6 +544,7 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 			ac.found1(f)
 		}
 	}
+	unblock := func() { blocked, since, gaveUpOn = "", time.Time{}, nil }
 	say(session.Founding{Phase: session.FoundingWaiting, Why: whyNoGame})
 	for {
 		if err := ctx.Err(); err != nil {
@@ -547,7 +568,7 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 			}
 		}
 		if m == nil {
-			since = time.Time{}
+			unblock()
 			say(session.Founding{Phase: session.FoundingWaiting, Why: whyNoGame})
 			select {
 			case <-ctx.Done():
@@ -560,9 +581,14 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 		select {
 		case req := <-unbind:
 			req.reply <- clearLoadedTag(ac.out, m, ac.deps.tick, req.want, "")
-			blocked, since = "", time.Time{}
+			unblock()
 			continue
 		default:
+		}
+		// The give-up, checked before the next look so a "Remove the tag"
+		// sent meanwhile (above) still counts.
+		if gaveUpOn != nil && time.Since(since) >= ac.deps.giveUp {
+			return nil, gaveUpOn
 		}
 		s, st, _, err := diag.GateSnapshots(m, ac.deps.tick)
 		if err != nil {
@@ -570,8 +596,39 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 			m, closeMem, memPID = nil, func() {}, 0
 			continue
 		}
+		// A loaded file is judged as soon as the game can be read, idle or
+		// not, so the host playing on keeps the founding blocked (and the
+		// clock running) rather than back to waiting.
+		if st.CanWrite() {
+			file := bind.FileOf(s)
+			if kind, err := foundCheck(file); err != nil {
+				key := bind.Describe(file) + "\x00" + err.Error()
+				if key != blocked {
+					blocked, since = key, time.Now()
+					gaveUpOn = &foundingGaveUp{blocker: kind, text: err.Error()}
+					ac.out.Log(log.Warn, err.Error())
+				}
+				f := session.Founding{Phase: session.FoundingBlocked, File: bind.Describe(file), Blocker: kind, BlockText: err.Error(), GiveUp: ac.deps.giveUp}
+				v := bind.Classify(file, bind.Expect{})
+				if kind == session.BlockForeign || kind == session.BlockGarbage {
+					f.BlockWhy = v.Why
+				}
+				if v.HasTag {
+					f.TagWorld = v.Tag.World.String()
+					f.TagWorldHere = worldOnDisk(root, f.TagWorld)
+				}
+				say(f)
+				continue
+			}
+			unblock() // a file that can found the world
+		}
 		if !st.CanWriteIdle() {
-			since = time.Time{} // another file may be on its way
+			// Between stages, or back at the title or file select: a
+			// blocked file's clock keeps running (another file loaded
+			// starts it over), and the window keeps showing the block.
+			if gaveUpOn != nil {
+				continue
+			}
 			if time.Since(told) >= 5*time.Second {
 				log.Logf(ac.out, log.Info, "co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (%s)", st.Why())
 				told = time.Now()
@@ -584,28 +641,6 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 			continue
 		}
 		file := bind.FileOf(s)
-		if kind, err := foundCheck(file); err != nil {
-			if err.Error() != blocked {
-				blocked = err.Error()
-				ac.out.Log(log.Warn, blocked)
-			}
-			f := session.Founding{Phase: session.FoundingBlocked, File: bind.Describe(file), Blocker: kind, BlockText: err.Error(), GiveUp: ac.deps.giveUp}
-			v := bind.Classify(file, bind.Expect{})
-			if kind == session.BlockForeign || kind == session.BlockGarbage {
-				f.BlockWhy = v.Why
-			}
-			if v.HasTag {
-				f.TagWorld = v.Tag.World.String()
-				f.TagWorldHere = worldOnDisk(root, f.TagWorld)
-			}
-			say(f)
-			if since.IsZero() {
-				since = time.Now()
-			} else if time.Since(since) >= ac.deps.giveUp {
-				return nil, &foundingGaveUp{reason: blockReason(kind), text: err.Error()}
-			}
-			continue
-		}
 		say(session.Founding{Phase: session.FoundingWaiting, File: bind.Describe(file)})
 		return foundFrom(ac.out, s, pol)
 	}

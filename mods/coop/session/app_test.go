@@ -2,6 +2,7 @@ package coopsession
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -350,6 +351,70 @@ func TestLobbyCoopFoundingGivesUp(t *testing.T) {
 	}
 }
 
+// foundingOut is a lobby output that records the founding's reports.
+type foundingOut struct {
+	*enginetest.Out
+	mu sync.Mutex
+	fs []session.Founding
+}
+
+func (o *foundingOut) Founding(f session.Founding) {
+	o.mu.Lock()
+	o.fs = append(o.fs, f)
+	o.mu.Unlock()
+}
+func (o *foundingOut) Coop(session.CoopOptions) {}
+func (o *foundingOut) Backup(string)            {}
+
+// TestFoundingGiveUpWhilePlaying: the give-up clock runs for the blocked
+// file however the host plays on. The pause menu opening and closing
+// (any event, a room change) neither starts it over nor sends the
+// founding back to waiting: it gives up after giveUp, and the window was
+// told the block once.
+func TestFoundingGiveUpWhilePlaying(t *testing.T) {
+	g, m, tick := bindtest.Game(t, true)
+	n := 0
+	playing := func() { // the host pauses and resumes all the while
+		n++
+		g.SetPauseMenu(n%4 < 2)
+		tick()
+	}
+	out := &foundingOut{Out: &enginetest.Out{}}
+	e := engine.New(engine.Config{Live: &engine.LiveState{}})
+	deps := &appCoopDeps{
+		openMem: func(uint32) (mem.Mem, func(), error) { return m, func() {}, nil },
+		tick:    playing, wait: time.Millisecond, giveUp: 300 * time.Millisecond,
+	}
+	ac := newAppCoop(context.Background(), deps, e.LobbyEnv(out, "Host", nil, nil))
+	ac.game = playingOn(7)
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { _, err := ac.found(context.Background(), nil); done <- err }()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the founding never gave up while the host played on")
+	}
+	var gu *foundingGaveUp
+	if !errors.As(err, &gu) || gu.blocker != session.BlockBound || time.Since(start) < 300*time.Millisecond {
+		t.Fatalf("found = %v after %v", err, time.Since(start))
+	}
+	out.mu.Lock()
+	defer out.mu.Unlock()
+	blocked := 0
+	for i, f := range out.fs {
+		if f.Phase == session.FoundingBlocked {
+			blocked++
+		} else if blocked > 0 {
+			t.Fatalf("report %d after the block: %+v (all %+v)", i, f, out.fs)
+		}
+	}
+	if blocked != 1 {
+		t.Fatalf("%d blocked reports, want one: %+v", blocked, out.fs)
+	}
+}
+
 // TestFoundingStatus: the host's lobby line for each founding state, in
 // words that read for every member (never the CLI's hints).
 func TestFoundingStatus(t *testing.T) {
@@ -361,12 +426,19 @@ func TestFoundingStatus(t *testing.T) {
 		{session.Founding{Phase: session.FoundingWaiting, Why: "settling: stage and room unchanged for 3 of 10 ticks"}, "waits for their save file in game."},
 		{session.Founding{Phase: session.FoundingWaiting, File: `File 1 "Link"`}, "waits for their save file in game."},
 		{session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockBound}, "can't found a world, as it is bound to another co-op world. Unless the host loads another file or removes its tag, the session goes on without co-op in a minute."},
-		{session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockSecondQuest}, "second quest"},
+		{session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockSecondQuest}, "second quest, which co-op doesn't take. Unless the host loads another file, the session"},
 		{session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockGarbage}, "a co-op tag this version can't use"},
 	} {
 		if got := foundingStatus(c.f, time.Minute); !strings.Contains(got, c.want) || strings.Contains(got, "ticks") || strings.Contains(got, "--coop") {
 			t.Errorf("%+v: %q, want %q", c.f, got, c.want)
 		}
+	}
+	// The give-up's dialog text: a second quest has no tag to remove.
+	if got := (&foundingGaveUp{blocker: session.BlockSecondQuest}).appText(); strings.Contains(got, "tag") || !strings.Contains(got, "load another file, then Leave") {
+		t.Errorf("second quest give-up %q", got)
+	}
+	if got := (&foundingGaveUp{blocker: session.BlockBound}).appText(); !strings.Contains(got, "load another file or remove its tag, then Leave and Start again") {
+		t.Errorf("bound give-up %q", got)
 	}
 }
 

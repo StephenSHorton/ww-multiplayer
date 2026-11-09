@@ -248,8 +248,11 @@ func (m *lobbyMachine) snapshot() LobbyStateBody {
 	for _, mb := range m.members {
 		st.Members = append(st.Members, LobbyMember{
 			ID: mb.id, Name: mb.name, Color: mb.color.Hex(), Ready: mb.ready, Host: mb.host,
-			Dolphin: mb.dolphin, File: mb.file, CoopStatus: mb.coop, RTTMs: mb.rttMs, Via: ViaApp, Away: mb.conn == 0,
+			Dolphin: mb.dolphin, File: mb.file, RTTMs: mb.rttMs, Via: ViaApp, Away: mb.conn == 0,
 		})
+		if mb.host {
+			st.Members[len(st.Members)-1].CoopStatus = mb.coop
+		}
 	}
 	st.Members = append(st.Members, m.cliRows()...)
 	return st
@@ -493,9 +496,11 @@ func (m *lobbyMachine) set(mb *lobbyMember, b LobbySetBody) []lobbyOut {
 			mb.file, dirty = f, true
 		}
 	}
-	// The co-op status goes on in any phase: the host's founding speaks
-	// while the lobby is starting, and after GO.
-	if b.CoopStatus != nil {
+	// The co-op status goes on in any phase (the host's founding speaks
+	// while the lobby is starting, and after GO), from the host only: one
+	// line per lobby keeps STATE within MaxLobbyBody, and no member's
+	// line can follow the host role to it.
+	if b.CoopStatus != nil && mb.host {
 		if c := clampField(*b.CoopStatus, maxLobbyCoopStatus); c != mb.coop {
 			mb.coop, dirty = c, true
 		}
