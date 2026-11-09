@@ -120,6 +120,9 @@ type LobbyView struct {
 	// them, "Start anyway" doesn't.
 	CanStart bool     `json:"canStart"`
 	NotReady []string `json:"notReady"`
+	// Skew is the one status line when members run another app version
+	// than ours (session.Lobby.VersionSkew); "" when all agree.
+	Skew string `json:"skew,omitempty"`
 }
 
 // PlayerView is one other player of a running session (Live.Players).
@@ -289,6 +292,7 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 			lv.Coop = "off"
 		}
 		lv.CanStart = canStart(l, running)
+		lv.Skew = mk.text(l.VersionSkew())
 		lv.NotReady = []string{}
 		for _, m := range l.NotReady() {
 			lv.NotReady = append(lv.NotReady, mk.text(m.Name))

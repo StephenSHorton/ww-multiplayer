@@ -91,6 +91,10 @@ type Flags struct {
 	merge bool
 	// yes is --yes: every bind and scrub question is answered yes.
 	yes bool
+	// follow is the app joiner's: a tag of another world is cleared from
+	// the loaded file before the hello (docs/coop-just-works.md §5), so
+	// the file binds to the host's world as an unbound one.
+	follow bool
 	// dryRun is --coop-dry-run: M2's dry run. This side's replicas write
 	// no game data but a binding tag after a yes; the plan is logged.
 	dryRun bool
@@ -132,6 +136,10 @@ func (f Flags) On() bool { return f.on }
 
 // coopWorldNew is --coop=new: found a world from the host's loaded file.
 const coopWorldNew = "new"
+
+// coopWorldAuto is the app host's default: the world follows the save
+// the host loads (decideAuto).
+const coopWorldAuto = session.CoopWorldAuto
 
 // FlagsUsage is the co-op part of host's and mp-local's usage lines;
 // JoinFlagsUsage is join's, which leaves the world and the host's
@@ -330,18 +338,31 @@ func (e coopEnv) worldsRoot() (string, error) {
 // the session's coop-sync pipelines share.
 type Session struct {
 	flags Flags
+	// outcome is what the app's auto mode did with the host's save
+	// (OutcomeContinued, OutcomeAdopted, OutcomeFounded); "" otherwise.
+	outcome string
 	// world is the hub's world, so the host's own replicas check their
-	// files against it; zero on a joiner, whose replica learns it from
-	// the host's welcome.
+	// files against it; zero on a CLI joiner, whose replica learns it
+	// from the host's welcome, and the host's world from GO on an app
+	// joiner (Flags.follow).
 	world bind.WorldID
-	hub   *hub.Hub
-	store *world.Store // the hub's world; the hub is its only writer
-	dir   string       // the hub's world directory, which holds the session marker
+	// notice, when set, hears each one-line outcome of a joiner's
+	// automatic bind, scrub and clear (the Outcome* constants, the
+	// world); the app shows it as the co-op line.
+	notice func(outcome, world string)
+	hub    *hub.Hub
+	store  *world.Store // the hub's world; the hub is its only writer
+	dir    string       // the hub's world directory, which holds the session marker
 	// noTags says why no tag may be written this session (the backup
 	// failed); nil when tag writes may be offered.
 	noTags error
-	// backupDir is where the session-start backup went ("" without).
+	// backupDir is where the session-start backup went ("" without: no
+	// card yet, or noTags).
 	backupDir string
+	// backupMu guards backupDir and noTags against takeBackup, which a
+	// later offer runs on the replica's tick; env is what it backs up.
+	backupMu sync.Mutex
+	env      coopEnv
 	// ask answers the questions (coopFront.ask, or the stdin prompter).
 	ask    coopAsker
 	advise func(session.Advice) // nil for none
@@ -399,7 +420,7 @@ func startCoopSession(rep log.Reporter, f Flags, env coopEnv) *Session {
 // startCoopSide is startCoopSession for a host (host: its hub needs the
 // tables even in a dry run) or a joiner.
 func startCoopSide(rep log.Reporter, f Flags, env coopEnv, host bool) *Session {
-	cs := &Session{flags: f, rep: rep, ask: env.front.ask, advise: env.front.advise, poses: map[string]*network.Client{}}
+	cs := &Session{env: env, flags: f, rep: rep, ask: env.front.ask, advise: env.front.advise, poses: map[string]*network.Client{}}
 	var cmds <-chan promptLine
 	if cs.ask == nil {
 		p := newCoopPrompter(f.yes, env.input)
@@ -409,15 +430,7 @@ func startCoopSide(rep log.Reporter, f Flags, env coopEnv, host bool) *Session {
 	if env.front.attach != nil {
 		env.front.attach(cs)
 	}
-	b, err := backup.Create(env.userDirs, backup.Options{Root: env.backups, Label: "co-op session start"})
-	if err != nil {
-		cs.noTags = err
-		log.Logf(rep, log.Warn, "co-op: could not back up the memory cards: %v. No co-op tag is written this session (set USER_DIR_1 if Dolphin keeps its user folder elsewhere).", err)
-	} else {
-		cs.backupDir = b.Dir
-		log.Logf(rep, log.OK, "co-op: backed up %d memory-card file(s) to %s (`coop-world restore %s --yes`, with Dolphin closed, puts them back). Check that these are your cards:", len(b.Files), b.Dir, b.ID)
-		logBackupCards(rep, b)
-	}
+	cs.takeBackup("co-op session start")
 	if env.tables != nil && (host || !f.dryRun) {
 		st, err := env.tables(f.iso)
 		stagetables.Log(rep, st, err)
@@ -429,6 +442,39 @@ func startCoopSide(rep log.Reporter, f Flags, env coopEnv, host bool) *Session {
 		logCoopCombat(rep, cs.m1())
 	}
 	return cs
+}
+
+// takeBackup backs up the memory cards. A player with no card yet (a
+// fresh Dolphin: backup.ErrNoCards) has nothing to lose, so tags stay on
+// and the backup is taken by a later call, once a card exists; any other
+// failure turns tags off for the session. It is a no-op once a backup
+// exists or tags are off.
+func (cs *Session) takeBackup(label string) {
+	cs.backupMu.Lock()
+	defer cs.backupMu.Unlock()
+	if cs.backupDir != "" || cs.noTags != nil {
+		return
+	}
+	rep := cs.rep
+	b, err := backup.Create(cs.env.userDirs, backup.Options{Root: cs.env.backups, Label: label})
+	switch {
+	case errors.Is(err, backup.ErrNoCards):
+		log.Logf(rep, log.Info, "co-op: no Dolphin memory card yet, so there is nothing to back up; a tag may still be written, and the cards are backed up once one exists.")
+	case err != nil:
+		cs.noTags = err
+		log.Logf(rep, log.Warn, "co-op: could not back up the memory cards: %v. No co-op tag is written this session (set USER_DIR_1 if Dolphin keeps its user folder elsewhere).", err)
+	default:
+		cs.backupDir = b.Dir
+		log.Logf(rep, log.OK, "co-op: backed up %d memory-card file(s) to %s (`coop-world restore %s --yes`, with Dolphin closed, puts them back). Check that these are your cards:", len(b.Files), b.Dir, b.ID)
+		logBackupCards(rep, b)
+	}
+}
+
+// noTagsErr is noTags, read under backupMu.
+func (cs *Session) noTagsErr() error {
+	cs.backupMu.Lock()
+	defer cs.backupMu.Unlock()
+	return cs.noTags
 }
 
 // m1 is the session's M1 tables, nil without.
@@ -545,7 +591,7 @@ func startCoopHost(ctx context.Context, rep log.Reporter, srvLog func(string), f
 		}
 		defer closeMem()
 		return foundCoopWorld(ctx, rep, m, env.tick, pol)
-	})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +604,14 @@ func startCoopHost(ctx context.Context, rep log.Reporter, srvLog func(string), f
 // openWorld opens the world a host serves (selectCoopWorld), or, for
 // --coop=new, founds one with found and creates it under the worlds
 // root.
-func (cs *Session) openWorld(ctx context.Context, rep log.Reporter, f Flags, env coopEnv, found func(context.Context, *world.Policy) (*world.World, error)) (*world.Store, error) {
+//
+// For the app's auto mode (coopWorldAuto) decide looks at the host's
+// loaded save and says which of the three it is (decideAuto): the world
+// it is tied to is opened, one that isn't on this computer is founded
+// here under the same ID and marked adopted, an untied save founds a new
+// one, and a save that can't take part in co-op ends in a *noCoopError.
+// What happened is left in cs.outcome.
+func (cs *Session) openWorld(ctx context.Context, rep log.Reporter, f Flags, env coopEnv, found func(context.Context, *world.Policy) (*world.World, error), decide func(context.Context, *world.Policy) (autoDecision, error)) (*world.Store, error) {
 	root, err := env.worldsRoot()
 	if err != nil {
 		return nil, err
@@ -566,6 +619,31 @@ func (cs *Session) openWorld(ctx context.Context, rep log.Reporter, f Flags, env
 	opts := world.Options{Logf: func(format string, args ...any) {
 		rep.Log(log.Warn, "co-op: world file: "+fmt.Sprintf(format, args...))
 	}}
+	if f.world == coopWorldAuto {
+		if decide == nil {
+			return nil, errors.New("co-op: --coop=auto is the app's; the command line says --coop=new or a world ID")
+		}
+		d, err := decide(ctx, cs.policy())
+		if err != nil {
+			return nil, err
+		}
+		switch d.kind {
+		case autoNone:
+			return nil, &noCoopError{reason: d.reason}
+		case autoOpen:
+			cs.outcome = OutcomeContinued
+			return openWorldByID(rep, root, d.id, opts)
+		}
+		st, err := world.Create(root, d.w, opts)
+		if err != nil {
+			return nil, err
+		}
+		cs.outcome = d.outcome()
+		if d.kind == autoAdopt {
+			markAdopted(rep, st.Dir())
+		}
+		return st, nil
+	}
 	if f.world == coopWorldNew {
 		w, err := found(ctx, cs.policy())
 		if err != nil {
@@ -577,6 +655,11 @@ func (cs *Session) openWorld(ctx context.Context, rep log.Reporter, f Flags, env
 	if err != nil {
 		return nil, err
 	}
+	return openWorldByID(rep, root, id, opts)
+}
+
+// openWorldByID opens world id under root.
+func openWorldByID(rep log.Reporter, root string, id world.ID, opts world.Options) (*world.Store, error) {
 	st, lr, err := world.Open(root, id, opts)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -586,6 +669,101 @@ func (cs *Session) openWorld(ctx context.Context, rep log.Reporter, f Flags, env
 	}
 	logWorldLoad(rep, lr)
 	return st, nil
+}
+
+// AdoptedName is the file in a world's folder that marks it adopted: it
+// was founded on this computer from a save that was already tied to it
+// (the world itself lives on another computer or was deleted here), so a
+// later meeting with the original can be told apart.
+const AdoptedName = "adopted"
+
+func markAdopted(rep log.Reporter, dir string) {
+	text := "adopted " + time.Now().UTC().Format(time.RFC3339) + ": founded here from a save file already tied to this world\n"
+	if err := os.WriteFile(filepath.Join(dir, AdoptedName), []byte(text), 0o644); err != nil {
+		log.Logf(rep, log.Warn, "co-op: couldn't mark the world adopted: %v", err)
+	}
+}
+
+// What the app's auto mode did with the host's save (Session.outcome).
+const (
+	OutcomeContinued = "continued" // the world the save is tied to
+	OutcomeAdopted   = "adopted"   // a world not on this computer, founded under its ID
+	OutcomeFounded   = "founded"   // a new world from an untied save
+	OutcomeNone      = "none"      // no co-op: the save takes no part (Founding.Phase Failed)
+	// A joiner's (docs/coop-just-works.md §5), with Founding.World the
+	// host's world: its save was bound to it, a stale tag was removed from
+	// it, or it was tied to another world and follows the host instead.
+	OutcomeJoined   = "joined"
+	OutcomeScrubbed = "scrubbed"
+	OutcomeFollowed = "followed"
+	OutcomeCleared  = "cleared"
+)
+
+// noCoopError is auto mode's decision that the host's save takes no part
+// in co-op this session; reason reads after "Co-op:".
+type noCoopError struct{ reason string }
+
+func (e *noCoopError) Error() string { return "co-op: " + e.reason }
+
+type autoKind int
+
+const (
+	autoOpen  autoKind = iota + 1 // open the world the save is tied to
+	autoAdopt                     // found it here under the same ID
+	autoFound                     // found a new world
+	autoNone                      // no co-op this session
+)
+
+// autoDecision is what the app's auto mode does with the host's save.
+type autoDecision struct {
+	kind   autoKind
+	id     world.ID     // autoOpen
+	w      *world.World // autoAdopt, autoFound
+	reason string       // autoNone
+}
+
+func (d autoDecision) outcome() string {
+	switch d.kind {
+	case autoOpen:
+		return OutcomeContinued
+	case autoAdopt:
+		return OutcomeAdopted
+	}
+	return OutcomeFounded
+}
+
+// decideAuto decides from snapshot s's save file (docs/coop-just-works.md
+// §4): tied to a world in root, open it; tied to one that is not there,
+// found it from this save under its ID; untied (empty, damaged or a
+// leaked tag) and a first quest, found a new world; a second quest, a
+// tag of a newer layout or junk in the tag area, no co-op. Nothing is
+// written to the save.
+func decideAuto(rep log.Reporter, s *state.Snapshot, pol *world.Policy, root string) (autoDecision, error) {
+	f := bind.FileOf(s)
+	v := bind.Classify(f, bind.Expect{})
+	switch {
+	case f.ClearCount != 0:
+		return autoDecision{kind: autoNone, reason: "your save is a second quest, which co-op doesn't take"}, nil
+	case v.State == bind.Foreign:
+		return autoDecision{kind: autoNone, reason: "your save holds a co-op tag this version can't use"}, nil
+	case v.Garbage:
+		return autoDecision{kind: autoNone, reason: "your save's tag area holds data that isn't a co-op tag"}, nil
+	case v.State == bind.Bound:
+		id := v.Tag.World
+		if worldOnDisk(root, id.String()) {
+			return autoDecision{kind: autoOpen, id: world.ID(id)}, nil
+		}
+		w, err := foundFrom(rep, s, pol, &id)
+		if err != nil {
+			return autoDecision{}, err
+		}
+		return autoDecision{kind: autoAdopt, w: w}, nil
+	}
+	w, err := foundFrom(rep, s, pol, nil)
+	if err != nil {
+		return autoDecision{}, err
+	}
+	return autoDecision{kind: autoFound, w: w}, nil
 }
 
 // startHub starts the hub over st, the session marker, and says what the
@@ -833,7 +1011,7 @@ func foundCoopWorld(ctx context.Context, rep log.Reporter, m mem.Mem, tick func(
 			return nil, fmt.Errorf("co-op: founding a world: %w", err)
 		}
 		if st.CanWriteIdle() {
-			return foundFrom(rep, s, pol)
+			return foundFrom(rep, s, pol, nil)
 		}
 		if time.Since(told) >= 5*time.Second {
 			log.Logf(rep, log.Info, "co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (%s)", st.Why())
@@ -850,14 +1028,27 @@ func foundCoopWorld(ctx context.Context, rep log.Reporter, m mem.Mem, tick func(
 // (hub.Config.SyncedSwitch over DefaultPolicy), so the file it was
 // founded from binds to it as a subset, its story bits and memory
 // switches included.
-func foundFrom(rep log.Reporter, s *state.Snapshot, pol *world.Policy) (*world.World, error) {
+//
+// id is the world's ID when the file is tied to one that is not on this
+// computer (the app's auto mode adopts it under the same ID, so the file
+// stays bound and other players holding that world's files still fit);
+// nil is a new random ID, and then the file must be free of a tag.
+func foundFrom(rep log.Reporter, s *state.Snapshot, pol *world.Policy, adopt *bind.WorldID) (*world.World, error) {
 	f := bind.FileOf(s)
-	if _, err := foundCheck(f); err != nil {
-		return nil, err
-	}
-	id, err := bind.NewWorldID()
-	if err != nil {
-		return nil, err
+	var id bind.WorldID
+	if adopt != nil {
+		if f.ClearCount != 0 {
+			return nil, fmt.Errorf("co-op: %s is a second quest, which co-op doesn't take", bind.Describe(f))
+		}
+		id = *adopt
+	} else {
+		if _, err := foundCheck(f); err != nil {
+			return nil, err
+		}
+		var err error
+		if id, err = bind.NewWorldID(); err != nil {
+			return nil, err
+		}
 	}
 	w := world.New(world.ID(id), time.Now())
 	w.SetPolicy(pol)
@@ -1215,6 +1406,9 @@ type coopSync struct {
 	mu    sync.Mutex
 	asked map[coopFileKey]bool // files a bind was asked for this session (cs.askedFor; under cs.askedMu)
 	over  string               // why run gave up co-op for the session ("" while it has not)
+	// cleared says clearForeign took a tag of another world off the file:
+	// the bind that follows says "followed" rather than "joined".
+	cleared bool
 }
 
 // gaveUp returns why run gave up co-op for the session, or "".
@@ -1309,6 +1503,9 @@ func (cs *Session) newSyncClaimed(ctx context.Context, name string, m mem.Mem, r
 			log.Logf(rep, log.Warn, "%s. Pose sync goes on; type /coop on to write the world again.", fmt.Sprintf(format, args...))
 		}})
 		cfg.PartnerPos = cs.partnerPos(name)
+	}
+	if cs.flags.follow && !cs.world.IsZero() {
+		cfg.OnForeignTag = s.clearForeign
 	}
 	r, err := replica.New(cfg)
 	if err != nil {
@@ -1429,7 +1626,8 @@ func (s *coopSync) run(ctx context.Context, addr string) error {
 // goroutine, so the replica keeps ticking meanwhile; the replica drops an
 // offer whose file changed before the answer.
 func (s *coopSync) offer(ctx context.Context, o replica.Offer) {
-	if err := s.cs.noTags; err != nil {
+	s.cs.takeBackup("co-op tag write")
+	if err := s.cs.noTagsErr(); err != nil {
 		msg := fmt.Sprintf("co-op: the %s is not offered: there is no memory-card backup this session (%v)", o.Plan.Kind, err)
 		s.rep.Log(log.Warn, msg)
 		s.advise(session.AdviceNoBackup, msg)
@@ -1440,6 +1638,19 @@ func (s *coopSync) offer(ctx context.Context, o replica.Offer) {
 	answer := func() {
 		if s.cs.ask.question(ctx, s.rep, q) {
 			s.r.Confirm(o.Plan)
+			if s.cs.notice != nil {
+				if o.Plan.Kind == bind.KindScrub {
+					s.say(OutcomeScrubbed, s.cs.world.String())
+				} else {
+					s.mu.Lock()
+					out := OutcomeJoined
+					if s.cleared {
+						out = OutcomeFollowed
+					}
+					s.mu.Unlock()
+					s.say(out, o.Plan.Tag.World.String())
+				}
+			}
 		} else {
 			s.r.Decline(o.Plan)
 		}
@@ -1479,8 +1690,8 @@ func (s *coopSync) preflight(pf replica.PreflightReport) {
 		s.rep.Log(log.Info, msg)
 		s.advise(session.AdviceNeedsMerge, msg)
 		return
-	case s.cs.noTags != nil:
-		msg := fmt.Sprintf("co-op: this file could bind, but there is no memory-card backup this session (%v)", s.cs.noTags)
+	case s.cs.noTagsErr() != nil:
+		msg := fmt.Sprintf("co-op: this file could bind, but there is no memory-card backup this session (%v)", s.cs.noTagsErr())
 		s.rep.Log(log.Info, msg)
 		s.advise(session.AdviceNoBackup, msg)
 		return
@@ -1497,6 +1708,34 @@ func (s *coopSync) preflight(pf replica.PreflightReport) {
 	if !asked {
 		s.r.RequestBind()
 	}
+}
+
+// say passes outcome to the session's notice sink, if it has one.
+func (s *coopSync) say(outcome, world string) {
+	if s.cs.notice != nil {
+		s.cs.notice(outcome, world)
+	}
+}
+
+// clearForeign is replica.Config.OnForeignTag: the loaded file is tied to
+// a world other than the host's, whether on this computer or not, so its
+// tag is zeroed in the game's memory (the world file stays on disk), and
+// the file then says hello as an unbound one. The memory card keeps the
+// old tag until the next in-game save, as "Remove the tag" always did.
+func (s *coopSync) clearForeign(w bind.WorldID) {
+	own := s.cs.world.String()
+	tick := s.cs.env.tick
+	if tick == nil {
+		tick = diag.Tick
+	}
+	if err := clearLoadedTag(s.rep, s.m, tick, w.String(), own); err != nil {
+		log.Logf(s.rep, log.Info, "co-op: %s: the tag of world %s is not cleared yet: %v", s.name, w, err)
+		return
+	}
+	s.mu.Lock()
+	s.cleared = true
+	s.mu.Unlock()
+	s.say(OutcomeCleared, own)
 }
 
 // advise passes advice of kind, logged as text, to the session's front

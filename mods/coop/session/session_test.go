@@ -623,7 +623,8 @@ func TestStartCoopHost(t *testing.T) {
 	t.Run("no backup", func(t *testing.T) {
 		cg := newCoGame(t, "Link", coMine{life: 12})
 		e := env(cg.m, func() { cg.g.Frames(3) })
-		e.userDirs = []string{t.TempDir()} // no memory card
+		e.userDirs = []string{coUserDir(t)}
+		e.backups = unwritableBackupRoot(t) // the backup fails
 		log := &coLog{}
 		cs, err := startCoopHost(ctx, log, func(string) {}, found, e)
 		if err != nil {
@@ -702,6 +703,62 @@ func TestCoopSessionBackupLog(t *testing.T) {
 	}
 }
 
+// unwritableBackupRoot is a backup root that can't be created (a path
+// under a regular file), so backup.Create fails with an error that is
+// not ErrNoCards.
+func unwritableBackupRoot(t *testing.T) string {
+	t.Helper()
+	f := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(f, "backups")
+}
+
+// TestCoopSessionNoCardYet: a fresh player has no memory card, so there
+// is nothing to back up: tags stay on, and the backup is taken by a later
+// call once a card exists. Another backup error still turns tags off.
+func TestCoopSessionNoCardYet(t *testing.T) {
+	ud := filepath.Join(t.TempDir(), "Dolphin Emulator")
+	if err := os.MkdirAll(ud, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	log := &coLog{}
+	cs := startCoopSession(log, Flags{on: true, yes: true}, coopEnv{backups: t.TempDir(), userDirs: []string{ud}})
+	if cs.noTags != nil || cs.backupDir != "" {
+		t.Fatalf("no card: noTags %v, backupDir %q\n%s", cs.noTags, cs.backupDir, log)
+	}
+	if log.has("No co-op tag is written") {
+		t.Errorf("tags were turned off:\n%s", log)
+	}
+	cs.takeBackup("again")
+	if cs.noTags != nil || cs.backupDir != "" {
+		t.Fatalf("still no card: noTags %v, backupDir %q", cs.noTags, cs.backupDir)
+	}
+	// The game saves for the first time: a card exists.
+	card := filepath.Join(ud, "GC", "MemoryCardA.USA.raw")
+	if err := os.MkdirAll(filepath.Dir(card), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(card, []byte("a memory card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cs.takeBackup("co-op tag write")
+	if cs.noTags != nil || cs.backupDir == "" {
+		t.Fatalf("card now exists: noTags %v, backupDir %q\n%s", cs.noTags, cs.backupDir, log)
+	}
+	if !log.has("backed up 1 memory-card file(s)") {
+		t.Errorf("no backup line:\n%s", log)
+	}
+
+	// Any other failure still turns tags off, for good.
+	log = &coLog{}
+	bad := startCoopSession(log, Flags{on: true, yes: true}, coopEnv{backups: unwritableBackupRoot(t), userDirs: []string{coUserDir(t)}})
+	if bad.noTags == nil || !log.has("No co-op tag is written this session") {
+		t.Errorf("noTags %v\n%s", bad.noTags, log)
+	}
+}
+
 // TestCoopSessionNoBackup: without a memory-card backup a session runs,
 // but nothing is ever written: the bind is not offered, the scrub of a
 // leaked tag is declined, and both say why.
@@ -715,8 +772,8 @@ func TestCoopSessionNoBackup(t *testing.T) {
 	gb.m.Record(true)
 	h := &coHost{t: t, ctx: ctx, rep: &coLog{}, env: coopEnv{
 		worlds:   t.TempDir(),
-		backups:  t.TempDir(),
-		userDirs: []string{t.TempDir()},
+		backups:  unwritableBackupRoot(t),
+		userDirs: []string{coUserDir(t)},
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
 	}}

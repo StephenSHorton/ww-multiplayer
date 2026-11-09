@@ -118,10 +118,11 @@ func (r *coopRig) starts() []string {
 // TestLobbyCoopNewWorld: the host chose New world. On Start each app
 // launches its Dolphin; the host's founding waits on a file bound to
 // another world (the guided dialog says why), and no joiner starts co-op
-// meanwhile. The window's "Remove the tag" unbinds it; the world is
-// founded, the hub set on the server, and only then GO goes out with the
-// world: the joiner's co-op side starts on it (the host's hub already
-// set), and both apps run coop-sync on their Dolphins. Merging allowed
+// meanwhile. GO went out at Start without a world, so both are in game
+// at once. The window's "Remove the tag" unbinds it; the world is
+// founded, the hub set on the server, and only then the world is
+// announced (a second GO): the joiner's co-op side starts on it (the
+// host's hub already set), and both apps run coop-sync on their Dolphins. Merging allowed
 // after Start reaches the hub. Leave stops coop-sync before the mailbox
 // reset, and the hub removes its session marker.
 func TestLobbyCoopNewWorld(t *testing.T) {
@@ -170,15 +171,16 @@ func TestLobbyCoopNewWorld(t *testing.T) {
 	if st.Founding.Blocker != session.BlockBound || st.Founding.TagWorld != bindtest.World.String() || !strings.Contains(st.Founding.File, `"Link"`) {
 		t.Fatalf("founding %+v", st.Founding)
 	}
-	if st.Phase != session.Starting || !st.Coop.On || st.Coop.World != "new" {
+	if st.Phase != session.InGame || !st.Coop.On || st.Coop.World != "new" {
 		t.Fatalf("host while founding: phase %v coop %+v", st.Phase, st.Coop)
 	}
 	time.Sleep(50 * time.Millisecond)
 	if got := join.starts(); len(got) != 0 {
 		t.Fatalf("the joiner started co-op before GO: %v", got)
 	}
-	if sb := cb.Snapshot(); sb.Phase != session.Starting || sb.Coop.On {
-		t.Fatalf("joiner before GO: phase %v coop %+v", sb.Phase, sb.Coop)
+	waitSnap(t, cb, "the joiner in game at Start", func(st session.State) bool { return st.Phase == session.InGame })
+	if sb := cb.Snapshot(); sb.Coop.On {
+		t.Fatalf("joiner before the world: coop %+v", sb.Coop)
 	}
 
 	// A dialog shown for another file's tag removes nothing.
@@ -274,17 +276,16 @@ func hostRow(st session.State) session.LobbyMember {
 	return session.LobbyMember{}
 }
 
-// TestLobbyCoopFoundingGivesUp: the host chose New world and its loaded
-// file can't found one (bound to another world here). While the founding
-// waits, the host's lobby row says why, so the joiner's window shows it
-// on "Starting". Nobody removes the tag or loads another file, so after
-// the give-up the founding ends in the app's words, the host's row says
-// co-op is off this session and why, and GO goes out without a world:
-// both play in game without co-op, and the joiner never starts it.
-func TestLobbyCoopFoundingGivesUp(t *testing.T) {
+// TestLobbyCoopFoundingBlocked: the host chose New world and its loaded
+// file can't found one (bound to another world here). GO went out at
+// Start, so both are in game and nobody waits; the host's lobby row says
+// why co-op isn't running, which the joiner's window shows. The founding
+// never gives up: when the host removes the tag, the world is founded and
+// announced with a second GO, and the joiner's co-op starts on it.
+func TestLobbyCoopFoundingBlocked(t *testing.T) {
 	worlds := t.TempDir()
 	host := newCoopRig(t, true, worlds) // bound to bindtest.World, which isn't in worlds
-	host.giveUp = 400 * time.Millisecond
+	host.giveUp = 0
 	join := newCoopRig(t, false, worlds)
 	fa, fb := enginetest.NewGame(), enginetest.NewGame()
 	fb.NextPID = 200
@@ -314,41 +315,37 @@ func TestLobbyCoopFoundingGivesUp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// While blocked: the joiner, still starting, reads why on the host's row.
-	sb := waitSnap(t, cb, "the host's blocked status on the joiner's side", func(st session.State) bool {
-		return strings.Contains(hostRow(st).CoopStatus, "can't found a world")
+	// Both in game at once, with the host's reason on its row.
+	sb := waitSnap(t, cb, "the joiner in game with the host's blocked status", func(st session.State) bool {
+		return st.Phase == session.InGame && strings.Contains(hostRow(st).CoopStatus, "can't found a world")
 	})
-	if got := hostRow(sb).CoopStatus; !strings.Contains(got, "bound to another co-op world") || !strings.Contains(got, "without co-op in a moment") {
+	if got := hostRow(sb).CoopStatus; !strings.Contains(got, "bound to another co-op world") || !strings.Contains(got, "Co-op starts once the host loads another file") || strings.Contains(got, "without co-op in") {
 		t.Fatalf("blocked status %q", got)
 	}
-	if sb.Phase != session.Starting || sb.Coop.On {
-		t.Fatalf("joiner while the founding is blocked: phase %v coop %+v", sb.Phase, sb.Coop)
+	waitSnap(t, ca, "the host in game", func(st session.State) bool { return st.Phase == session.InGame })
+	time.Sleep(300 * time.Millisecond) // well past the old minute's scale for these rigs: no give-up
+	if st := ca.Snapshot(); st.Founding == nil || st.Founding.Phase != session.FoundingBlocked {
+		t.Fatalf("founding %+v, want it still blocked", st.Founding)
 	}
-
-	// The give-up: the host's founding fails in the app's words, GO goes
-	// out without a world, and the lobby is in game.
-	st := waitSnap(t, ca, "the founding gave up, host in game", func(st session.State) bool {
-		return st.Founding != nil && st.Founding.Phase == session.FoundingFailed && st.Phase == session.InGame
-	})
-	if e := st.Founding.Err; !strings.Contains(e, "bound to another co-op world") || !strings.Contains(e, "Leave and Start again") || strings.Contains(e, "--coop") || strings.Contains(e, "coop-tag") {
-		t.Fatalf("founding error %q", e)
-	}
-	if st.Coop.On {
-		t.Fatalf("host co-op still on: %+v", st.Coop)
-	}
-	sb = waitSnap(t, cb, "the joiner in game with the host's reason", func(st session.State) bool {
-		return st.Phase == session.InGame && strings.HasPrefix(hostRow(st).CoopStatus, "off this session:")
-	})
-	if got := hostRow(sb).CoopStatus; !strings.Contains(got, "bound to another co-op world") {
-		t.Fatalf("off status %q", got)
-	}
-	time.Sleep(50 * time.Millisecond)
 	if got := join.starts(); len(got) != 0 || cb.Snapshot().Coop.On {
 		t.Fatalf("the joiner started co-op without a world: %v", got)
 	}
-	if ws, err := ListWorlds(worlds); err != nil || len(ws) != 0 {
-		t.Fatalf("worlds %+v, %v: none was founded", ws, err)
+
+	// The tag comes off: the world is founded and announced late.
+	if err := ca.UnbindFile(bindtest.World.String()); err != nil {
+		t.Fatal(err)
 	}
+	st := waitSnap(t, ca, "founded", func(st session.State) bool {
+		return st.Founding != nil && st.Founding.Phase == session.FoundingFounded
+	})
+	sb = waitSnap(t, cb, "the joiner's co-op on, from the late GO", func(st session.State) bool { return st.Phase == session.InGame && st.Coop.On })
+	if sb.Coop.World != st.Founding.World {
+		t.Fatalf("joiner coop %+v, want world %s", sb.Coop, st.Founding.World)
+	}
+	if got := join.starts(); len(got) != 1 || got[0] != "joiner hub=false" && got[0] != "joiner hub=true" {
+		t.Fatalf("joiner co-op starts %v, want one", got)
+	}
+	waitFor(t, "joiner coop-sync", hasEvent(fb, "coop-sync 200 start"))
 }
 
 // foundingOut is a lobby output that records the founding's reports.
@@ -432,6 +429,10 @@ func TestFoundingStatus(t *testing.T) {
 		if got := foundingStatus(c.f, time.Minute); !strings.Contains(got, c.want) || strings.Contains(got, "ticks") || strings.Contains(got, "--coop") {
 			t.Errorf("%+v: %q, want %q", c.f, got, c.want)
 		}
+	}
+	// No give-up (the app): the line says co-op starts once the file changes.
+	if got := foundingStatus(session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockBound}, 0); !strings.Contains(got, "Co-op starts once the host loads another file or removes its tag.") {
+		t.Errorf("no-give-up status %q", got)
 	}
 	// The give-up's dialog text: a second quest has no tag to remove.
 	if got := (&foundingGaveUp{blocker: session.BlockSecondQuest}).appText(); strings.Contains(got, "tag") || !strings.Contains(got, "load another file, then Leave") {

@@ -59,6 +59,11 @@ type Founding struct {
 	GiveUp time.Duration
 	// World is the world founded (Founded).
 	World string
+	// Outcome, with Founded, is what the app's auto mode did: "continued"
+	// (the world the save is tied to), "adopted" (that world was not on
+	// this computer: founded here under its ID) or "founded" (a new world
+	// from an untied save). The window says it in one line, no dialog.
+	Outcome string
 	// Err is why the founding failed (Failed).
 	Err string
 }

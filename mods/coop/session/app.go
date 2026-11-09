@@ -34,10 +34,12 @@ import (
 //     or founds a new one from the file loaded in its game (appCoop.found:
 //     it waits for the game, reporting each look to the window's guided
 //     dialog, and for a file that can't found a world waits for another,
-//     or for "Remove the tag", at most appCoopDeps.giveUp), starts the
-//     hub, sets it on its server (Server.SetCoop) and only then sends GO
-//     with the world's ID. Meanwhile its lobby row's co-op status says
-//     why the lobby is still starting, so every member's window shows it.
+//     or for "Remove the tag"; appCoopDeps.giveUp, 0 in the app, would end
+//     it), starts the hub, sets it on its server (Server.SetCoop) and only
+//     then announces the world with a second GO. The first GO went out at
+//     Start with no world (engine goIfHost), so the lobby is in game and
+//     nobody waits; meanwhile its lobby row's co-op status says why co-op
+//     isn't running yet, so every member's window shows it.
 //   - A joiner starts its co-op side on GO, and only on a GO that names a
 //     world: its co-op connection never meets a server without a hub.
 //   - Each app runs coop-sync on its Dolphin beside the pose pipelines
@@ -47,9 +49,10 @@ import (
 //     asks to bind again.
 //
 // A failure to open or found the world is logged, and the host's co-op
-// status says co-op is off and why; the host then sends GO without a
-// world and the session plays without co-op (pose sync goes on). A
-// founding that stays blocked never holds the lobby on Starting for good.
+// status says co-op is off and why, no world is announced and the session
+// plays without co-op (pose sync goes on). A founding that stays blocked
+// holds nothing: the lobby is in game since Start, and co-op starts for
+// everyone if the host's file changes later.
 
 // appCoopDeps are the app's co-op seams; the tests fake the Dolphin.
 type appCoopDeps struct {
@@ -65,17 +68,53 @@ type appCoopDeps struct {
 	wait time.Duration
 	// giveUp is how long the founding stays blocked on a file that can't
 	// found a world (no other file loaded, no tag removed) before it
-	// gives up and the session plays without co-op.
+	// gives up and the session plays without co-op. 0 (the app): never;
+	// GO went out at Start, so nobody waits on the founding, and a host
+	// who loads another file later still gets co-op.
 	giveUp time.Duration
 }
 
 // whyNoGame is the founding's Why while no Dolphin runs the game.
 const whyNoGame = "waiting for your Dolphin to run Wind Waker"
 
-// foundingGiveUp is appCoopDeps.giveUp in the app: long enough to read
-// the dialog and remove the tag, short enough that nobody waits on
-// "Starting" for long.
-const foundingGiveUp = time.Minute
+// The founding's other Whys while the game side has a Dolphin that
+// can't be played on (noGameWhy).
+const (
+	whyUnpatched = "your Dolphin runs Wind Waker without this version's mod: update your game disc, then start Dolphin again"
+	whyWrongGame = "your Dolphin runs another game than Wind Waker"
+	whyLaunching = "waiting for your Dolphin to start Wind Waker"
+)
+
+// dolphinStater is a CoopGame that can say how this player's Dolphin is
+// (*engine.GameRunner).
+type dolphinStater interface {
+	DolphinState() session.DolphinState
+}
+
+// noGameWhy is the founding's Why while the game side has no playable
+// Dolphin: an unpatched disc says so instead of waiting for the game
+// to run for good.
+func (ac *appCoop) noGameWhy() string {
+	ac.mu.Lock()
+	g := ac.game
+	ac.mu.Unlock()
+	if ds, ok := g.(dolphinStater); ok {
+		switch ds.DolphinState() {
+		case session.DolphinUnpatched:
+			return whyUnpatched
+		case session.DolphinWrongGame:
+			return whyWrongGame
+		case session.DolphinLaunching:
+			return whyLaunching
+		}
+	}
+	return whyNoGame
+}
+
+// isNoGameWhy says why is one of noGameWhy's.
+func isNoGameWhy(why string) bool {
+	return why == whyNoGame || why == whyUnpatched || why == whyWrongGame || why == whyLaunching
+}
 
 func realAppCoopDeps(env Env) *appCoopDeps {
 	return &appCoopDeps{
@@ -87,9 +126,8 @@ func realAppCoopDeps(env Env) *appCoopDeps {
 			}
 			return d, d.Close, nil
 		},
-		tick:   diag.Tick,
-		wait:   time.Second,
-		giveUp: foundingGiveUp,
+		tick: diag.Tick,
+		wait: time.Second,
 	}
 }
 
@@ -205,13 +243,14 @@ func (ac *appCoop) front(f Flags) coopFront {
 	return frontOf(ac.frontFn(f.Options()))
 }
 
-// OnStart is the host's START with co-op on: the world, the hub, then GO.
+// OnStart is the host's START with co-op on: the world, the hub, then the
+// world's announcement (GO went out at Start).
 func (ac *appCoop) OnStart(s network.LobbySettingsBody) {
 	if !ac.begin() {
 		return
 	}
 	own := ac.own()
-	f := Flags{on: true, world: s.Coop, merge: s.Merge, dryRun: s.DryRun, liveSwitches: s.LiveSwitches, iso: own.ISO, yes: own.Yes,
+	f := Flags{on: true, world: s.Coop, merge: s.Merge, dryRun: s.DryRun, liveSwitches: s.LiveSwitches, iso: own.ISO, yes: true,
 		bossKill: own.BossKill, refresh: own.Refresh, sharesOff: own.SharesOff}
 	ac.wg.Add(1)
 	go func() {
@@ -221,16 +260,24 @@ func (ac *appCoop) OnStart(s network.LobbySettingsBody) {
 			if ac.ctx.Err() != nil {
 				return // Leave while founding
 			}
-			ac.out.Log(log.Err, err.Error())
+			var nc *noCoopError
+			if errors.As(err, &nc) {
+				ac.out.Log(log.Warn, err.Error())
+			} else {
+				ac.out.Log(log.Err, err.Error())
+			}
 			ac.out.Log(log.Warn, "co-op: the session goes on without co-op (pose sync works).")
 			ac.reportCoop(session.CoopOptions{}) // the window shows no co-op panel
 			why := "the host's game couldn't open the co-op world"
 			var gu *foundingGaveUp
 			switch {
+			case nc != nil:
+				why = nc.reason
+				ac.found1(session.Founding{Phase: session.FoundingFailed, Outcome: OutcomeNone, Err: "Co-op is off this session: " + nc.reason + "."})
 			case errors.As(err, &gu):
 				why = "the host's save file can't found a world, as " + blockReason(gu.blocker)
 				ac.found1(session.Founding{Phase: session.FoundingFailed, Err: gu.appText()})
-			case f.world == coopWorldNew:
+			case f.world == coopWorldNew || f.world == coopWorldAuto:
 				why = "the host's game couldn't found the world"
 				ac.found1(session.Founding{Phase: session.FoundingFailed, Err: err.Error()})
 			}
@@ -245,6 +292,12 @@ func (ac *appCoop) OnStart(s network.LobbySettingsBody) {
 // host opens or founds the world and starts the hub, and returns the
 // world's ID.
 func (ac *appCoop) host(f Flags) (string, error) {
+	if f.world == coopWorldAuto {
+		// The world follows the save: the host's own file is where the
+		// world comes from or is tied to already, so its bind is
+		// confirmed here, with no question (docs/coop-just-works.md §4).
+		f.yes = true
+	}
 	env := ac.deps.env(ac.userDir())
 	env.front = ac.front(f)
 	cs := startCoopSide(ac.out, f, env, true)
@@ -257,7 +310,7 @@ func (ac *appCoop) host(f Flags) (string, error) {
 		ac.worlds = root
 		ac.mu.Unlock()
 	}
-	st, err := cs.openWorld(ac.ctx, ac.out, f, env, ac.found)
+	st, err := cs.openWorld(ac.ctx, ac.out, f, env, ac.found, ac.decide)
 	if err != nil {
 		return "", err
 	}
@@ -281,24 +334,36 @@ func (ac *appCoop) host(f Flags) (string, error) {
 	if f.world == coopWorldNew {
 		ac.found1(session.Founding{Phase: session.FoundingFounded, World: id})
 	}
+	if cs.outcome != "" {
+		ac.found1(session.Founding{Phase: session.FoundingFounded, World: id, Outcome: cs.outcome})
+	}
 	ac.setGame(cs)
 	return id, nil
 }
 
-// sendGo tells every member the host's side is ready, with the co-op
-// world ("" for none).
+// sendGo announces the co-op world to every member: the second GO. The
+// first went out at Start with no world (engine goIfHost), so the lobby
+// is in game already and nothing waits on the founding; the server hands
+// the world to the members that are there and to any that join or rejoin
+// later. A send that fails is tried again (engine.SendGo).
 func (ac *appCoop) sendGo(world string) {
 	ac.mu.Lock()
 	lc := ac.lc
 	ac.mu.Unlock()
-	if lc == nil || ac.ctx.Err() != nil {
+	if lc == nil || ac.ctx.Err() != nil || world == "" {
 		return
 	}
-	if st, ok := lc.State(); ok && st.Phase != network.PhaseStarting {
-		return // in game already (a replayed START)
-	}
-	if err := lc.Go(world); err != nil {
-		log.Logf(ac.out, log.Warn, "Couldn't tell the players to go: %v", err)
+	engine.SendGo(ac.ctx, lc, world, ac.out, nil)
+}
+
+// noticeOf is a joiner's one-line outcome sink: the window's co-op line,
+// in place of the questions it used to ask.
+func (ac *appCoop) noticeOf(worldID string) func(outcome, world string) {
+	return func(outcome, w string) {
+		if w == "" {
+			w = worldID
+		}
+		ac.found1(session.Founding{Phase: session.FoundingFounded, World: w, Outcome: outcome})
 	}
 }
 
@@ -314,10 +379,17 @@ func (ac *appCoop) OnGo(s network.LobbySettingsBody, worldID string) {
 	go func() {
 		defer ac.wg.Done()
 		own := ac.own()
-		f := Flags{on: true, dryRun: s.DryRun || own.DryRun, iso: own.ISO, yes: own.Yes, bossKill: own.BossKill, refresh: own.Refresh}
+		// A joiner follows the host (docs/coop-just-works.md §5): its bind
+		// and scrub are answered yes here, and a tag of another world is
+		// cleared before the hello, so the window asks nothing.
+		f := Flags{on: true, dryRun: s.DryRun || own.DryRun, iso: own.ISO, yes: true, follow: true, bossKill: own.BossKill, refresh: own.Refresh}
 		env := ac.deps.env(ac.userDir())
 		env.front = ac.front(f)
 		cs := startCoopSession(ac.out, f, env)
+		if w, err := bind.ParseWorldID(worldID); err == nil {
+			cs.world = w
+		}
+		cs.notice = ac.noticeOf(worldID)
 		cs.poseClient = ac.poseClient
 		cs.console.setCtx(ac.ctx)
 		ac.mu.Lock()
@@ -441,10 +513,16 @@ func (ac *appCoop) setStatus(text string) {
 func foundingStatus(f session.Founding, giveUp time.Duration) string {
 	switch {
 	case f.Phase == session.FoundingBlocked:
+		if giveUp <= 0 {
+			return fmt.Sprintf("the host's save file can't found a world, as %s. Co-op starts once the host %s.",
+				blockReason(f.Blocker), fixHint(f.Blocker, "loads another file", "or removes its tag"))
+		}
 		return fmt.Sprintf("the host's save file can't found a world, as %s. Unless the host %s, the session goes on without co-op in %s.",
 			blockReason(f.Blocker), fixHint(f.Blocker, "loads another file", "or removes its tag"), session.AboutDuration(giveUp))
-	case f.File != "" || f.Why != whyNoGame:
+	case f.File != "" || !isNoGameWhy(f.Why):
 		return "the host is founding the world and waits for their save file in game."
+	case f.Why == whyUnpatched:
+		return "the host's Dolphin runs Wind Waker without this version's mod, so their co-op can't start until their disc is updated."
 	}
 	return "the host is founding the world and waits for their Dolphin to run Wind Waker."
 }
@@ -508,10 +586,23 @@ func (ac *appCoop) Stop() {
 // be in game and idle, logging the CLI's line every 5 s, and for a file
 // that can't found a world (bound already, a second quest, ...) it says
 // why once and waits for another file, or for the window's "Remove the
-// tag" (UnbindFile), at most deps.giveUp for one file however the host
-// plays on meanwhile: then it gives up (foundingGaveUp), so the lobby
-// never sits on Starting for good.
+// tag" (UnbindFile). With deps.giveUp set it gives up (foundingGaveUp) after
+// that long on one file however the host plays on meanwhile; the app
+// leaves it 0, as GO went out at Start.
 func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, error) {
+	d, err := ac.foundLoop(ctx, pol, false)
+	return d.w, err
+}
+
+// decide is found for the app's auto mode: the same looks at the game,
+// but a loaded file is judged by decideAuto and nothing blocks the
+// founding for a minute: a file that takes no part in co-op ends it at
+// once (autoNone), a tied one opens or adopts its world.
+func (ac *appCoop) decide(ctx context.Context, pol *world.Policy) (autoDecision, error) {
+	return ac.foundLoop(ctx, pol, true)
+}
+
+func (ac *appCoop) foundLoop(ctx context.Context, pol *world.Policy, auto bool) (autoDecision, error) {
 	unbind := make(chan unbindReq)
 	ac.mu.Lock()
 	ac.unbind = unbind
@@ -545,10 +636,10 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 		}
 	}
 	unblock := func() { blocked, since, gaveUpOn = "", time.Time{}, nil }
-	say(session.Founding{Phase: session.FoundingWaiting, Why: whyNoGame})
+	say(session.Founding{Phase: session.FoundingWaiting, Why: ac.noGameWhy()})
 	for {
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("co-op: no world was founded: %w", err)
+			return autoDecision{}, fmt.Errorf("co-op: no world was founded: %w", err)
 		}
 		ac.mu.Lock()
 		g := ac.game
@@ -569,7 +660,7 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 		}
 		if m == nil {
 			unblock()
-			say(session.Founding{Phase: session.FoundingWaiting, Why: whyNoGame})
+			say(session.Founding{Phase: session.FoundingWaiting, Why: ac.noGameWhy()})
 			select {
 			case <-ctx.Done():
 			case req := <-unbind:
@@ -587,8 +678,8 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 		}
 		// The give-up, checked before the next look so a "Remove the tag"
 		// sent meanwhile (above) still counts.
-		if gaveUpOn != nil && time.Since(since) >= ac.deps.giveUp {
-			return nil, gaveUpOn
+		if gaveUpOn != nil && ac.deps.giveUp > 0 && time.Since(since) >= ac.deps.giveUp {
+			return autoDecision{}, gaveUpOn
 		}
 		s, st, _, err := diag.GateSnapshots(m, ac.deps.tick)
 		if err != nil {
@@ -599,7 +690,7 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 		// A loaded file is judged as soon as the game can be read, idle or
 		// not, so the host playing on keeps the founding blocked (and the
 		// clock running) rather than back to waiting.
-		if st.CanWrite() {
+		if st.CanWrite() && !auto {
 			file := bind.FileOf(s)
 			if kind, err := foundCheck(file); err != nil {
 				key := bind.Describe(file) + "\x00" + err.Error()
@@ -626,7 +717,7 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 			// Between stages, or back at the title or file select: a
 			// blocked file's clock keeps running (another file loaded
 			// starts it over), and the window keeps showing the block.
-			if gaveUpOn != nil {
+			if blocked != "" {
 				continue
 			}
 			if time.Since(told) >= 5*time.Second {
@@ -642,7 +733,11 @@ func (ac *appCoop) found(ctx context.Context, pol *world.Policy) (*world.World, 
 		}
 		file := bind.FileOf(s)
 		say(session.Founding{Phase: session.FoundingWaiting, File: bind.Describe(file)})
-		return foundFrom(ac.out, s, pol)
+		if auto {
+			return decideAuto(ac.out, s, pol, root)
+		}
+		w, err := foundFrom(ac.out, s, pol, nil)
+		return autoDecision{kind: autoFound, w: w}, err
 	}
 }
 

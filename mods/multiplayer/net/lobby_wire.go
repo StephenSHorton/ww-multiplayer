@@ -126,10 +126,13 @@ const (
 const (
 	CoopOff = "off"
 	CoopNew = "new"
+	// CoopAuto is the app host's default: the world follows the save the
+	// host loads (continue it, adopt its world, or found one from it).
+	CoopAuto = "auto"
 )
 
 // LobbySettingsBody is the host's co-op settings (SETTINGS, and inside
-// STATE and START). Coop is CoopOff, CoopNew or a world ID.
+// STATE and START). Coop is CoopOff, CoopNew, CoopAuto or a world ID.
 type LobbySettingsBody struct {
 	Coop         string `json:"coop"`
 	DryRun       bool   `json:"dryRun"`
@@ -192,6 +195,9 @@ type LobbyMember struct {
 	CoopStatus string `json:"coopStatus,omitempty"`
 	RTTMs      int    `json:"rttMs,omitempty"`
 	Via        string `json:"via"`
+	// App is the member's app version, as its HELLO said ("" from a
+	// build before it, and for a CLI row); the lobby compares them.
+	App string `json:"app,omitempty"`
 	// Away: the member's lobby connection dropped and the server holds
 	// its slot for its token (LobbyHoldTimeout).
 	Away bool `json:"away,omitempty"`

@@ -335,7 +335,34 @@ func (b *Bridge) Host(r HostRequest) (err error) {
 	b.sessMu.Unlock()
 	b.startBeacon(id, port)
 	b.remember(name, col, "", r.Port)
+	b.mu.Lock()
+	choice := choiceOf(b.cfg.Coop)
+	b.mu.Unlock()
+	go b.sendHostCoop(choice)
 	return nil
+}
+
+// sendHostCoop sends r, the host's saved co-op choice at Host, to its lobby once it
+// is up: co-op is on by default ("auto": the world follows the save the
+// host loads) unless Settings turned it off, or the host picked a
+// specific world. Lobby settings start Off, and nothing else applies the
+// saved choice.
+func (b *Bridge) sendHostCoop(r CoopRequest) {
+	if r.Mode == "off" || !b.coopMod() {
+		return
+	}
+	for range 100 {
+		if st := b.ctrl.Snapshot(); st.Lobby != nil && st.Lobby.Host && st.Phase == session.InLobby {
+			// A refusal (a saved world that is gone) leaves the lobby
+			// Off; the co-op panel shows the choice and can change it.
+			_ = b.SetCoop(r)
+			return
+		}
+		if !b.running() {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // Join starts a session in the lobby of the host at r.Addr (joined
