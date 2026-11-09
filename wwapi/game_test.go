@@ -89,7 +89,7 @@ func TestStrictAttach(t *testing.T) {
 	if got, want := info.Features.String(), wwapi.BlobFeatures().String(); got != want || !info.Features.Known() {
 		t.Errorf("features %q, want %q", got, want)
 	}
-	if got := wwapi.BlobFeatures().String(); got != "avatar,eyefix,face,input,ops,tunic,warp" {
+	if got := wwapi.BlobFeatures().String(); got != "avatar,eyefix,face,input,ops,tunic,warp,widescreen" {
 		t.Errorf("this blob's features %q", got)
 	}
 	if miss := info.Features.Missing([]string{"avatar", "face", "tunic", "input"}); miss != nil {
