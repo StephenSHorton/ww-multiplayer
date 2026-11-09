@@ -24,7 +24,11 @@ Brought up on 2026-11-01 (wind#3) on an M5 Max (18 cores, 128 GB), macOS 26.6, D
    `5fa98b9a…9267` on both), so a patch mismatch is never the cause of a Mac-only bug.
 4. Permissions for the app that runs the agent's shell (Terminal, iTerm, the agent host), in
    System Settings > Privacy & Security: **Screen Recording** (screenshots and window titles) and
-   **Accessibility** (synthetic keys). On the rig Mac both were already granted. The macOS
+   **Accessibility** (synthetic keys). On the rig Mac both were already granted. macOS checks the app
+   it holds responsible for the shell, not the shell or the agent binary: for an agent Irori starts
+   that is `/Applications/Irori.app` (the claude daemon included), so grant Irori.app; a grant on
+   `claude` does nothing there (#1228). Check from the agent's own shell with a tiny program that
+   prints `AXIsProcessTrusted()`; `responsibility_get_pid_responsible_for_pid` names the app. The macOS
    firewall is off there (`/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate`), so
    no dialog appears; tests still listen on 127.0.0.1 only.
 
@@ -32,7 +36,8 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
 
 ```
 ~/ww-shared/disc/ww-vanilla.ciso, WW-mp.iso      the disc and the patched disc
-~/ww-shared/disc/WW-mp-3D7FEC97-62DBA05C.iso      wind#90's blob (the C runtime's rings), patched 2026-11-03; WW-mp.iso is re-patched from main once it lands
+~/ww-shared/disc/WW-mp-CACDFFF7-1100504D.iso      #1185's blob (widescreen stage 1, REL build 0xCACDFFF7), patched 2026-11-09 from main 7a25c47; WW-mp.iso is the same disc
+~/ww-shared/disc/WW-mp-3D7FEC97-62DBA05C.iso      wind#90's blob (the C runtime's rings), patched 2026-11-03; WW-mp.iso was this disc until #1185
 ~/ww-shared/fixtures/                             dolphin-user-3/-4 (PC user dirs), saves/ (GCIs),
                                                   start-mac-3D7FEC97.sav (the Mac start save, below; start-gohma-3D7FEC97.sav, the pre-Gohma
                                                   save wind#82's battery boots (docs/live/wind82, wind#86); start-mac-76C1EE09.sav / WW-mp-76C1EE09.iso for builds before wind#77, start-mac-CAC6980B.sav / WW-mp-CAC6980B.iso for builds before wind#80, start-mac-A9DE0F1E.sav / WW-mp-A9DE0F1E.iso and start-mac-1CE30685.sav / WW-mp-1CE30685.iso are kept for builds before #289 and #267)
@@ -60,7 +65,7 @@ Shared layout (one copy for every agent; nothing in it is ever committed or uplo
   unattended by the macOS `wwdev auto-recapture` (`scripts/mac-rig.sh recapture <rig>`): cold
   boot, menus through the pad override, then a held Shift+F1. The shared one is
   `~/ww-shared/fixtures/start-mac-3D7FEC97.sav` (REL 0x3D7FEC97, main since wind#77's title tags and file select line, recaptured 2026-11-02 on `WW-mp-3D7FEC97.iso`; file 1 of the fixture card, Link in
-  play). Since wind#90 (the C runtime's rings, same REL id, BlobHash 0x62DBA05C) the default is `start-mac-3D7FEC97-62DBA05C.sav`, recaptured 2026-11-03 unattended on that build; before it, since wind#76 (the hidden puppet KAMOME, same REL id, BlobHash 0xA37EC8DB), it was `start-mac-3D7FEC97-A37EC8DB.sav`, recaptured
+  play). Since #1185 (widescreen stage 1, BlobHash 0x1100504D, REL build 0xCACDFFF7) the default is `start-mac-3D7FEC97-1100504D.sav`, recaptured 2026-11-09 unattended on `WW-mp-CACDFFF7-1100504D.iso` in widescreen mode 1 (Hyrule; the name keeps the fixture series 3D7FEC97, though this REL id is 0xCACDFFF7); from wind#90 (the C runtime's rings, same REL id, BlobHash 0x62DBA05C) until #1185 it was `start-mac-3D7FEC97-62DBA05C.sav`, recaptured 2026-11-03 unattended on that build; before it, since wind#76 (the hidden puppet KAMOME, same REL id, BlobHash 0xA37EC8DB), it was `start-mac-3D7FEC97-A37EC8DB.sav`, recaptured
   2026-11-03 on that build (Hyrule); `start-mac-3D7FEC97.sav` (BlobHash 0xCCF7B3C1) stays for builds before it: a change to the T2 blob alone
   keeps the REL id, so the save is named by both. `start-mac-76C1EE09.sav` (REL 0x76C1EE09, wind#80's mailbox move until wind#77) and `start-mac-CAC6980B.sav` (REL 0xCAC6980B, #289 until wind#80) stay for older builds. A REL/C change invalidates it: recapture under the `ww/rel-blob` lease and replace it.
 - **Pre-Dragon Roost start save (wind#70):** `~/ww-shared/fixtures/start-mac-CAC6980B-4ww.sav`, recaptured
