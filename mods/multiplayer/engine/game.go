@@ -66,6 +66,11 @@ type GameDeps struct {
 	// CoopSync runs coop-sync on Dolphin pid for co-op side cs until ctx
 	// ends (CoopApp.Sync); nil runs none.
 	CoopSync func(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs CoopSide) error
+	// Widescreen keeps Dolphin pid's widescreen mode at what the setting
+	// and Dolphin allow until ctx ends (the widescreen mod's reconcile
+	// loop, native-widescreen.md section 7); it runs beside the pipelines
+	// and its failure never stops them. Nil runs none.
+	Widescreen func(ctx context.Context, pid uint32, setting string, rep log.Reporter) error
 	// EnvPID is WW_DOLPHIN_PID: the Dolphin to play on, whatever runs.
 	EnvPID uint32
 	// CardTags writes the co-op tags waiting for the memory card, if no
@@ -101,9 +106,10 @@ func realGameDeps(ls *LiveState, c Config) *GameDeps {
 		Pipelines: func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter) error {
 			return runPosePipelinesOn(ctx, cancel, c.Env.Feed, name, addr, pid, rep, onClient, onPos, onVitals)
 		},
-		Reset:    resetMailboxOn,
-		EnvPID:   envDolphinPID(),
-		CardTags: c.CardTags,
+		Reset:      resetMailboxOn,
+		EnvPID:     envDolphinPID(),
+		CardTags:   c.CardTags,
+		Widescreen: c.Widescreen,
 	}
 	// The two seams on one Dolphin share its enemy claim set (gameClaims):
 	// co-op's K1 refuses what the enemy client claims (enemy-mirror-general
@@ -548,18 +554,31 @@ func (g *GameRunner) run(ctx context.Context) {
 // pose pipelines, nor reaches the runner's fatal path.
 func (g *GameRunner) runPipelines(ctx context.Context, cancel context.CancelFunc, pid uint32) error {
 	d := g.deps
-	if d.EnemySync == nil {
+	if d.EnemySync == nil && d.Widescreen == nil {
 		return d.Pipelines(ctx, cancel, g.name, g.addr, pid, g.out)
 	}
-	host := g.isHost()
-	return RunPipelines(ctx, cancel, g.out,
-		Pipeline{Name: "pose", Run: func(ctx context.Context) error {
-			return d.Pipelines(ctx, cancel, g.name, g.addr, pid, g.out)
-		}},
-		enemyDegradable(Pipeline{Name: "enemy-sync", Run: func(ctx context.Context) error {
+	ps := []Pipeline{{Name: "pose", Run: func(ctx context.Context) error {
+		return d.Pipelines(ctx, cancel, g.name, g.addr, pid, g.out)
+	}}}
+	if d.EnemySync != nil {
+		host := g.isHost()
+		ps = append(ps, enemyDegradable(Pipeline{Name: "enemy-sync", Run: func(ctx context.Context) error {
 			return d.EnemySync(ctx, g.name, g.addr, pid, host, g.out)
-		}}, g.out),
-	)
+		}}, g.out))
+	}
+	if d.Widescreen != nil {
+		// Never ends the others: a failure leaves widescreen as it is
+		// until the pipelines start again.
+		setting := g.o.Widescreen
+		ps = append(ps, Pipeline{Name: "widescreen", Run: func(ctx context.Context) error {
+			if err := d.Widescreen(ctx, pid, setting, g.out); err != nil && ctx.Err() == nil {
+				log.Logf(g.out, log.Warn, "widescreen: %v; left as it is", err)
+			}
+			<-ctx.Done()
+			return nil
+		}})
+	}
+	return RunPipelines(ctx, cancel, g.out, ps...)
 }
 
 // badLog says once what the Dolphin runs instead of the patched game.

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // TestXScaleSampler: the hack's scale comes from the Dolphin's own user
@@ -71,5 +73,38 @@ func TestXScaleSamplerProcRetry(t *testing.T) {
 	s.Scale(t0.Add(xscaleProcRetry+xscaleEvery), log.Discard{})
 	if procs != 2 {
 		t.Fatalf("looked up %d times after the retry wait, want 2", procs)
+	}
+}
+
+// TestXScaleSamplerNative: in native widescreen (block mode 2) the scale is
+// 0 whatever the hack says; back in mode 1 the hack's scale returns.
+func TestXScaleSamplerNative(t *testing.T) {
+	t.Setenv("WW_TAG_XSCALE", "")
+	dir := t.TempDir()
+	gfx := filepath.Join(dir, "Config", "GFX.ini")
+	if err := os.MkdirAll(filepath.Dir(gfx), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gfx, []byte("[Settings]\nAspectRatio = 1\nwideScreenHack = True\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := mem.NewFakeMem()
+	blk := make([]byte, mailbox.WsSize)
+	mem.PutU32BE(blk[mailbox.WsMagicOff:], mailbox.WsMagic)
+	blk[mailbox.WsModeOff] = mailbox.WsModeNative
+	_ = m.Store(mailbox.WsAddr, blk)
+	s := newXScaleSampler(7, m)
+	s.proc = func(uint32) (string, []string, bool) { return dir, nil, true }
+	s.size = func(uint32) (int, int, bool) { return 0, 0, false }
+	t0 := time.Unix(1000, 0)
+	if got := s.Scale(t0, log.Discard{}); got != 0 {
+		t.Fatalf("mode 2: %v, want 0", got)
+	}
+	if b := (mailbox.VisBlock{XScale: 0}).Bytes(); mem.U32BE(b[mailbox.VisFlagsOff-mailbox.VisGoStart:])&mailbox.VisFlagsXScaleMask != 0 {
+		t.Fatal("XScale 0 must encode as none")
+	}
+	_ = m.Store(mailbox.WsAddr+mailbox.WsModeOff, []byte{mailbox.WsModeClip})
+	if got := s.Scale(t0.Add(xscaleEvery), log.Discard{}); got != 0.75 {
+		t.Fatalf("mode 1 with the hack at 16:9: %v, want 0.75", got)
 	}
 }

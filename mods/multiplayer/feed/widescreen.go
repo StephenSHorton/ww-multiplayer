@@ -10,6 +10,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 )
 
 // xscaleEvery is how often the name tags' Widescreen Hack scale is
@@ -26,12 +27,15 @@ const xscaleProcRetry = 30 * time.Second
 // (launch.GFXAspect.XScale), for the visuals block (#1157). It finds the
 // Dolphin's user folder and command line once, then re-reads its graphics
 // settings and render size every xscaleEvery. WW_TAG_XSCALE=<f> pins the
-// scale (tests; off = 1).
+// scale (tests; off = 1). In native widescreen (the WWWS block's mode 2)
+// the game draws the wide picture itself: the scale is 0 (none).
 type xscaleSampler struct {
 	pid uint32
 	// proc finds pid's user folder and command line; size its render size.
 	proc func(pid uint32) (userDir string, args []string, ok bool)
 	size func(pid uint32) (w, h int, ok bool)
+	// mode reads the widescreen block's mode byte; nil reads none.
+	mode func() (uint8, bool)
 
 	procOK    bool
 	procRetry time.Time
@@ -42,8 +46,14 @@ type xscaleSampler struct {
 	why       string
 }
 
-func newXScaleSampler(pid uint32) *xscaleSampler {
-	return &xscaleSampler{pid: pid, proc: dolphinProc, size: host.RenderSize, scale: 1}
+func newXScaleSampler(pid uint32, m interface {
+	Read(addr uint32, n int) ([]byte, error)
+}) *xscaleSampler {
+	mode := func() (uint8, bool) {
+		b, err := mailbox.ReadWidescreen(m)
+		return b.Mode, err == nil && b.Present
+	}
+	return &xscaleSampler{pid: pid, proc: dolphinProc, size: host.RenderSize, mode: mode, scale: 1}
 }
 
 // dolphinProc is pid's user folder (launch.ProcessUserDir) and arguments.
@@ -68,7 +78,7 @@ func (s *xscaleSampler) Scale(now time.Time, rep log.Reporter) float64 {
 	scale, why := s.measure(now)
 	if scale != s.scale || why != s.why {
 		if scale != s.scale {
-			if scale < 1 {
+			if scale > 0 && scale < 1 {
 				log.Logf(rep, log.Info, "name tags: %s, so they are drawn at %.2f of their x to stay on the players", why, scale)
 			} else if s.why != "" {
 				log.Logf(rep, log.Info, "name tags: %s, drawn as they are", why)
@@ -86,6 +96,11 @@ func (s *xscaleSampler) measure(now time.Time) (float64, string) {
 		}
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 && f <= 1 {
 			return f, fmt.Sprintf("WW_TAG_XSCALE=%v", f)
+		}
+	}
+	if s.mode != nil {
+		if m, ok := s.mode(); ok && m == mailbox.WsModeNative {
+			return 0, "native widescreen"
 		}
 	}
 	if !s.procOK {

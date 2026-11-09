@@ -706,3 +706,55 @@ func TestGameRunnerPrepareFailureBlocksLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestGameRunnerWidescreen: the widescreen seam runs beside the pipelines
+// on the played Dolphin with the launch options' setting, its warnings
+// reach the Play page's log, it stops with them, and its failure leaves
+// the pose pipelines running.
+func TestGameRunnerWidescreen(t *testing.T) {
+	f := newFakeGame()
+	o := optsA
+	o.Widescreen = "21:9"
+	out := &gameOut{}
+	deps := fakeDeps(f)
+	var mu sync.Mutex
+	var events []string
+	deps.Widescreen = func(ctx context.Context, pid uint32, setting string, rep log.Reporter) error {
+		mu.Lock()
+		events = append(events, fmt.Sprintf("ws %d %s start", pid, setting))
+		mu.Unlock()
+		rep.Log(log.Warn, "widescreen: test warning")
+		<-ctx.Done()
+		mu.Lock()
+		events = append(events, fmt.Sprintf("ws %d stop", pid))
+		mu.Unlock()
+		return nil
+	}
+	g := NewGameRunner(deps, func() session.LaunchOptions { return o }, "Link", "127.0.0.1:1", out, nil, nil)
+	g.Start(context.Background())
+	waitFor(t, "widescreen", func() bool { return out.Logged("widescreen: test warning") })
+	if !hasEvent(f, "pipelines 100 start")() {
+		t.Fatalf("events %v", f.Events())
+	}
+	g.Stop()
+	mu.Lock()
+	got := strings.Join(events, ", ")
+	mu.Unlock()
+	if got != "ws 100 21:9 start, ws 100 stop" {
+		t.Fatalf("widescreen events %q", got)
+	}
+
+	// A failing seam logs once and the pose pipelines keep running.
+	f = newFakeGame()
+	out = &gameOut{}
+	deps = fakeDeps(f)
+	deps.Widescreen = func(context.Context, uint32, string, log.Reporter) error { return errors.New("no Dolphin") }
+	g = NewGameRunner(deps, func() session.LaunchOptions { return o }, "Link", "127.0.0.1:1", out, nil, nil)
+	g.Start(context.Background())
+	waitFor(t, "the failure", func() bool { return out.Logged("widescreen: no Dolphin") })
+	time.Sleep(20 * time.Millisecond)
+	g.Stop()
+	if n := strings.Count(strings.Join(f.Events(), ","), "pipelines 100 start"); n != 1 {
+		t.Fatalf("pipelines restarted %d times: %v", n, f.Events())
+	}
+}

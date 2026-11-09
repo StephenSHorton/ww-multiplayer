@@ -9,6 +9,8 @@
 package engine
 
 import (
+	"context"
+
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
@@ -44,6 +46,9 @@ type Config struct {
 	// host refuses a joiner with another. The zero Mods sends and checks
 	// none.
 	Mods network.Mods
+	// Widescreen is GameDeps.Widescreen: the widescreen mod's reconcile
+	// loop, which the engine must not import. Nil runs none.
+	Widescreen func(ctx context.Context, pid uint32, setting string, rep log.Reporter) error
 }
 
 // New is the engine c describes.

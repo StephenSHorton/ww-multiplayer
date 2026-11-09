@@ -8,6 +8,7 @@ import (
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/mods/widescreen"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 )
 
@@ -33,7 +34,8 @@ var coopEnv = coopsession.Env{Open: cliutil.OpenDolphin, Tags: cardTags}
 // written around its lobby sessions' Dolphins, and the mods its hellos
 // carry.
 func engineConfig(coop engine.CoopApp, mods network.Mods) engine.Config {
-	c := engine.Config{Env: sessionEnv, Version: version, CheatsIni: cheats.GZLE01, Coop: coop, Mods: mods}
+	c := engine.Config{Env: sessionEnv, Version: version, CheatsIni: cheats.GZLE01, Coop: coop, Mods: mods,
+		Widescreen: widescreen.RunDolphin} // the app's runner keeps each Dolphin's widescreen mode (native-widescreen.md section 7)
 	if coop != nil {
 		c.CardTags = cardTags.Flush
 	}

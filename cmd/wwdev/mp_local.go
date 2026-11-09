@@ -444,6 +444,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	spawn("bcast-B", broadcast(nameB, addrB, pidB))
 	time.Sleep(300 * time.Millisecond)
 	spawn("puppet-B", puppet(nameB, addrB, pidB))
+	mpLocalWidescreen(ctx, rep, &wg, pidA, pidB) // WW_WIDESCREEN: the app's reconcile loop per Dolphin
 	// Dolphin B's enemy claims (enemy-mirror-general.json D8): enemy-B
 	// fills them and coop-B's K1 refuses what they claim. Per game, never
 	// shared: A is the host and mirrors nothing, so coop-A gets none.
