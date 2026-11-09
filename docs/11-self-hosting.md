@@ -17,7 +17,7 @@ Usually the host's own app is the server: **Host a session** starts one on the h
 
 ## 2. Where to run it: Tailscale first
 
-**Tailscale** (or another WireGuard mesh: Headscale, ZeroTier) is the easiest and the safest place:
+**Tailscale** (or another WireGuard mesh: Headscale, ZeroTier, Toru on Windows) is the easiest and the safest place:
 
 1. Install Tailscale on the server machine and on every player's machine, all in one tailnet (or share the server machine with your friends' tailnets).
 2. Run `ww-multiplayer server` on the server machine.
