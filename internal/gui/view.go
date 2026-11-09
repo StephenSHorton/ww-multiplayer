@@ -169,6 +169,11 @@ type StateView struct {
 	// Coop is the session's co-op side (coop.go); nil outside a lobby
 	// session.
 	Coop *CoopView `json:"coop"`
+	// Disc is the disc update's line (disc.go): Start's note says it while
+	// it blocks Start.
+	Disc DiscView `json:"disc"`
+	// StartWaiting says the host's Start waits for the disc's update.
+	StartWaiting bool `json:"startWaiting"`
 }
 
 // EventView is one controller event. Kind is one of the eventKinds values.
@@ -202,6 +207,8 @@ type EventView struct {
 	Status string `json:"status,omitempty"`
 	// Update is an "update" event's banner state (update.go).
 	Update *UpdateView `json:"update,omitempty"`
+	// Disc is a "disc" event's line (disc.go).
+	Disc *DiscView `json:"disc,omitempty"`
 }
 
 // eventKinds names each controller event kind for the frontend.

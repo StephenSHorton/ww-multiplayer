@@ -34,11 +34,11 @@ import (
 // with the same arguments (relaunch). Should a session or patch have
 // started anyway, or the player keep the window open, the stage is
 // "ready": the app restarts after Leave, the patch's end, Restart, or
-// when it is closed. Every start checks the patched disc (discPlan): one
-// patched by another version (after an update, any disc not this
-// build's) is patched again from the vanilla disc Setup saved, with the
-// Setup screen's progress (Repatch), or, without one, Setup's game step
-// opens. An interrupted re-patch is so taken up again at the next start.
+// when it is closed. The patched disc is checked when the window opens,
+// at Host and Join and before every launch (disc.go): one patched by
+// another version (after an update, any disc not this build's) is patched
+// again by itself from the vanilla disc, with a line on the Play page; an
+// interrupted one is so taken up again at the next check.
 
 // UpdateView is the update banner's state.
 type UpdateView struct {
@@ -65,11 +65,11 @@ type UpdateView struct {
 	Percent int    `json:"percent"`
 	Error   string `json:"error"`
 	// Installed is the version the last update installed, on that
-	// version's first start ("Updated to vX.Y.Z"); Repatch is what this
-	// start does with the disc (discPlan): "keep" (it is this build's,
-	// after an update), "repatch" (patch it again from the saved vanilla
-	// disc: Repatch), "pick" (no vanilla disc saved: Setup's game step) or
-	// "".
+	// version's first start ("Updated to vX.Y.Z"); Repatch is what the
+	// last disc check found to do (discPlan, disc.go): "keep" (it is this
+	// build's, after an update), "repatch" (patch it again from the vanilla
+	// disc), "pick" (no vanilla disc: the Play page asks for it) or "". The
+	// Play page's disc line (DiscView) says what happens.
 	Installed string `json:"installed"`
 	Repatch   string `json:"repatch"`
 }
@@ -83,9 +83,8 @@ type updState struct {
 	done     chan struct{} // the running install's end
 	relaunch *exec.Cmd
 	// installed is config update.installed as this run started; plan is
-	// its re-patch decision, made once (planOnce).
+	// the last disc check's plan (disc.go), made again at every check.
 	installed string
-	planOnce  sync.Once
 	plan      string
 	launched  sync.Once
 	closing   atomic.Bool // close ran: no restart from a patch's end
@@ -155,8 +154,8 @@ func (b *Bridge) setQuit(quit func(), stdio bool) {
 	b.updSeam.quitMu.Unlock()
 }
 
-// UpdateStatus returns the banner's state. Its first call decides what
-// to do with the disc (UpdateView.Repatch, discPlan).
+// UpdateStatus returns the banner's state, with the last disc check's
+// plan (it checks nothing itself: it is asked at every download tick).
 func (b *Bridge) UpdateStatus() UpdateView {
 	b.mu.Lock()
 	cfg := b.cfg
@@ -179,31 +178,16 @@ func (b *Bridge) UpdateStatus() UpdateView {
 	}
 	v.CanInstall = !v.Dev && update.AssetName(b.updSeam.goos) != "" && b.canInstallHere()
 	v.Installed = b.upd.installed
-	v.Repatch = b.diskPlan()
+	v.Repatch = b.lastPlan()
 	return v
 }
 
-// diskPlan is this start's discPlan (UpdateView.Repatch), decided at the
-// first call, UpdateStatus's or Setup's, and cleared once a re-patch
-// starts or a patch leaves the disc this build's.
-func (b *Bridge) diskPlan() string {
-	b.upd.planOnce.Do(func() {
-		eff, _ := b.effective()
-		plan := discPlan(eff, b.inspect, isFile, b.upd.installed != "")
-		b.upd.mu.Lock()
-		b.upd.plan = plan
-		b.upd.mu.Unlock()
-	})
-	b.upd.mu.Lock()
-	defer b.upd.mu.Unlock()
-	return b.upd.plan
-}
-
-// discPlan is what this start does with the disc c says the player boots:
+// discPlan is what a check does with the disc c says the player boots:
 // on an update's first start, repatchPlan; on any other, "repatch" or
 // "pick" only when the disc was patched by another version (an earlier
-// re-patch was interrupted, or the player went back to an older copy),
-// else "" (Setup and Start handle a missing or unreadable disc).
+// re-patch was interrupted, the player went back to an older copy, or an
+// update was installed without restarting), else "" (Setup and Start
+// handle a missing or unreadable disc).
 func discPlan(c config.Config, inspect func(string) (patch.DiscState, error), isFile func(string) bool, afterUpdate bool) string {
 	if afterUpdate {
 		return repatchPlan(c, inspect, isFile)
@@ -211,13 +195,8 @@ func discPlan(c config.Config, inspect func(string) (patch.DiscState, error), is
 	if c.ISO.Patched == "" {
 		return ""
 	}
-	if st, err := inspect(c.ISO.Patched); err != nil || st != patch.OtherVersion {
-		return ""
-	}
-	if c.ISO.Vanilla != "" && isFile(c.ISO.Vanilla) {
-		return "repatch"
-	}
-	return "pick"
+	st, err := inspect(c.ISO.Patched)
+	return discPlanOf(c, st, err, isFile, false)
 }
 
 func (b *Bridge) canInstallHere() bool {
@@ -334,8 +313,8 @@ func checkError(err error) string {
 var errUpdating = errors.New("an update is downloading: wait until the app restarts on the new version, or cancel it on the Home screen")
 
 // updating says an update is downloading or closing the app for the new
-// version: Host, Join, Start and StartPatch wait (and Host, Join and
-// Start wait for a running patch too, errPatching).
+// version: Host, Join, Start and StartPatch wait (and Join, Start and
+// LaunchDolphin wait for a running patch to end, disc.go).
 func (b *Bridge) updating() bool {
 	b.upd.mu.Lock()
 	defer b.upd.mu.Unlock()
@@ -572,26 +551,23 @@ func (b *Bridge) OpenReleaseNotes() (err error) {
 	return f(u)
 }
 
-// Repatch is an update's re-patch (UpdateView.Repatch "repatch"): the
-// saved vanilla disc patched again with this version, as Setup's game
-// step does it (StartPatch; "patch" events show the progress).
+// Repatch is the disc line's Try again: the disc checked and, when
+// another version patched it, updated now (ensureDisc; "disc" and "patch"
+// events show the progress). It says why when that can't start: no
+// vanilla disc, a Dolphin holding the disc (only one on this player's
+// folder or disc counts), or a failed start.
 func (b *Bridge) Repatch() (err error) {
 	defer b.maskErr(&err)
-	eff, _ := b.effective()
-	if eff.ISO.Vanilla == "" || !isFile(eff.ISO.Vanilla) {
+	b.ensureDisc("try again")
+	v := b.DiscStatus()
+	switch v.State {
+	case "pick":
 		return errors.New("your vanilla disc isn't where Setup saved it: choose it again")
+	case "blocked":
+		return errDiscHeld
+	case "failed":
+		return errors.New(v.Error)
 	}
-	// A Dolphin the old version started may still have the patched disc
-	// open (Windows then can't replace it): the next start asks again.
-	if len(b.procs()) > 0 {
-		return errors.New("close Dolphin first: it may have your patched disc open. Then patch your disc again here, or reopen the app")
-	}
-	if err := b.StartPatch(PatchRequest{Path: eff.ISO.Vanilla}); err != nil {
-		return err
-	}
-	b.upd.mu.Lock()
-	b.upd.plan = "" // started: a reload doesn't start it twice
-	b.upd.mu.Unlock()
 	return nil
 }
 

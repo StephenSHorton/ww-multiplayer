@@ -637,8 +637,14 @@ func runningDolphins() []session.RunningDolphin {
 	return out
 }
 
+// ProbeDolphin is probeDolphin for the app window, which looks at a
+// Dolphin outside a session (whether the app may close it to update the
+// disc: never while Link is in the world, InGame, whatever the disc).
+func ProbeDolphin(pid uint32) session.Probe { return probeDolphin(pid) }
+
 // probeDolphin looks at Dolphin pid: running, its game, this build's mod
-// in its memory, Link in the world.
+// in its memory, Link in the world (InGame is read on an unpatched game
+// too).
 func probeDolphin(pid uint32) session.Probe {
 	pids, _ := emu.ListPIDs()
 	if !slices.Contains(pids, pid) {
