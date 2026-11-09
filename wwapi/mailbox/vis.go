@@ -46,6 +46,12 @@ const (
 	VisFlagHair  uint32 = 0x08
 	VisFlagLobby uint32 = 0x10 // the file select screen lists the remotes' names (issue #38)
 
+	// The flags word's top half: VisBlock.XScale as a q16 fraction (0 = 1.0),
+	// how much Dolphin's Widescreen Hack narrows x on screen against the 2D
+	// list the name tags are drawn in (#1157).
+	VisFlagsXScaleShift        = 16
+	VisFlagsXScaleMask  uint32 = 0xFFFF0000
+
 	VisEqSword  = 0x00
 	VisEqShield = 0x01
 	VisEqFlags  = 0x02
@@ -118,9 +124,12 @@ type VisSea struct {
 // VisBlock is what Go writes into the visuals block.
 type VisBlock struct {
 	Flags uint32
-	Names [VisSlots]string
-	Equip [VisSlots]VisEquip
-	Sea   []VisSea // at most VisSeaMax; the rest are dropped
+	// XScale is the Widescreen Hack's x scale (launch.WidescreenXScale):
+	// in (0, 1) it goes into the flags' top half; anything else is 1.0.
+	XScale float64
+	Names  [VisSlots]string
+	Equip  [VisSlots]VisEquip
+	Sea    []VisSea // at most VisSeaMax; the rest are dropped
 }
 
 // Bytes encodes b as the Go span (VisGoStart..VisGoEnd), magic first.
@@ -130,7 +139,7 @@ func (b VisBlock) Bytes() []byte {
 	out := make([]byte, VisGoEnd-VisGoStart)
 	at := func(off int) []byte { return out[off-VisGoStart:] }
 	binary.BigEndian.PutUint32(at(VisMagicOff), VisMagic)
-	binary.BigEndian.PutUint32(at(VisFlagsOff), b.Flags)
+	binary.BigEndian.PutUint32(at(VisFlagsOff), b.Flags&^VisFlagsXScaleMask|xscaleQ16(b.XScale)<<VisFlagsXScaleShift)
 	for s := 0; s < VisSlots; s++ {
 		dst := at(VisNamesOff + s*VisNameBytes)[:VisNameBytes-1]
 		n := 0
@@ -177,4 +186,19 @@ func (b VisBlock) Bytes() []byte {
 		e[VisSeFlags] = VisSefShow
 	}
 	return out
+}
+
+// xscaleQ16 is x in (0, 1) as a q16 fraction, 0 (the REL's 1.0) otherwise.
+func xscaleQ16(x float64) uint32 {
+	if !(x > 0 && x < 1) {
+		return 0
+	}
+	q := uint32(x*65536 + 0.5)
+	if q == 0 {
+		q = 1
+	}
+	if q > 0xFFFF {
+		return 0
+	}
+	return q
 }

@@ -489,6 +489,7 @@ typedef void (*vis_font_width_t)(void* font, int code, u8* width);
 typedef struct {
     const void* vtbl;          // dDlst_base_c: dDlst_list_c::draw calls vtable[3]
     f32 x, y, px;
+    f32 xs;                    // the text's width scale (vis_xscale)
     u32 alpha;
     char name[VIS_TEXT_MAX];
 } VisTag;
@@ -532,6 +533,14 @@ static int vis_hud_visible(void) {
     return 1;
 }
 
+// How much Dolphin's Widescreen Hack narrows x on screen relative to this 2D
+// list (WWVIS_FLAGS_XSCALE_*, from Go): 1 without the hack.
+static f32 vis_xscale(void) {
+    u32 q = (VIS_WORD(WWVIS_FLAGS_OFF) & WWVIS_FLAGS_XSCALE_MASK) >> WWVIS_FLAGS_XSCALE_SHIFT;
+    if (q == 0) return 1.0f;
+    return (f32)q / 65536.0f;
+}
+
 static void vis_tag_queue(int slot, J3DModel* model) {
     if (!vis_on(WWVIS_FLAG_NAMES) || !vis_hud_visible()) return;
     VisTag* tag = &vis_tags[slot];
@@ -564,8 +573,11 @@ static void vis_tag_queue(int slot, J3DModel* model) {
     t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
     f32 alpha = 255.0f;
     if (depth > TAG_DEPTH_FADE) alpha = 255.0f * (TAG_DEPTH_MAX - depth) / (TAG_DEPTH_MAX - TAG_DEPTH_FADE);
+    // The hack draws the remote at centre + (x - centre) * xs: put the tag there too.
+    f32 xs = vis_xscale();
     tag->vtbl = vis_tag_vtbl;
-    tag->x = screen.x;
+    tag->x = 320.0f + (screen.x - 320.0f) * xs;
+    tag->xs = xs;
     tag->y = screen.y - TAG_BASELINE_UP;
     tag->px = TAG_PX_NEAR + (TAG_PX_FAR - TAG_PX_NEAR) * t;
     tag->alpha = (u32)alpha;
@@ -619,6 +631,7 @@ void wwvis_lobby_draw(void) {
     u8* dl = (u8*)GI_DRAWLIST;
     tag->vtbl = vis_tag_vtbl;
     tag->x = LOBBY_X;
+    tag->xs = vis_xscale();
     tag->y = LOBBY_Y;
     tag->px = LOBBY_PX;
     tag->alpha = 0xFF;
@@ -645,10 +658,10 @@ void vis_tag_draw(VisTag* tag) {
     for (len = 0; tag->name[len] != 0; len++) {
         u8 w[2];
         ((vis_font_width_t)vt[JUTFONT_VT_WIDTH_ENTRY])(font, (u8)tag->name[len], w);
-        width += (f32)w[1] * scale;
+        width += (f32)w[1] * scale * tag->xs;
     }
     f32 x = tag->x - width * 0.5f;
-    f32 gw = (f32)cw * scale;
+    f32 gw = (f32)cw * scale * tag->xs;
     f32 gh = (f32)ch * scale;
 
     J2DOrthoGraph_setPort(graf);
