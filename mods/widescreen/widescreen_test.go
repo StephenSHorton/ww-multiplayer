@@ -64,9 +64,18 @@ func TestParseAppSetting(t *testing.T) {
 	}
 }
 
+// sent is the words of each WS_SET the fake game ran.
+type sent [][3]uint32
+
 // rig is a FakeMem with the block as ws_init writes it, the ops runtime
 // with WS_SET behaving as widescreen.c's handler, and no session.
 func rig(t *testing.T) (*mem.FakeMem, *opstest.C) {
+	m, c, _ := rigSent(t)
+	return m, c
+}
+
+// rigSent is rig plus the WS_SET words the game got.
+func rigSent(t *testing.T) (*mem.FakeMem, *opstest.C, *sent) {
 	t.Helper()
 	m := mem.NewFakeMem()
 	c := opstest.New(m)
@@ -81,7 +90,9 @@ func rig(t *testing.T) (*mem.FakeMem, *opstest.C) {
 	if err := m.Store(mailbox.WsAddr, blk); err != nil {
 		t.Fatal(err)
 	}
+	got := &sent{}
 	c.Register(mailbox.OpsOpWsSet, func(a, b, cc uint32) uint8 {
+		*got = append(*got, [3]uint32{a, b, cc})
 		f := math.Float32frombits(b)
 		if a > 2 || !mailbox.WsFactorValid(f) {
 			return mailbox.OpsRRefused
@@ -94,7 +105,7 @@ func rig(t *testing.T) (*mem.FakeMem, *opstest.C) {
 	old := checkContract
 	checkContract = func(mem.Reader) error { return nil }
 	t.Cleanup(func() { checkContract = old })
-	return m, c
+	return m, c, got
 }
 
 // drive runs frames of the fake C until the command's goroutine is done.
@@ -167,5 +178,61 @@ func TestApplyRefusals(t *testing.T) {
 	_ = m.Store(mailbox.WsAddr, make([]byte, mailbox.WsSize))
 	if _, err := drive(t, m, c, []string{"16:9"}); err == nil || !strings.Contains(err.Error(), "no widescreen block") {
 		t.Errorf("no block: %v", err)
+	}
+}
+
+func TestApplyNative(t *testing.T) {
+	m, c, got := rigSent(t)
+	for _, tc := range []struct {
+		args []string
+		want [3]uint32
+	}{
+		{[]string{"native", "16:9"}, [3]uint32{mailbox.WsModeNative, 0x3FAAAAAB, 0xFF}},
+		{[]string{"native", "16:9", "--flags", "0"}, [3]uint32{mailbox.WsModeNative, 0x3FAAAAAB, 0}},
+		{[]string{"--flags", "0", "native", "16:9"}, [3]uint32{mailbox.WsModeNative, 0x3FAAAAAB, 0}},
+		{[]string{"16:9"}, [3]uint32{mailbox.WsModeClip, 0x3FAAAAAB, 0xFF}},
+	} {
+		*got = nil
+		if _, err := drive(t, m, c, tc.args); err != nil {
+			t.Fatalf("%v: %v", tc.args, err)
+		}
+		if len(*got) != 1 || (*got)[0] != tc.want {
+			t.Errorf("%v: sent %08X, want %08X", tc.args, *got, tc.want)
+		}
+	}
+	*got = nil
+	for _, args := range [][]string{
+		{"native"}, {"native", "x"}, {"native", "16:0"}, {"native", "auto"},
+		{"native", "16:9", "21:9"}, {"native", "16:9", "--flags", "256"},
+	} {
+		if _, err := drive(t, m, c, args); err == nil {
+			t.Errorf("%v must fail", args)
+		}
+	}
+	if len(*got) != 0 {
+		t.Errorf("bad forms sent %08X", *got)
+	}
+}
+
+// Every form that writes refuses while a session holds the mailbox, and
+// when the contract check fails.
+func TestApplyRefusesEveryForm(t *testing.T) {
+	m, c, got := rigSent(t)
+	forms := [][]string{{"auto"}, {"off"}, {"16:9"}, {"2.39"}, {"native", "16:9"}, {"native", "21:9", "--flags", "0"}}
+	_ = m.Store(mailbox.Mailbox+mailbox.OffShadowMode, []byte{1})
+	for _, args := range forms {
+		if _, err := drive(t, m, c, args); !errors.Is(err, ErrClaimed) {
+			t.Errorf("%v while claimed: %v", args, err)
+		}
+	}
+	_ = m.Store(mailbox.Mailbox+mailbox.OffShadowMode, []byte{0})
+	checkContract = func(mem.Reader) error { return errors.New("contract: other blob") }
+	for _, args := range forms {
+		if _, err := drive(t, m, c, args); err == nil || !strings.Contains(err.Error(), "other blob") {
+			t.Errorf("%v, contract: %v", args, err)
+		}
+	}
+	if len(*got) != 0 {
+		t.Errorf("refused forms sent %08X", *got)
 	}
 }
