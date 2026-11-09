@@ -566,17 +566,19 @@ static void vis_tag_queue(int slot, J3DModel* model) {
     f32 depth = -cam.z;
     if (!(depth > TAG_DEPTH_MIN && depth < TAG_DEPTH_MAX)) return;
     mDoLib_project(&anchor, &screen);
-    if (screen.x < -TAG_MARGIN || screen.x > 640.0f + TAG_MARGIN ||
+    // The hack draws the remote at centre + (x - centre) * xs: the tag goes
+    // there too, and is culled there (the hack shows past the 4:3 edges).
+    f32 xs = vis_xscale();
+    f32 sx = 320.0f + (screen.x - 320.0f) * xs;
+    if (sx < -TAG_MARGIN || sx > 640.0f + TAG_MARGIN ||
         screen.y < -TAG_MARGIN || screen.y > 480.0f + TAG_MARGIN) return;
 
     f32 t = (depth - TAG_DEPTH_NEAR) / (TAG_DEPTH_SMALL - TAG_DEPTH_NEAR);
     t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
     f32 alpha = 255.0f;
     if (depth > TAG_DEPTH_FADE) alpha = 255.0f * (TAG_DEPTH_MAX - depth) / (TAG_DEPTH_MAX - TAG_DEPTH_FADE);
-    // The hack draws the remote at centre + (x - centre) * xs: put the tag there too.
-    f32 xs = vis_xscale();
     tag->vtbl = vis_tag_vtbl;
-    tag->x = 320.0f + (screen.x - 320.0f) * xs;
+    tag->x = sx;
     tag->xs = xs;
     tag->y = screen.y - TAG_BASELINE_UP;
     tag->px = TAG_PX_NEAR + (TAG_PX_FAR - TAG_PX_NEAR) * t;

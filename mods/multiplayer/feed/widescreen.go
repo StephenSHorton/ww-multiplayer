@@ -16,6 +16,11 @@ import (
 // measured again: the player may resize the window or change the setting.
 const xscaleEvery = 2 * time.Second
 
+// xscaleProcRetry is how long a failed look-up of the Dolphin's process
+// (its user folder and command line) waits before the next: listing every
+// process is not for the 60 Hz loop's every tick.
+const xscaleProcRetry = 30 * time.Second
+
 // xscaleSampler measures how much Dolphin's Widescreen Hack narrows the 3D
 // picture against the 2D layer the name tags are drawn in
 // (launch.GFXAspect.XScale), for the visuals block (#1157). It finds the
@@ -28,12 +33,13 @@ type xscaleSampler struct {
 	proc func(pid uint32) (userDir string, args []string, ok bool)
 	size func(pid uint32) (w, h int, ok bool)
 
-	procOK  bool
-	userDir string
-	args    []string
-	next    time.Time
-	scale   float64
-	why     string
+	procOK    bool
+	procRetry time.Time
+	userDir   string
+	args      []string
+	next      time.Time
+	scale     float64
+	why       string
 }
 
 func newXScaleSampler(pid uint32) *xscaleSampler {
@@ -59,7 +65,7 @@ func (s *xscaleSampler) Scale(now time.Time, rep log.Reporter) float64 {
 		return s.scale
 	}
 	s.next = now.Add(xscaleEvery)
-	scale, why := s.measure()
+	scale, why := s.measure(now)
 	if scale != s.scale || why != s.why {
 		if scale != s.scale {
 			if scale < 1 {
@@ -73,7 +79,7 @@ func (s *xscaleSampler) Scale(now time.Time, rep log.Reporter) float64 {
 	return s.scale
 }
 
-func (s *xscaleSampler) measure() (float64, string) {
+func (s *xscaleSampler) measure(now time.Time) (float64, string) {
 	if v := strings.TrimSpace(os.Getenv("WW_TAG_XSCALE")); v != "" {
 		if strings.EqualFold(v, "off") {
 			return 1, "WW_TAG_XSCALE=off"
@@ -83,8 +89,12 @@ func (s *xscaleSampler) measure() (float64, string) {
 		}
 	}
 	if !s.procOK {
+		if now.Before(s.procRetry) {
+			return 1, "Dolphin's settings unknown"
+		}
 		s.userDir, s.args, s.procOK = s.proc(s.pid)
 		if !s.procOK {
+			s.procRetry = now.Add(xscaleProcRetry)
 			return 1, "Dolphin's settings unknown"
 		}
 	}

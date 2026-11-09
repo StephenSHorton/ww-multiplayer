@@ -125,7 +125,7 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	var vis vissync.Sync
 	// Dolphin's Widescreen Hack moves the 3D picture but not the tags'
 	// 2D layer: the REL scales the tags' x by what this measures (#1157).
-	xscale := newXScaleSampler(dolphinPID)
+	xscale := newXScaleSampler(d.PID()) // the opened Dolphin: dolphinPID 0 means "the one the env picks"
 	defer func() {
 		if gate.ok {
 			_ = vis.Off(d)

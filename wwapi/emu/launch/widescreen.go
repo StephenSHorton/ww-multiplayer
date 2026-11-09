@@ -35,11 +35,12 @@ type GFXAspect struct {
 	CustomW, CustomH float64
 }
 
-// ReadGFXAspect reads userDir's Config/GFX.ini [Settings], then the game's
-// own GameSettings/GZLE01.ini [Video_Settings] over it, then any
-// -C GFX.Settings.<key>=<value> on the Dolphin command line args, as
-// Dolphin layers them. Missing files and keys keep Dolphin's defaults
-// (hack off, Auto, custom 16:9).
+// ReadGFXAspect reads userDir's Config/GFX.ini [Settings], then any
+// -C / --config GFX.Settings.<key>=<value> on the Dolphin command line
+// args, then the user's game settings GameSettings/GZL.ini, GZLE01.ini and
+// GZLE01r0.ini [Video_Settings] over them: Dolphin's layer order (Base <
+// CommandLine < GlobalGame < LocalGame). Missing files and keys keep
+// Dolphin's defaults (hack off, Auto, custom 16:9).
 func ReadGFXAspect(userDir string, args []string) GFXAspect {
 	a := GFXAspect{Mode: AspectAuto, CustomW: 16, CustomH: 9}
 	set := func(k, v string) {
@@ -63,18 +64,28 @@ func ReadGFXAspect(userDir string, args []string) GFXAspect {
 	}
 	if userDir != "" {
 		iniSection(filepath.Join(userDir, "Config", "GFX.ini"), "Settings", set)
-		iniSection(filepath.Join(userDir, "GameSettings", "GZLE01.ini"), "Video_Settings", set)
 	}
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] != "-C" && args[i] != "--config" {
+	for i := 0; i < len(args); i++ {
+		var kv string
+		switch {
+		case (args[i] == "-C" || args[i] == "--config") && i+1 < len(args):
+			i++
+			kv = args[i]
+		case strings.HasPrefix(args[i], "--config="):
+			kv = strings.TrimPrefix(args[i], "--config=")
+		default:
 			continue
 		}
-		kv := args[i+1]
 		if !strings.HasPrefix(strings.ToLower(kv), "gfx.settings.") {
 			continue
 		}
 		if k, v, ok := strings.Cut(kv[len("gfx.settings."):], "="); ok {
 			set(k, v)
+		}
+	}
+	if userDir != "" {
+		for _, name := range []string{"GZL.ini", "GZLE01.ini", "GZLE01r0.ini"} {
+			iniSection(filepath.Join(userDir, "GameSettings", name), "Video_Settings", set)
 		}
 	}
 	return a

@@ -124,7 +124,7 @@ type VisSea struct {
 // VisBlock is what Go writes into the visuals block.
 type VisBlock struct {
 	Flags uint32
-	// XScale is the Widescreen Hack's x scale (launch.WidescreenXScale):
+	// XScale is the Widescreen Hack's x scale (launch.GFXAspect.XScale):
 	// in (0, 1) it goes into the flags' top half; anything else is 1.0.
 	XScale float64
 	Names  [VisSlots]string

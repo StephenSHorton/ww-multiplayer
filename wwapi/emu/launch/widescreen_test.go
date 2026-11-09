@@ -17,7 +17,7 @@ func writeFile(t *testing.T, path, body string) {
 	}
 }
 
-// TestReadGFXAspect: GFX.ini, then the game ini, then -C, as Dolphin layers them.
+// TestReadGFXAspect: GFX.ini, then -C, then the game inis, as Dolphin layers them.
 func TestReadGFXAspect(t *testing.T) {
 	dir := t.TempDir()
 	if a := ReadGFXAspect(dir, nil); a.Hack || a.Mode != AspectAuto {
@@ -32,7 +32,17 @@ func TestReadGFXAspect(t *testing.T) {
 		t.Fatalf("game ini over GFX.ini: %+v", a)
 	}
 	if a := ReadGFXAspect(dir, []string{"-u", dir, "-C", "GFX.Settings.wideScreenHack=False"}); a.Hack {
-		t.Fatalf("-C over the files: %+v", a)
+		t.Fatalf("-C over GFX.ini: %+v", a)
+	}
+	if a := ReadGFXAspect(dir, []string{"--config=GFX.Settings.AspectRatio=2"}); a.Mode != AspectForceWide {
+		t.Fatalf("the game ini over -C: %+v", a)
+	}
+	if a := ReadGFXAspect(dir, []string{"--config=GFX.Settings.wideScreenHack=False"}); a.Hack {
+		t.Fatalf("--config= over GFX.ini: %+v", a)
+	}
+	writeFile(t, filepath.Join(dir, "GameSettings", "GZLE01r0.ini"), "[Video_Settings]\nAspectRatio = 2\n")
+	if a := ReadGFXAspect(dir, nil); a.Mode != AspectForceStandard {
+		t.Fatalf("GZLE01r0.ini last: %+v", a)
 	}
 }
 

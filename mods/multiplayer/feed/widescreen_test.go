@@ -50,3 +50,26 @@ func TestXScaleSampler(t *testing.T) {
 		t.Fatalf("WW_TAG_XSCALE: %v", got)
 	}
 }
+
+// TestXScaleSamplerProcRetry: a Dolphin whose process can't be looked up
+// is looked up again only every xscaleProcRetry, not every tick.
+func TestXScaleSamplerProcRetry(t *testing.T) {
+	t.Setenv("WW_TAG_XSCALE", "")
+	procs := 0
+	s := &xscaleSampler{pid: 7, scale: 1,
+		proc: func(uint32) (string, []string, bool) { procs++; return "", nil, false },
+		size: func(uint32) (int, int, bool) { return 0, 0, false }}
+	t0 := time.Unix(1000, 0)
+	for i := 0; i < 10; i++ {
+		if got := s.Scale(t0.Add(time.Duration(i)*xscaleEvery), log.Discard{}); got != 1 {
+			t.Fatalf("unknown Dolphin: %v", got)
+		}
+	}
+	if procs != 1 {
+		t.Fatalf("looked up %d times in %v, want 1", procs, 9*xscaleEvery)
+	}
+	s.Scale(t0.Add(xscaleProcRetry+xscaleEvery), log.Discard{})
+	if procs != 2 {
+		t.Fatalf("looked up %d times after the retry wait, want 2", procs)
+	}
+}
