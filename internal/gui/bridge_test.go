@@ -131,7 +131,54 @@ func newTestBridge(t *testing.T) (*Bridge, *fakeEngine, string) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	b := NewBridge(Options{Version: "v9.9.9", Controller: session.New(e, session.Options{}), ConfigPath: path})
 	t.Cleanup(b.close)
+	// Co-op is on by default (a host's lobby gets "auto" sent once it is
+	// up, TestHostSendsCoopAuto); the other tests count the lobby commands.
+	b.cfg.Coop.Disabled = true
 	return b, e, path
+}
+
+// TestHostSendsCoopAuto: a host's lobby gets co-op "auto" as soon as it
+// is up, with no click, unless Settings turned co-op off.
+func TestHostSendsCoopAuto(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		disabled bool
+		mode     string
+	}{{"default", false, "auto"}, {"an old saved off", false, "off"}, {"settings off", true, "auto"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, e, _ := newTestBridge(t)
+			b.cfg.Coop.Disabled = tc.disabled
+			if tc.mode == "off" {
+				b.cfg.Coop.LastMode = "off"
+			}
+			if err := b.Host(HostRequest{Name: "Link"}); err != nil {
+				t.Fatal(err)
+			}
+			e.out(t)
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				e.mu.Lock()
+				n := len(e.cmds)
+				e.mu.Unlock()
+				if n > 0 || tc.disabled {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			time.Sleep(100 * time.Millisecond)
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			if tc.disabled {
+				if len(e.cmds) != 0 {
+					t.Fatalf("co-op off in Settings, yet commands %+v", e.cmds)
+				}
+				return
+			}
+			if len(e.cmds) != 1 || e.cmds[0].Kind != session.LobbySetSettings || e.cmds[0].Settings.Coop != "auto" {
+				t.Fatalf("commands %+v, want one settings command, co-op auto", e.cmds)
+			}
+		})
+	}
 }
 
 func TestBridgeInfo(t *testing.T) {

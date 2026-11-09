@@ -75,6 +75,7 @@ func newCoopBridge(t *testing.T) (*Bridge, *coopEngine, string) {
 	b := NewBridge(Options{Version: "v9.9.9", Controller: session.New(e, session.Options{}), ConfigPath: path})
 	b.findSave = func(string) (cardSave, error) { return cardSave{}, errors.New("no card here") }
 	t.Cleanup(b.close)
+	b.cfg.Coop.Disabled = true // the tests choose co-op themselves (TestHostSendsCoopAuto)
 	return b, e, path
 }
 

@@ -1030,7 +1030,7 @@ func TestFoundFromSessionPolicy(t *testing.T) {
 		{"session", hub.SessionPolicy(func(t, no int) bool { return t == addr.TableSea && no == 0x10 }), true},
 		{"world default", world.DefaultPolicy(), false},
 	} {
-		w, err := foundFrom(&coLog{}, s, c.pol)
+		w, err := foundFrom(&coLog{}, s, c.pol, nil)
 		must(err)
 		img := w.Image()
 		if got := img[addr.OffEvent+e.Off]&e.Mask != 0 && img[sw]&swm != 0; got != c.has {
