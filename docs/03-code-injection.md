@@ -1,5 +1,7 @@
 # Code Injection — What Works and What Doesn't
 
+[← Dolphin memory access](02-dolphin-memory.md) · [Docs index](README.md) · [Wind Waker addresses →](04-ww-addresses.md)
+
 The fundamental problem: to spawn a second Link actor, we need to CALL the game's `fopAcM_fastCreate` function. Calling functions requires executing code inside the emulated CPU's context — not just writing memory.
 
 ## Current state: WORKING
@@ -117,3 +119,7 @@ Superseded: `ww-multiplayer patch` now does the ISO and CISO rebuild in Go (`int
 This would eliminate our CISO patching bugs and present Dolphin with a normally-structured game image.
 
 Alternative: test on **Dolphin 5.0 Legacy** — if the JIT cache behavior differs, Gecko codes might "just work" there.
+
+---
+
+[← Dolphin memory access](02-dolphin-memory.md) · [Docs index](README.md) · [Wind Waker addresses →](04-ww-addresses.md)

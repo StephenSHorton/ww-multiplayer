@@ -1,5 +1,7 @@
 # Self-hosting a dedicated server
 
+[← Updates](updates.md) · [Docs index](README.md) · [Architecture →](01-architecture.md)
+
 **Status:** built on branch `ww-online-ownerkey` (ww-online review ideas 7 and 22, handoff `archive/ww-online-review/REPORT.md`). Not yet run on a real VPS or in a real container; the live checks are in docs/TESTING.md "Dedicated server".
 
 Usually the host's own app is the server: **Host a session** starts one on the host's machine, and friends join its address or join code. A **dedicated server** is the same server with no game attached, `ww-multiplayer server`, on an always-on machine (a VPS, a home server, a Raspberry Pi). It needs no disc image, no Dolphin and almost no resources.
@@ -17,7 +19,7 @@ Usually the host's own app is the server: **Host a session** starts one on the h
 
 ## 2. Where to run it: Tailscale first
 
-**Tailscale** (or another WireGuard mesh: Headscale, ZeroTier, Radmin VPN) is the easiest and the safest place:
+**Tailscale** (or another WireGuard mesh: Headscale, ZeroTier, Toru) is the easiest and the safest place:
 
 1. Install Tailscale on the server machine and on every player's machine, all in one tailnet (or share the server machine with your friends' tailnets).
 2. Run `ww-multiplayer server` on the server machine.
@@ -91,3 +93,7 @@ docker ps                  # healthy once the probe answers
 ## 7. Updating
 
 Replace the binary (or check out the new release tag and rebuild the image, with that tag as `VERSION`) when your players update: a server of another protocol turns them away at the hello with the version dialog. After the restart, apps reconnect on their own; the lobby starts empty, so the key holder joins again and presses Start.
+
+---
+
+[← Updates](updates.md) · [Docs index](README.md) · [Architecture →](01-architecture.md)

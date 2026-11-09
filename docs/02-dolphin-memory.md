@@ -1,5 +1,7 @@
 # Dolphin Memory Access
 
+[← Architecture](01-architecture.md) · [Docs index](README.md) · [Code injection →](03-code-injection.md)
+
 ## The Process Model
 
 Dolphin is a normal process. When it runs a GameCube game, it allocates a block of virtual memory to hold the emulated GameCube's 24MB of RAM. External tools (like us) can read/write this memory. The scanner (`wwapi/emu/memory.go`) is the same on every OS; only the backend differs: `ReadProcessMemory` / `WriteProcessMemory` on Windows (`memory_windows.go`), `task_for_pid` / `mach_vm` on macOS (`memory_darwin.go`, which needs an unhardened Dolphin copy and the cs.debugger entitlement; see docs/05, "macOS: User-Copy Dolphin Silently Replaced by /Applications/"), and `memory_other.go` elsewhere. The rest of this page describes the Windows case.
@@ -77,3 +79,7 @@ For most game data, these point to the same physical memory — writes propagate
 ## Performance
 
 Pose and position reads run every 16 ms (~60 Hz, since v0.1.7; 50 ms before) with no measurable overhead. broadcast-pose reads the whole 2016-byte pose each tick, not just the position.
+
+---
+
+[← Architecture](01-architecture.md) · [Docs index](README.md) · [Code injection →](03-code-injection.md)

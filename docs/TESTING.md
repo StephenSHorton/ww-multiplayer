@@ -1,5 +1,7 @@
 # Testing
 
+[← Debug commands](debug-commands.md) · [Docs index](README.md) · [Developing on macOS →](mac-dev.md)
+
 How changes to this repo are checked: the local matrix every pull request must pass, the golden files that pin what users see, the tests known to flake, and the checks that need two real Dolphins. Writing tests for a mod is in [api/03-writing-a-mod.md](api/03-writing-a-mod.md#6-testing-with-fakegame).
 
 ## The check matrix
@@ -1079,3 +1081,7 @@ Run every item with no `WW_*` env vars unless the item says otherwise. Sweep bot
 - [ ] **R11 WAN** (a port forward or a VPN) in a crowded room: TyuTyu with 18 ChuChus, or Cave10 r9 with 16 Bokoblins. Watch for mirror and local-AI flipping (`StaleAfter` 500 ms). Capture the host's CPU and the RPM-per-tick counters: that data decides `WW_ENEMY_STATE_30HZ`.
 - [x] **R12 macOS** (passed 2026-11-01 with R1, wind#13 on main 5458f9d + a671b7e: the Mac app launched its own Dolphin with `-C Dolphin.Core.RAMOverrideEnable=True -C Dolphin.Core.MEM1Size=0x03000000` and played R1 as the joiner; it needed a671b7e, without which the app attached to any patched Dolphin already running. Before that, passed in part 2026-11-01 on main c1278b3, REL 0x1CE30685, Dolphin 2603-342 on an M5 Max, wind#3: the override is required on the Mac, since without it the patched disc faults in JKRHeap::alloc before the title with `Memory 24 MB`; with it, `wwdev dolphin2` / `mac-rig.sh pair` + `mp-local` loopback on one Mac passed: pose sync on screen, the enemy client adopted the host's 4 ChuChus, canaries 0, no ISI/DSI; docs/mac-rig.md; the app's own launch and R1 with a Mac not run): the app's launch passes the `-C` MEM1 override, and R1 passes with one Mac.
 - [ ] **R13 release pipeline dry run**: an `-rc1` tag of the release's version, with finished notes (a `v<version>-rc1.md` with no draft line, or a finished `v<version>.md`). A `workflow_dispatch` run does not cover it: it skips the notes step and the whole release job (RN-1 above; release.yml's header comment). A prerelease does not deploy the site or auto-update; testers download it by hand.
+
+---
+
+[← Debug commands](debug-commands.md) · [Docs index](README.md) · [Developing on macOS →](mac-dev.md)

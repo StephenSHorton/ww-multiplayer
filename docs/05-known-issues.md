@@ -1,5 +1,7 @@
 # Known Issues and Hard-Won Learnings
 
+[← Wind Waker addresses](04-ww-addresses.md) · [Docs index](README.md) · [History →](06-history.md)
+
 This doc is the graveyard of things that wasted our time and how they were finally resolved. Check here before re-treading.
 
 ## The JIT Cache Wall — SOLVED
@@ -1630,3 +1632,7 @@ process is just the wrong binary.
 - Picking up a rupee triggers a display refresh. Before the pickup, the displayed rupee count may lag behind the stored value.
 - The wallet cap (200/1000/5000) applies when the game reads the rupee value, not when we write it. So writing 777 and picking up a rupee shows 200 if your wallet is size 200.
 - `PlayerPtr[0]` at `0x803CA754` is null during file select and stage loads, but non-null on the title stage (`sea_T` has a Link). So "player loaded" does not mean "in play" (see the feed's inPlay gate).
+
+---
+
+[← Wind Waker addresses](04-ww-addresses.md) · [Docs index](README.md) · [History →](06-history.md)

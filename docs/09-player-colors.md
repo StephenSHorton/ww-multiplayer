@@ -1,5 +1,7 @@
 # Player tunic colors (v1.0 / v1.1)
 
+[← Co-op design](08-coop-design.md) · [Docs index](README.md) · [The lobby protocol →](10-lobby.md)
+
 **Status:** shipped in v0.4.0 (merged to main) and checked live (§5.6; docs/05: "CLI host / join on the same two games: both Links drawn, red and blue"). It was built 2026-10-16 on branch `feat/player-tunic-colors`, rebased onto `origin/main` a301890 (F18 heap fix #64, hat fix #66, session layer #65). §7 is the owner's live check, and §7.0 says how to force the hero's clothes for it.
 
 **Request (Stephen):** "each player in the session should be assigned a different color and the green Link clothes should have their color swapped out to the player's assigned color."
@@ -490,3 +492,7 @@ Setup: run `SAVE_STATE=… ./wwdev.exe dolphin2`, then `WW_TUNIC=off ./wwdev.exe
 - `main.go`: `applyColorPrefFromArgs`, `newPlayerClient`, the `tunic-*` cases, colors in `remoteViews`, the appearance byte in broadcast-pose, `syncTunics` in puppet-sync, the `dump` block
 
 **Checks:** the check-matrix run is recorded in `TUNIC-SUMMARY.md` (untracked). `main.go` was already not gofmt-clean at the base and was left that way.
+
+---
+
+[← Co-op design](08-coop-design.md) · [Docs index](README.md) · [The lobby protocol →](10-lobby.md)

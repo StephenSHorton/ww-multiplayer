@@ -1,4 +1,6 @@
-# Setup on a new machine
+# Setup on a new machine (developers)
+
+[← Requirements and building from source](building.md) · [Docs index](README.md) · [Releases, signing and the website →](releasing.md)
 
 This repo holds the Go app and tools and the injected C source (`inject/`). To rebuild the C blob or test on real Dolphins you also need the external pieces below, none of which are committed.
 
@@ -101,9 +103,13 @@ installer runs it once before the old app closes, and puts the old exe
 back if it doesn't).
 
 ## See also
-- `CLAUDE.md` — context for AI sessions
+- [`CLAUDE.md`](../CLAUDE.md) — context for AI sessions
 - `docs/01` through `docs/10` — architecture, memory, injection, addresses, known issues, history, research, co-op, player colors, lobby
 - `docs/api/` — the modding API and how to write a mod
 - `docs/TESTING.md` — the pre-push check matrix and live checks
 - [GitHub issues](https://github.com/StephenSHorton/ww-multiplayer/issues) — open work, grouped by epic
 - `docs/05-known-issues.md` — known pitfalls and workarounds (memory layout, Freighter clobbers, render pipeline)
+
+---
+
+[← Requirements and building from source](building.md) · [Docs index](README.md) · [Releases, signing and the website →](releasing.md)

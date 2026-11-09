@@ -1,6 +1,8 @@
 # Developing on macOS
 
-How to build, check and test ww-multiplayer on a Mac. SETUP.md covers the
+[← Testing](TESTING.md) · [Docs index](README.md) · [The macOS test rig →](mac-rig.md)
+
+How to build, check and test ww-multiplayer on a Mac. [dev-setup.md](dev-setup.md) covers the
 external pieces (disc, Dolphin, devkitPPC). This page covers what is
 different on macOS. Running Dolphin rigs on a Mac (patching the disc,
 two-Dolphin loopback, how many Dolphins fit) is in docs/mac-rig.md.
@@ -84,3 +86,7 @@ codesign -d -vvv ~/Applications/Dolphin.app/Contents/MacOS/Dolphin 2>&1 | comman
 Dolphin before 2609 doesn't size MEM1 from the disc. The app and
 `wwdev dolphin2` pass the 48 MB override on the command line, so a 2603
 build works when you launch it through them.
+
+---
+
+[← Testing](TESTING.md) · [Docs index](README.md) · [The macOS test rig →](mac-rig.md)

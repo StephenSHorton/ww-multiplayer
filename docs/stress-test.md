@@ -1,5 +1,7 @@
 # Server stress test: 4 and 8 synthetic players
 
+[← The macOS test rig](mac-rig.md) · [Docs index](README.md)
+
 Issues #13 (server stress beyond 2 clients) and #11 (N>2 players), wind#81.
 The server and the co-op hub were run under 4 and 8 synthetic players for
 32 minutes each. No Dolphin was used. Nothing broke: no drop, no panic,
@@ -110,3 +112,7 @@ not repeated here: wind#16 already ran three and four remotes live on the
 Mac rig (R3-1..4, the relay scoping checks RS1-RS7, docs/TESTING.md "Three
 remotes and the soft reset"). The synthetic run adds the 4- and 8-player
 load that no rig can reach.
+
+---
+
+[← The macOS test rig](mac-rig.md) · [Docs index](README.md)

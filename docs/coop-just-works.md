@@ -1,5 +1,7 @@
 # Co-op that just works
 
+[← UDP pose transport](12-udp-pose.md) · [Docs index](README.md) · [What is left for co-op →](coop-remaining.md)
+
 Plan from card #1166 (2026-11-08). Status: **agreed** by the owner on
 2026-11-08, with every choice in §8 answered as recommended. It is split
 into the doing cards in §9. It supersedes #1163 and #1164, and it builds
@@ -323,3 +325,7 @@ Board cards: 1 = #1171, 2 = #1172, 3 = #1176, 4 = #1173, 5 = #1177,
   sessions 1 and 2). A possible later card: launch with a session-only
   `-C` override that turns its update track off, once the key name is
   checked against Dolphin's config.
+
+---
+
+[← UDP pose transport](12-udp-pose.md) · [Docs index](README.md) · [What is left for co-op →](coop-remaining.md)

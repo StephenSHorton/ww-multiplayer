@@ -1,5 +1,7 @@
 # BetterSunshineModule research → ww-multiplayer
 
+[← History](06-history.md) · [Docs index](README.md) · [Co-op design →](08-coop-design.md)
+
 > Research note by Stephen, 2026-07-28, kept as written. It predates the modding-API plan; [docs/api/00-design.md](api/00-design.md) records how it feeds Phase E (a boot-time module loader in the style of Kuribo). Local paths and the "first experiment" section reflect that date.
 
 Reference clone: `~/projects/reference-BetterSunshineModule`  
@@ -197,3 +199,7 @@ Equivalent shape for us:
 4. Local 2-player harness if available (`wwdev mp-local` / host+fake-client)
 
 Research-only; no code changes required to benefit from the callback/versioning mindset above.
+
+---
+
+[← History](06-history.md) · [Docs index](README.md) · [Co-op design →](08-coop-design.md)

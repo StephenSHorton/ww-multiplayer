@@ -1,5 +1,7 @@
 # The macOS test rig
 
+[← Developing on macOS](mac-dev.md) · [Docs index](README.md) · [Server stress test →](stress-test.md)
+
 How agents (and people) run the patched game on Dolphin on a Mac: one Dolphin, a two-Dolphin
 `mp-local` loopback, screenshots, input and save states, with many rigs side by side on one Mac.
 Brought up on 2026-11-01 (wind#3) on an M5 Max (18 cores, 128 GB), macOS 26.6, Dolphin
@@ -148,3 +150,7 @@ results.
 - Two-Dolphin `mp-local` loopback (R12): both "in game", "Local multiplayer running."; Link A
   walked by `wwdev input` shows up in Dolphin B with its name tag; the enemy client adopted the
   host's four ChuChus (`adopted 1111`, canaries 0); no ISI/DSI or invalid access in either log.
+
+---
+
+[← Developing on macOS](mac-dev.md) · [Docs index](README.md) · [Server stress test →](stress-test.md)

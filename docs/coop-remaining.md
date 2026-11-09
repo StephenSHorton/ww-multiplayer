@@ -1,5 +1,7 @@
 # What is left for full co-op (as of main c1278b3, v0.6.1)
 
+[← Co-op that just works](coop-just-works.md) · [Docs index](README.md) · [Requirements and building from source →](building.md)
+
 This is the remaining-work list for a whole-game two-player co-op run. It was first written on 2026-10-26 against main e1b9086 (#199) in the owner's handoff folder (`ww-multiplayer-handoff/design/coop-remaining.md`). On 2026-11-01 it was brought into the repo and updated to main c1278b3 (#214): v0.6.0 and v0.6.1 shipped, plus #200-#214 and the live rounds LIVE-4 to LIVE-7. The ledger counts and section 2E also take in #216, #219 and #220, which landed on 2026-11-01 while this was written (tests, wind#10's macOS results, and the re-create tooling).
 
 **Build at c1278b3.** REL 0x1CE30685 (`cmd/ww-multiplayer/testdata/cli-golden/patch-ok.txt`), BlobHash 0x04765DD0 (`internal/inject/blob.go`), network protocol 6 (`mods/multiplayer/net/handshake.go`), WWMB_LAYOUT 3 (`inject/include/mailbox_core.h`), coop-tables schema 12 (`wwapi/tables/tables.go`). The tag v0.6.1 is this commit. The game code is v0.6.0's (e4d2c6e); only Go changed between the two.
@@ -306,3 +308,7 @@ Tonight's board (2026-11-01, "Wind Waker Multiplayer", parent "Full co-op state 
 7. Rule gates (M2tower from sea r1, GanonK D2(7), GTower sw31, M_DaiMB, FF D2(2)/D3, T5b, Makar, Medli), then the overworld D2.
 
 **Then:** one REL batch if anything above needs it (with a recapture); the play-together runs, dungeon by dungeon (each slice's D5 rows); Stephen's two-machine, WAN and macOS items; the next release.
+
+---
+
+[← Co-op that just works](coop-just-works.md) · [Docs index](README.md) · [Requirements and building from source →](building.md)

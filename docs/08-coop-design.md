@@ -1,5 +1,7 @@
 # Co-op design (v1.0)
 
+[← BetterSunshine research](07-bettersunshine-research.md) · [Docs index](README.md) · [Player colors →](09-player-colors.md)
+
 **Status:** the v1.0 co-op design, 2026-10-14. Until the owner answers the open questions (§10), the design uses the recommended defaults: per-flag merge, separate rupees, a partner's switches in your current room deferred to your next room change, and the arena for M7's code room. The relationship with ww-online (§10, question 5) is awaiting the owner.
 
 **Decision record:** issue #23. On 2026-10-14 the owner decided that v1.0 is a real co-op mod, in three parts:
@@ -2261,3 +2263,6 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - Not changed: the pose feed's PRESENCE stage gate (`feed.PartnerFor`), a fallback for remotes without the place trailer, which every schema-2 build sends; the hub's stores, SCOPED and GAINS.
     - Tests: wire goldens and rejects (`PRESENCE relayed`, origin 0, no name, a short name, control characters, not UTF-8), `TestPresenceNamesSender` (three peers each hear the other two by name; a newcomer hears all three), `TestPartnersInScope`, `TestPartnersReconnect`, `TestPartnersStatus`, `TestWarpToNamedPartner`, the console's `/warp to` parsing and fuzz, `TestCoopPartnerPos` with two others, `TestMemberCoop` with three, `TestCoopButtons` (`WarpTo`). Live: docs/TESTING.md "Co-op for three or more".
 
+---
+
+[← BetterSunshine research](07-bettersunshine-research.md) · [Docs index](README.md) · [Player colors →](09-player-colors.md)

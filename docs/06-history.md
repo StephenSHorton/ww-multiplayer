@@ -1,5 +1,7 @@
 # Project History & Learnings
 
+[← Known issues](05-known-issues.md) · [Docs index](README.md) · [BetterSunshine research →](07-bettersunshine-research.md)
+
 This doc is the session-by-session log of how the multiplayer pipeline was built — what was tried, what failed, and the working recipes that emerged. It's deliberately verbose: future debugging often hinges on knowing what's been ruled out and *why*.
 
 **Looking for what's next?** Open work is tracked in [GitHub issues](https://github.com/StephenSHorton/ww-multiplayer/issues) — epics group related items, sub-issues are concrete tasks.
@@ -1976,3 +1978,7 @@ game +4 MiB), every Dolphin launch passes the RAM override, and the mod's
 pointer bounds end at 0x83000000. Details in docs/05 "48 MB MEM1". Save
 states captured at 24 MB refuse to load: `saves/start.sav` recaptured,
 players must re-patch.
+
+---
+
+[← Known issues](05-known-issues.md) · [Docs index](README.md) · [BetterSunshine research →](07-bettersunshine-research.md)

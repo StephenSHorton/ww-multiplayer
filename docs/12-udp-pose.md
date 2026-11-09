@@ -1,5 +1,7 @@
 # 12. UDP pose transport (wind#91, issue #7)
 
+[← The lobby protocol](10-lobby.md) · [Docs index](README.md) · [Co-op that just works →](coop-just-works.md)
+
 The wind#82 netem run (issue #15) showed that packet loss makes a remote Link
 stop and then jump. Positions and poses ride the player's TCP connection, so
 one lost segment holds back every frame behind it until TCP retransmits it.
@@ -102,3 +104,7 @@ NAT traversal: the host still needs a port forward (now TCP and UDP) or a
 VPN (docs/11-self-hosting.md). There is no forward error correction or
 redundancy (sending the last two frames per datagram). Proposing default-on
 waits for the live and netem record.
+
+---
+
+[← The lobby protocol](10-lobby.md) · [Docs index](README.md) · [Co-op that just works →](coop-just-works.md)

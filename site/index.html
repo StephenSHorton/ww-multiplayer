@@ -417,8 +417,8 @@ footer span { color: var(--text-dim); }
 			<p class="sub">On the same home network the host's session shows up under Join by itself. Across the internet, the joiner needs to reach the host on TCP port 25565; the host can share a join code instead of the IP.</p>
 			<div class="grid2">
 				<div class="card">
-					<h3 class="hud">Easiest: a free VPN</h3>
-					<p>No router setup. <b>Windows and macOS:</b> everyone installs <a href="https://tailscale.com/">Tailscale</a> and joins the same tailnet, and joiners use the host's Tailscale IP (<code class="i">100.x.x.x</code>). <b>Windows only:</b> <a href="https://www.radmin-vpn.com/">Radmin VPN</a>; the host creates a network, friends join it with its name and password, and joiners use the host's Radmin IP (<code class="i">26.x.x.x</code>). If Windows asks, allow <code class="i">ww-multiplayer.exe</code> on all networks.</p>
+					<h3 class="hud">Easiest: a VPN (optional)</h3>
+					<p>No router setup. <b>Windows and macOS:</b> everyone installs <a href="https://tailscale.com/">Tailscale</a> and joins the same tailnet, and joiners use the host's Tailscale IP (<code class="i">100.x.x.x</code>). <a href="https://stephenshorton.github.io/toru/">Toru</a> works the same way: everyone joins one network and joiners use the host's address on it. If Windows asks, allow <code class="i">ww-multiplayer.exe</code> on all networks.</p>
 				</div>
 				<div class="card blue">
 					<h3 class="hud">Port forwarding</h3>
@@ -453,7 +453,7 @@ footer span { color: var(--text-dim); }
 						<li>Outset Island is the most tested. A player in another stage is hidden until they are back in yours; that check is new and not yet tested live.</li>
 						<li>Other enemy types still run separately on each player's game. Only the first three other players get bodies, and each player mirrors at most 4 enemies at once.</li>
 						<li>Shared enemies have not yet been tested over the internet.</li>
-						<li>No built-in NAT traversal: use a VPN such as Tailscale or Radmin, or a port forward.</li>
+						<li>No built-in NAT traversal: a VPN is optional: we suggest Tailscale or Toru. Otherwise use a port forward.</li>
 						<li>Linux can patch and run a server, but can't play yet.</li>
 					</ul>
 				</div>
