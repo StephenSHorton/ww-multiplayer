@@ -91,6 +91,23 @@ type Plan struct {
 // Bytes returns the TagSize bytes the plan writes at 0x803C532C.
 func (p *Plan) Bytes() [TagSize]byte { return p.write }
 
+// Written is a tag write that was made: what the file was (File, its tag
+// before the write included), and the bytes now in its tag. The app
+// records it so the same bytes can reach the memory card without an
+// in-game save (mods/coop/cardtag).
+type Written struct {
+	Kind  Kind
+	File  File
+	Bytes [TagSize]byte
+	// Tag is the tag a bind wrote (KindBind only).
+	Tag Tag
+}
+
+// Written is p as a write that was made.
+func (p *Plan) Written() Written {
+	return Written{Kind: p.Kind, File: p.File, Bytes: p.write, Tag: p.Tag}
+}
+
 // Confirm records that the user said yes to p.Prompt. Only a confirmed
 // plan is carried out.
 func (p *Plan) Confirm() { p.confirmed = true }
