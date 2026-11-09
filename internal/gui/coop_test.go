@@ -764,3 +764,41 @@ func TestFileHintToLobby(t *testing.T) {
 		b.Leave()
 	}
 }
+
+// TestHostCoopBanner: once the lobby has started, a player whose co-op
+// isn't on sees the host's co-op status line: a joiner waiting on the
+// host's founding, or anyone after co-op went off for the session. In
+// the lobby, with no line, or with co-op on, it says nothing. The host's
+// own blocked founding names its give-up.
+func TestHostCoopBanner(t *testing.T) {
+	const line = "The host's save file can't found a co-op world: it is a second quest."
+	st := session.State{Session: 1, Lobby: &session.Lobby{Member: 2, Phase: session.LobbyPhaseStarting, Members: []session.LobbyMember{
+		{ID: 1, Name: "Host", Host: true, Via: session.ViaApp, CoopStatus: line}, {ID: 2, Name: "Jo", Via: session.ViaApp}}}}
+	if b := coopBanner(st, true); b == nil || b.Kind != "coop" || b.Text != line || b.Action != "" {
+		t.Fatalf("joiner while starting: %+v", b)
+	}
+	st.Lobby.Phase = session.LobbyPhaseInGame
+	if b := coopBanner(st, true); b == nil || b.Text != line {
+		t.Fatalf("joiner in game: %+v", b)
+	}
+	if b := coopBanner(st, false); b != nil {
+		t.Fatalf("an ended session: %+v", b)
+	}
+	st.Lobby.Phase = session.LobbyPhaseLobby
+	if b := coopBanner(st, true); b != nil {
+		t.Fatalf("in the lobby: %+v", b)
+	}
+	st.Lobby.Phase = session.LobbyPhaseInGame
+	st.Lobby.Members[0].CoopStatus = ""
+	if b := coopBanner(st, true); b != nil {
+		t.Fatalf("no line: %+v", b)
+	}
+
+	// The host's own founding, co-op on: its founding banner, with the give-up.
+	st.Lobby.Members[0].CoopStatus = line
+	st.Coop.On = true
+	st.Founding = &session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockSecondQuest, GiveUp: time.Minute}
+	if b := coopBanner(st, true); b == nil || b.Title != "Founding the new world:" || !strings.Contains(b.Text, "goes on without co-op in a minute") {
+		t.Fatalf("host's blocked founding: %+v", b)
+	}
+}

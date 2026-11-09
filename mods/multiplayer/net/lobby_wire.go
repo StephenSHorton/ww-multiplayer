@@ -186,8 +186,12 @@ type LobbyMember struct {
 	Host    bool   `json:"host,omitempty"`
 	Dolphin string `json:"dolphin,omitempty"`
 	File    string `json:"file,omitempty"`
-	RTTMs   int    `json:"rttMs,omitempty"`
-	Via     string `json:"via"`
+	// CoopStatus is the member's co-op status line for everyone's window
+	// (the host's: why the founding waits, or why co-op is off this
+	// session); "" for nothing to say.
+	CoopStatus string `json:"coopStatus,omitempty"`
+	RTTMs      int    `json:"rttMs,omitempty"`
+	Via        string `json:"via"`
 	// Away: the member's lobby connection dropped and the server holds
 	// its slot for its token (LobbyHoldTimeout).
 	Away bool `json:"away,omitempty"`
@@ -209,6 +213,8 @@ type LobbySetBody struct {
 	Ready   *bool   `json:"ready,omitempty"`
 	Dolphin *string `json:"dolphin,omitempty"`
 	File    *string `json:"file,omitempty"`
+	// CoopStatus sets the member's co-op status line (LobbyMember).
+	CoopStatus *string `json:"coopStatus,omitempty"`
 }
 
 // LobbyStartBody is START.

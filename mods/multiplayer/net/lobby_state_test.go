@@ -725,3 +725,54 @@ func FuzzLobbyMachine(f *testing.F) {
 		}
 	})
 }
+
+// TestLobbyMachineCoopStatus: a member's co-op status line goes into
+// STATE in every phase (the host's founding speaks while the lobby is
+// starting, and after GO), is clamped and stripped of control
+// characters, an unchanged line sends nothing, and a member who joins
+// late or reclaims its slot sees it in its first STATE.
+func TestLobbyMachineCoopStatus(t *testing.T) {
+	m := testMachine(time.Minute)
+	t0 := time.Unix(0, 0)
+	host := mustJoin(t, m, 1, "Host", true, LobbyHelloBody{})
+	jo := mustJoin(t, m, 2, "Jo", false, LobbyHelloBody{})
+	m.message(1, LobbySettings, []byte(`{"coop":"new"}`))
+	m.message(1, LobbyStart, nil)
+
+	statusOf := func(st LobbyStateBody, id int) string {
+		for _, mb := range st.Members {
+			if mb.ID == id {
+				return mb.CoopStatus
+			}
+		}
+		t.Fatalf("no member %d in %+v", id, st)
+		return ""
+	}
+	outs := m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("The host is founding\x07 the world.")}))
+	o, ok := findOut(outs, lobbyAll, LobbyState)
+	if !ok || statusOf(o.body.(LobbyStateBody), host.id) != "The host is founding the world." {
+		t.Fatalf("SET coopStatus while starting: %+v", outs)
+	}
+	if outs := m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("The host is founding the world.")})); len(outs) != 0 {
+		t.Fatalf("an unchanged status sent %+v", outs)
+	}
+	long := strings.Repeat("é", maxLobbyCoopStatus)
+	m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: &long}))
+	if len(host.coop) > maxLobbyCoopStatus || !strings.HasPrefix(long, host.coop) {
+		t.Fatalf("status not clamped on a rune: %d bytes", len(host.coop))
+	}
+
+	m.message(1, LobbyGo, nil)
+	outs = m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("Co-op is off this session.")}))
+	if o, ok := findOut(outs, lobbyAll, LobbyState); !ok || statusOf(o.body.(LobbyStateBody), host.id) != "Co-op is off this session." {
+		t.Fatalf("SET coopStatus in game: %+v", outs)
+	}
+	m.drop(2, t0)
+	_, outs = m.hello(3, "Jo", false, LobbyHelloBody{Token: jo.token}, t0)
+	if o, ok := findOut(outs, lobbyAll, LobbyState); !ok || statusOf(o.body.(LobbyStateBody), host.id) != "Co-op is off this session." {
+		t.Fatalf("reclaim's STATE: %+v", outs)
+	}
+	if st := m.snapshot(); statusOf(st, jo.id) != "" {
+		t.Fatalf("the joiner has a status it never set: %+v", st)
+	}
+}

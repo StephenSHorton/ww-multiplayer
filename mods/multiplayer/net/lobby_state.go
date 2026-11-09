@@ -32,9 +32,10 @@ const (
 	// maxLobbyWorlds caps the host's world list in STATE.
 	maxLobbyWorlds = 16
 	// maxLobbyFile caps a member's file hint, maxLobbyDolphin its Dolphin
-	// state, in bytes.
-	maxLobbyFile    = 80
-	maxLobbyDolphin = 16
+	// state, maxLobbyCoopStatus its co-op status line, in bytes.
+	maxLobbyFile       = 80
+	maxLobbyDolphin    = 16
+	maxLobbyCoopStatus = 300
 	// cliMemberBase + a player ID is a CLI row's member ID in STATE (KICK
 	// takes it); lobby members count up from 1 and never reach it.
 	cliMemberBase = 1 << 16
@@ -70,6 +71,7 @@ type lobbyMember struct {
 	owner   bool
 	dolphin string
 	file    string
+	coop    string // the co-op status line (LobbyMember.CoopStatus)
 	app, os string
 	rttMs   int
 
@@ -246,7 +248,7 @@ func (m *lobbyMachine) snapshot() LobbyStateBody {
 	for _, mb := range m.members {
 		st.Members = append(st.Members, LobbyMember{
 			ID: mb.id, Name: mb.name, Color: mb.color.Hex(), Ready: mb.ready, Host: mb.host,
-			Dolphin: mb.dolphin, File: mb.file, RTTMs: mb.rttMs, Via: ViaApp, Away: mb.conn == 0,
+			Dolphin: mb.dolphin, File: mb.file, CoopStatus: mb.coop, RTTMs: mb.rttMs, Via: ViaApp, Away: mb.conn == 0,
 		})
 	}
 	st.Members = append(st.Members, m.cliRows()...)
@@ -489,6 +491,13 @@ func (m *lobbyMachine) set(mb *lobbyMember, b LobbySetBody) []lobbyOut {
 	if b.File != nil {
 		if f := clampField(*b.File, maxLobbyFile); f != mb.file {
 			mb.file, dirty = f, true
+		}
+	}
+	// The co-op status goes on in any phase: the host's founding speaks
+	// while the lobby is starting, and after GO.
+	if b.CoopStatus != nil {
+		if c := clampField(*b.CoopStatus, maxLobbyCoopStatus); c != mb.coop {
+			mb.coop, dirty = c, true
 		}
 	}
 	if dirty {

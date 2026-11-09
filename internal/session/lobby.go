@@ -61,8 +61,11 @@ type LobbyMember struct {
 	Host    bool
 	Dolphin string // "none", "launching", "title", "in_game" or ""
 	File    string // the member's save-file hint
-	RTT     time.Duration
-	Via     string
+	// CoopStatus is the member's co-op status line (the host's: why its
+	// founding waits, or why co-op is off this session); "" for none.
+	CoopStatus string
+	RTT        time.Duration
+	Via        string
 	// Away: the member's lobby connection dropped; the host holds its
 	// slot for a while.
 	Away bool
