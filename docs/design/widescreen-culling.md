@@ -20,9 +20,12 @@ designed here; section 9 says what it inherits.
   multiplies the aspect argument by a factor from a small mailbox block, default 4/3. That widens
   every frustum user in the game at once. The camera's `mAspect`, and with it the picture, is left
   alone.
-- **Cost:** about 0x40 bytes of T2 (0x21F8 free), one 0x10-byte mailbox block in free slack, a new
-  BlobHash (every player re-patches, start saves are recaptured), and the C build needs devkitPPC
-  (the PC today).
+- **Cost:** roughly 0x80-0x100 bytes of T2 (0xBF8 free on main), one 0x10-byte mailbox block in
+  free slack, one op number, a new BlobHash (every player re-patches, start saves are recaptured),
+  and the C build needs devkitPPC (the PC today).
+- **Checked against main at `735c8d7`**, which includes co-op M7's `WwModuleDesc` table and Go → C
+  command queue (wind#90) and the name tags' widescreen scale (#1157). The C mod follows that
+  pattern.
 
 ## 2. The person's Dolphin setup
 
@@ -46,6 +49,12 @@ PC 2609a, assumed to behave the same):
   normal 4:3 game, so the hack applies. **If anything widened the camera's `mAspect` itself, the
   heuristic would read the game as anamorphic and switch the hack off.** That is why this mod must
   widen only the clipper, and why #1186 must widen `mAspect` (section 9).
+
+**Main already reads these settings.** `launch.ReadGFXAspect(userDir, args)` and
+`GFXAspect.XScale(renderW, renderH)` (`wwapi/emu/launch/widescreen.go`, added for the name tags
+in #1157) resolve GFX.ini, `-C` overrides and the GameSettings `[Video_Settings]` layers in
+Dolphin's order, and return how much the hack narrows the 3D picture's x. **The culling factor
+this mod needs is exactly `1 / XScale`** (XScale 0.75 → factor 4/3; XScale 1 → no widening).
 
 For other settings the factor is `draw_ar / source_ar`: Custom gives `custom / (4/3)`. Stretch
 gives `window_ar / vi_ar`, where `vi_ar` is only close to 4/3, so a few percent of margin is needed.
@@ -76,7 +85,10 @@ the 4:3 clipper already covers the picture: the factor is never below 1.
 ### 3.2 Live evidence (Mac rig, 2026-11-09)
 
 Rig `c1184`, Dolphin 2603-342 with the fixture's `wideScreenHack = True, AspectRatio = 1`, the
-default Mac start save (Hyrule Castle courtyard), main `a9dbc82`. To change only the clipper, a
+rig's default disc `WW-mp.iso` and start save `start-mac-3D7FEC97-A37EC8DB.sav` (BlobHash
+0xA37EC8DB; Hyrule Castle courtyard). The culling code is vanilla, so the build doesn't affect the
+result. A Gecko C2 code in the rig's `GameSettings/GZLE01.ini` was tried first, but Dolphin's
+code handler never installed after the state load (not chased further). To change only the clipper, a
 test-only routine was poked into the mailbox slack at `0x804150D0`, with a branch to it in place of
 `stfs f2,0x50(r3)` at `0x800176E0`. The routine multiplies f2 by the float at `0x804150C8` when
 that word is non-zero. Dolphin ran on the interpreter core (`-C Dolphin.Core.CPUCore=0`), because
@@ -142,7 +154,7 @@ to `0x803A570C` and all 19 calls to `calcViewFrustum` in the functions below.
 | Weather, sea sparkles, clouds, sea mesh | `d_kankyo_rain.cpp`, `d_a_sea.cpp:504-646` | volumes around the eye, not frustum. Rain or sparkles may look a little thinner in the bands | unchanged (separate spawn-radius tweak if anyone notices) |
 | **Screen-space 0..640 checks:** sun glare and lens flare (`dKyr_sun_move`), firefly glow (`d_a_ff`), lantern glow (`d_a_kantera`), lock-on framing (`pointInSight`, `radiusActorInSight`) | `d_kankyo_rain.cpp:617`, `d_a_ff.cpp:44-46`, `d_a_kantera.cpp:150-152`, `d_camera.cpp:1658-1760` | the glow fades in the bands, and `peekZ` samples the wrong pixel (the GPU picture is squeezed ×0.75 relative to the game's own projection) | **not fixed** by this hook. Cosmetic. Native widescreen (#1186) fixes them all at once, because `mDoLib_project` follows `view->mAspect`. Not worth hooks under the Dolphin hack |
 | HUD and reticles placed with `mDoLib_project` (boomerang sight, enemy HP bar, text box anchor) | `d_a_boomerang.cpp:247`, `d_meter.cpp:3728`, `d_msg.cpp:739` | drift outward from their targets under the hack | not culling; #1186 |
-| **Our own name tags** over remote Links (REL, `WWVIS` names) | `inject/rel/visuals.c:426-445, 482 (TAG_MARGIN 80), 556-575` | projected with `mDoLib_project` and drawn as 2D, so under the hack each tag drifts outward from its head by 0.25 × (x − 320) and is dropped outside −80..720, short of the band's edge | not culling. Optional REL fix: `tag_x = 320 + (x − 320) / factor` and a margin of about 110, with the factor read from the block below. It changes the REL id (new Mac save name). Its own small card, or part of #1186 |
+| Our own name tags over remote Links (REL, `WWVIS` names) | `inject/rel/visuals.c` | projected with `mDoLib_project` and drawn as 2D, so they would drift outward under the hack | **already handled on main** (#1157): puppet-sync measures the hack's scale (`mods/multiplayer/feed/widescreen.go`) and the REL corrects the tags (`WWVIS_FLAGS_XSCALE_*`). Nothing to do here |
 
 Not traced: REL actors whose decomp is still stub-only (`/* Nonmatching */`). Any clipper call they
 make goes through relocations to the same `mClipper`, so the hook covers it too.
@@ -185,7 +197,9 @@ the decomp source writes it.
 
 `ws_clip_aspect` (the widescreen mod's C entry point, declared in `mods.h`) reads the mailbox
 block (section 6) and returns `aspect × factor` only when the block is valid and in mode 1, else
-`aspect`. It widens only `mClipper.mAspect`. `view->mAspect`, the GPU projection, the particle
+`aspect`. The mod's other entry points use main's `WwModuleDesc` table (`mods.h`, `ww_modules[]`
+in hooks.c): one entry `{ 'WS  ', ws_init, 0, 0, 0, 0 }`. It has no per-frame or draw step; the
+hook site itself belongs to the core, as every hook site does. It widens only `mClipper.mAspect`. `view->mAspect`, the GPU projection, the particle
 aspect and Dolphin's heuristic stay exactly as they are.
 
 Alternatives considered and rejected:
@@ -221,10 +235,17 @@ Size 0x10, so the block ends at +0xA7C.
 
 **Rules in C:**
 
-- `main01_init` writes the block on every boot: magic, version 1, **mode 1, factor 4/3**. That
-  covers the person's setup with no Go process at all, and it survives a soft reset (main01_init
-  runs again). The slack is orphan memory nothing else zeroes (hooks.c:71-113 explains why
-  main01_init must set it).
+- The mod's `ws_init` (its `WwModuleDesc` init, which main01_init runs after `ops_init` on every
+  boot) writes the block: magic, version 1, **mode 1, factor 4/3**. That covers the person's setup
+  with no Go process at all, and it survives a soft reset (main01_init runs again). The slack is
+  orphan memory nothing else zeroes (hooks.c's main01_init comments explain why each block must be
+  set at boot).
+- `ws_init` also registers one op, `WWAP_OP_WS_SET` = 16 (the first mod op, `WWAP_OP_MOD_FIRST`;
+  take the next free number if another mod has registered 16 by then), with
+  `ww_cmd_register`. Its handler takes `a` = mode and `b` = the factor's f32 bits. It refuses
+  (`WWAP_R_REFUSED`) a mode above 2 or a factor outside [1.0, 3.0], else writes the block and
+  returns `WWAP_R_OK`. **Only C writes the block**; Go reads it for status and changes it through
+  the op.
 - `ws_clip_aspect` applies the factor only when the magic matches, `mode == 1` and
   `1.0 <= factor <= 3.0`. Anything else passes the aspect through unchanged, so a torn or garbage
   block can never shrink or zero the frustum.
@@ -245,35 +266,46 @@ NPC behaviour visibly changes, make mode 0 the C default and let Go turn it on (
 
 ### 6.2 Who writes it from Go
 
-There is no mod-facing writer today. The app's mod runtime has `Game = nil`, and only the
-multiplayer pipelines attach to Dolphin, and only during a session (docs/api/03-writing-a-mod.md:155;
-`app_face.go:276`). So the Go side starts small:
+Go changes the setting through main's command queue (`wwapi/ops`: `ops.New(mem).Ready()`, then
+`Submit(op, mode, factorBits, 0)` and `Wait`), never by writing the block. The queue has **one
+writer per game** (its package doc). A one-shot CLI submit while a session's pipelines also
+submit to the same Dolphin could collide. So the CLI command below says so in its help, and the
+later in-process writer must share the session's Queue. The app's mod runtime still has
+`Game = nil`, and only the multiplayer pipelines attach to Dolphin, during a session
+(docs/api/03-writing-a-mod.md; `app_face.go`). So the Go side starts small:
 
 1. **A CLI command from the mod**, `ww-multiplayer widescreen [auto|off|16:9|16:10|21:9|32:9|<aspect>]`
-   (a `wwapi.CLI` command, as co-op's `mods/coop/cli` registers its commands). `auto` works the
-   factor out from the Dolphin user dir it is given (`--user-dir`, default `USER_DIR_1` / the
-   launch defaults): `Config/GFX.ini [Settings]`, overridden by `GameSettings/GZLE01.ini
-   [Video_Settings]` (Dolphin maps that section onto GFX Settings, `GameConfigLoader.cpp:106-120`).
-   Hack off gives off. ForceWide gives 4/3. Custom gives custom ÷ 4/3. Stretch can't be known from
-   disk, so it gives 4/3 with a note. A toggle in Dolphin's Graphics window isn't on disk until
-   Dolphin saves, so `auto` can be stale; the explicit values are the override. With no argument it
+   (a `wwapi.CLI` command, as co-op's `mods/coop/cli` registers its commands). `auto` reuses
+   main's reader: find the attached Dolphin's user folder and arguments as `feed/widescreen.go`'s
+   `dolphinProc` does (`launch.Processes`, `launch.ProcessUserDir`), call `launch.ReadGFXAspect`,
+   then `XScale` (with `host.RenderSize` for Stretch), and write factor `1 / XScale`, or mode 0
+   when XScale is 1. A toggle in Dolphin's Graphics window isn't on disk until Dolphin saves, so
+   `auto` can be stale; the explicit values are the override. With no argument it
    prints the block. With one it attaches to the running Dolphin (`cliutil.OpenDolphin`, honouring
    `WW_DOLPHIN_PID` / `WW_DOLPHIN_INDEX`), checks the contract (`wwapi.CheckContract`, as
-   `mods/multiplayer/feed/contract.go` does) and writes the block. It lasts until the next boot or
-   soft reset, then the C default is back. That is enough for testing and for anyone not on 16:9.
-2. **Later, the persistent app setting** (`config.Mods["widescreen"].Settings`, e.g.
-   `{"aspect":"16:9"}`, read through `Context.Config().Decode`). It needs the app to give the mod
-   runtime a `Game` once a Dolphin is attached, which #1186's toggle needs too. Don't special-case
-   it inside the multiplayer pipelines. Make it its own card when #1186 lands, or earlier if a
-   player not on 16:9 asks.
+   `mods/multiplayer/feed/contract.go` does), submits `WWAP_OP_WS_SET` and waits for the result.
+   It lasts until the next boot or soft reset, then the C default is back. That is enough for
+   testing and for anyone not on 16:9.
+2. **Later, a writer that follows the setting by itself.** puppet-sync already samples XScale
+   every 2 s during a session (`feed/widescreen.go`'s `xscaleSampler`, feeding the name tags). The
+   natural follow-up is to move that sampler somewhere both can use (e.g. next to
+   `launch.ReadGFXAspect`), and have the widescreen mod write `1 / XScale` whenever a Dolphin is
+   attached. A user override (`config.Mods["widescreen"].Settings`, e.g. `{"aspect":"auto"}`, read
+   through `Context.Config().Decode`) can come with it. Both need the app to give the mod runtime
+   a `Game` once a Dolphin is attached, which #1186's toggle needs too. Don't special-case it
+   inside the multiplayer pipelines. Make it its own card when #1186 lands, or earlier if a player
+   not on 16:9 asks.
 
 ## 7. Blob budget and what a C change costs
 
-- **T2 space:** measured `blob.go` `T2End = 0x80412D08` and `MailboxAddr = 0x80414F00`:
-  **0x21F8 bytes free** since wind#80 moved the mailbox (the card's "0x478" is from before that).
-  `TestCheckBudget` passes. The hook, `ws_clip_aspect` and the main01_init writes come to roughly
-  0x40-0x80 bytes. Putting `ws_clip_aspect` in its own C unit costs a little more than inlining it
-  in hooks.c (E3 measured split costs, 00-design.md §6.6), but it keeps the mod separate. Either fits.
+- **T2 space:** on main at `735c8d7`, `blob.go` `T2End = 0x80413408`, and T2's budget now ends at
+  the API region, `0x80414000` (`wwops.h`, `wwapi/mailbox/ops.go` `OpsAddr`):
+  **0xBF8 bytes free**. The card's "0x478" is from before wind#80, and the 0x21F8 measured at
+  `a9dbc82` is from before wind#90's API region. The hook, `ws_clip_aspect`, `ws_init`, the op
+  handler and one `WwModuleDesc` entry come to roughly 0x80-0x100 bytes. Putting the mod in its
+  own C unit costs a little more than inlining it in hooks.c (E3 measured split costs, 00-design.md
+  §6.6), but it keeps the mod separate. Either fits. #1186 shares the same 0xBF8, so it should
+  measure before it plans kilobytes of HUD code there (the REL is the room for bulk code).
 - **Mailbox:** the 0x10-byte block above. No `WWMB_LAYOUT` bump, no change to `layout_gen.go`'s
   struct. `CanaryArenaHigh` shrinks by 0x10.
 - **The REL** is not a better home. It can't patch DOL code, it loads only after Link exists and
@@ -301,18 +333,21 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
    a `_Static_assert` that `WWWS_OFF + WWWS_SIZE <= MP_EYE_PACKETS_OFF` and `WWWS_OFF >= WWBOAT_OFF +
    WWBOAT_SIZE` (copy minilink.c's assert for the boats block). Add a feature bit in
    `mailbox_core.h`: `WW_FEAT_WIDESCREEN 0x40`, `WW_FEATURES 0x7F`.
-2. **C mod.** Add `inject/src/ws/widescreen.c` (a unique basename) with
-   `void ws_init(void)` (writes the default block) and `f32 ws_clip_aspect(f32 aspect)` (the rules
-   in 6.1). Declare both in `inject/src/core/mods.h`. In `hooks.c`, add `clip_setup_hook` (section
-   5) and call `ws_init()` from `main01_init` next to the other mailbox resets. Add the unit to
-   `C_SOURCES` in `inject/build.py`, and next to the other hooks
-   `proj.hook_branchlink("clip_setup_hook", 0x8017BF90)` with a comment naming `view_setup` and
-   this doc.
+2. **C mod.** Add `inject/src/ws/widescreen.c` (a unique basename) with `void ws_init(void)`
+   (writes the default block and registers the op), the op handler, and
+   `f32 ws_clip_aspect(f32 aspect)` (the rules in 6.1). Add `WWAP_OP_WS_SET 16` to `wwops.h`'s op
+   list (one line, the file's `#define NAME value // comment` form) and its Go mirror to
+   `wwapi/mailbox/ops.go` (`TestOpsHeaderPins`). Declare `ws_init` and `ws_clip_aspect` in
+   `inject/src/core/mods.h`. In `hooks.c`, add the entry `{ MOD_ID_WS, ws_init, 0, 0, 0, 0 }` to
+   `ww_modules[]` (after the multiplayer mod; `MOD_ID_WS` 0x57532020, 'WS  ') and
+   `clip_setup_hook` (section 5). Add the unit to `C_SOURCES` in `inject/build.py`, and next to
+   the other hooks `proj.hook_branchlink("clip_setup_hook", 0x8017BF90)` with a comment naming
+   `view_setup` and this doc.
 3. **Rebuild (devkitPPC machine):** `cd inject && python build.py && cd .. && python
    scripts/extract_blob.py`. Check that blob.go's `DOLPatches` gained a `bl` at file offset
    `0x178ED0`, that `T2End` stays below `MailboxAddr`, and that `Features` is `0x7F`.
 4. **Go mirror and pins.** `go generate ./wwapi/mailbox` (the feature constant). Add
-   `wwapi/mailbox/widescreen.go` (the offsets, `WidescreenAddr`, `Encode`/`Decode` of the block),
+   `wwapi/mailbox/widescreen.go` (the offsets, `WidescreenAddr`, `Decode` of the block for status),
    with `widescreen_test.go` pinning them to `wwws.h` the way `boat_test.go` pins `wwboat.h`. Move
    `CanaryArenaHigh`'s start to `+0xA7C` in `wwapi/mailbox/mod.go` and update `TestModRegions`
    (size 0x284). Add `{mailbox.WwFeatWidescreen, "widescreen"}` to `featureBits` in
@@ -324,8 +359,9 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
    ./tools/validate_manifests`), `mod.go` (embedded manifest, `wwapi.NoRun`, the CLI command),
    `setting.go` (`ParseSetting`: `auto`, `off`, `16:9`, `16:10`, `21:9`, `32:9`, a decimal aspect
    like `2.39`, or `W:H`; factor = aspect ÷ 4/3, clamped to [1, 3]; an aspect at or below 4/3 means
-   factor 1), `auto.go` (the GFX.ini + GameSettings reader of 6.2, with test inis under
-   `testdata/`), and tests over `wwapi/mem.FakeMem`: parse table, block bytes, a refused write when
+   factor 1; `auto` through `launch.ReadGFXAspect` as in 6.2, with a fake process/size seam for
+   tests as `feed/widescreen.go` has), and tests: the parse table, the submitted command's words
+   (over `wwapi/ops/opstest` or `wwapi/mem.FakeMem`), the block decode, and a refused submit when
    the contract fails. List it in `compiledMods()` (`cmd/ww-multiplayer/mods.go`). Update the CLI
    and help goldens (`cmd/ww-multiplayer/testdata/cli-golden`, the `mods` listing) with
    `-update` as docs/TESTING.md says.
@@ -405,7 +441,9 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
   screen check in one of them would not be, but it would be cosmetic like section 4's.
 - **Which pop-in the person notices most** (room BG joints, actors, or grass and trees) was not
   checked on their own scenes. The hook fixes all three, so it doesn't change the plan.
-- **Our name tags** drift under the hack (section 4). A separate small REL fix if wanted.
+- **Main moves fast.** Addresses, the free T2 bytes, the +0xA6C slack and op 16 were checked
+  against main at `735c8d7`. Re-check them when the build starts: `blob.go` `T2End`,
+  `wwapi/mailbox/mod.go` `CanaryArenaHigh`, `wwops.h`'s op list, build.py's hook list.
 - **Default on for 4:3 players:** decided in 6.1, revisited by the step 7.5 numbers.
 - **Stretch and Custom users** need the CLI setting until the persistent app setting exists (6.2).
 - **The screen-space gates** (sun glare, fireflies, lantern glow, picto-box ratio, reticles) stay
