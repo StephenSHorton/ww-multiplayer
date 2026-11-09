@@ -1035,7 +1035,7 @@ Go only (`mods/multiplayer/net/place.go`, `enemy.go` "Relay scoping"; no REL cha
 
 ### Widescreen stage 1 (#1185)
 
-The culling hook and native widescreen's stage 1 (docs/design/widescreen-culling.md section 8 step 7, docs/design/native-widescreen.md section 8 "Stage 1" check 6). The blob changed (BlobHash 0x1100504D): re-patch, and recapture `saves/start.sav` and the Mac start save first. `ws_init` boots in mode 1 at factor 4/3. The block is at `0x8041596C` (mode byte `0x80415971`, factor `0x80415974`), the knob at `0x803FA998` (vanilla `0x3FAAAAAB`), the clipper aspect at `0x803A575C`. WS-C2 and WS-2 need `wwdev cull-probe` (culling plan step 6, not built yet); WS-4 needs `stage-hop --wipe`, and WS-7 and WS-8 need the app's mode policy and runner (not built yet).
+The culling hook and native widescreen's stage 1 (docs/design/widescreen-culling.md section 8 step 7, docs/design/native-widescreen.md section 8 "Stage 1" item 6). The blob changed (BlobHash 0x1100504D): re-patch, and recapture `saves/start.sav` and the Mac start save first. `ws_init` boots in mode 1 at factor 4/3. The block is at `0x8041596C` (mode byte `0x80415971`, factor `0x80415974`), the knob at `0x803FA998` (vanilla `0x3FAAAAAB`), the clipper aspect at `0x803A575C`. WS-C2 and WS-2 need `wwdev cull-probe` (culling plan section 8 step 6); WS-4 needs `stage-hop --wipe`; WS-7 and WS-8 need the app's mode policy and runner (stage 1 item 5).
 
 The culling plan's checks, with the hack on (`-C Graphics.Settings.wideScreenHack=True -C Graphics.Settings.AspectRatio=1`):
 

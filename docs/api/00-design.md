@@ -92,7 +92,7 @@ The plan:
  0x80416000   patched __ArenaLo (OSInit patched by build.py; ARENA_LO in mailbox_core.h; 0x80414000 before wind#80)
 ```
 
-(verified: `inject/build.py`, `inject/include/mailbox_core.h`, `internal/inject/blob.go` T2Bytes = 0x3728 since #1185 (0x3408 after wind#90), 0x2CA8 since the REL loader (2026-10-18, src/mp/relload.c; 0x2A88 after F20, 0x29C8 after F19, 0x2A88 after E3, 0x25A8 after E1/E2, 0x2588 after E0, 0x2EE8 before it), `t2_budget_test.go`; blob.go's `T2End`, `MailboxAddr` and `ArenaLo` carry these since E1)
+(verified: `inject/build.py`, `inject/include/mailbox_core.h`, `internal/inject/blob.go` T2Bytes = 0x3728 since #1185 (0x3408 after wind#90, 0x2CA8 after the REL loader (2026-10-18, src/mp/relload.c); 0x2A88 after F20, 0x29C8 after F19, 0x2A88 after E3, 0x25A8 after E1/E2, 0x2588 after E0, 0x2EE8 before it), `t2_budget_test.go`; blob.go's `T2End`, `MailboxAddr` and `ArenaLo` carry these since E1)
 
 **Mailbox layout** at 0x80414F00 (the source of truth is `inject/include/mailbox_core.h` and the `mailbox_mp.h` it includes, split from `mailbox.h` in E3 with the same offsets; `tools/gen_mailbox` generates the Go copy, `wwapi/mailbox/layout_gen.go`, and `TestMailboxLayout` fails when it is stale):
 

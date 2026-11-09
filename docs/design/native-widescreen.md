@@ -594,8 +594,8 @@ count code ×1.5 at the high end (E3 once overshot by 0x4E0); table data is exac
 | 5 | 0x20-0x200 | telescope look-in; picto option B or C if chosen (0x78 if B's resample lives in the REL behind a forwarder); option A needs nothing | 0xA30-0xFC0 |
 
 The running totals are from the measured 0x320. Stages 2-3 need 0x680-0x9D0 on top of it, and
-0x8D8 is left: they fit at the low end, not the high. So the levers below are chosen at stage 2,
-before its code is written, not after.
+0x8D8 is left: they fit at the low end, not the high. So the levers below are chosen at stage 2
+(the rule below).
 
 **Must be T2:** every DOL `bl` target, and everything that runs before our REL links (Link exists +
 300 frames): `ws_init`, WS_SET, `ws_apply`, the `setOrtho` hook, hooks A/B with the walker,
@@ -777,8 +777,9 @@ Changes the C side, so it lands in **#1185's blob change**: follow the culling p
 **Built on card #1185** (PC build, 2026-11-09, BlobHash 0x1100504D): items 1-4, and from item 5
 the `ReadGFXAspect` fixes, the launch args (`LaunchWith`, `LaunchTestWith`,
 `session.LaunchOptions.Widescreen`, `WW_WIDESCREEN` for `dolphin2`), `ParseAppSetting`, the CLI's
-`widescreen native` and `wwdev ops ws`. Not in that base (36babc0): the Settings card, the mode
-policy and its runner, the Gecko check, the `xscaleSampler` change, `stage-hop --wipe`. Hooks:
+`widescreen native` and `wwdev ops ws`. The rest of item 5 (the Settings card, the mode policy
+and its runner, the Gecko check, the `xscaleSampler` change, `stage-hop --wipe`) is Go only and
+lands apart from the blob (no re-patch). Hooks:
 `clip_setup_hook` at `0x8017BF90` (DOL file offset `0x178ED0`), `ws_snap_setresult` at
 `0x800CE5E8` (DOL `0xCB528`), both in `hooks.c`. The block at
 `0x8041596C` (+0xA6C..+0xA84, mode byte `0x80415971`, factor `0x80415974`), op 16
