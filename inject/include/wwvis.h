@@ -66,6 +66,16 @@
 #define WWVIS_FLAG_SEACHART     0x04        // draw the sea chart markers
 #define WWVIS_FLAG_HAIR         0x08        // a casual remote (WWVIS_EQF_CASUAL): katsura hair, no hat, no buckle
 #define WWVIS_FLAG_LOBBY        0x10        // the file select screen lists the remotes' names ("Here: A, B"; issue #38)
+// The flags word's top half is not a flag: Dolphin's Widescreen Hack widens
+// the 3D picture (the projection, on the GPU) but not the 2D list the name
+// tags are drawn in, so a tag placed by the game's 4:3 projection lands
+// further from the screen centre than its remote, and its text is wider
+// (#1157). Go measures how much the hack narrows x (the 4:3 aspect over the
+// drawn aspect: GFX.ini and the render window) and writes it here as a q16
+// fraction; 0 = no hack (1.0). The REL moves each tag toward the centre by
+// it and draws the text that much narrower, so on screen both match the 3D.
+#define WWVIS_FLAGS_XSCALE_SHIFT 16
+#define WWVIS_FLAGS_XSCALE_MASK  0xFFFF0000
 
 // Equip entry (4 bytes per slot): the remote's mSelectEquip[0] / [1]
 // (dItemNo_*, 0xFF none) and what it holds.

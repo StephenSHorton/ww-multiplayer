@@ -5,6 +5,7 @@ package host
 import (
 	"fmt"
 	"image"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -89,11 +90,30 @@ type bitmapInfo struct {
 // land on the game rather than whichever window happens to enumerate
 // first.
 func FindWindowByPID(pid uint32) (uintptr, error) {
-	var cands []windowCandidate
-	cb := syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
+	findMu.Lock()
+	findPID, findCands = pid, nil
+	procEnumWindows.Call(findWindowCB, 0)
+	cands := findCands
+	findCands = nil
+	findMu.Unlock()
+	found := pickGameWindow(cands)
+	if found == 0 {
+		return 0, fmt.Errorf("no visible top-level window found for pid %d", pid)
+	}
+	return found, nil
+}
+
+// FindWindowByPID's EnumWindows callback is made once: a process can make
+// only about 2000 syscall.NewCallbacks, and puppet-sync looks for the
+// window every few seconds (RenderSize). findMu guards its state.
+var (
+	findMu       sync.Mutex
+	findPID      uint32
+	findCands    []windowCandidate
+	findWindowCB = syscall.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
 		var winPID uint32
 		procGetWindowThreadProcessID.Call(hwnd, uintptr(unsafe.Pointer(&winPID)))
-		if winPID != pid {
+		if winPID != findPID {
 			return 1 // keep iterating
 		}
 		visible, _, _ := procIsWindowVisible.Call(hwnd)
@@ -107,16 +127,10 @@ func FindWindowByPID(pid uint32) (uintptr, error) {
 		if w <= 0 || h <= 0 {
 			return 1
 		}
-		cands = append(cands, windowCandidate{hwnd: hwnd, title: WindowTitle(hwnd), area: w * h})
+		findCands = append(findCands, windowCandidate{hwnd: hwnd, title: WindowTitle(hwnd), area: w * h})
 		return 1
 	})
-	procEnumWindows.Call(cb, 0)
-	found := pickGameWindow(cands)
-	if found == 0 {
-		return 0, fmt.Errorf("no visible top-level window found for pid %d", pid)
-	}
-	return found, nil
-}
+)
 
 // Virtual-key codes and Win32 message IDs for the hotkey path.
 const (

@@ -675,9 +675,9 @@ func foundingBlockedText(f session.Founding) string {
 	switch f.Blocker {
 	case session.BlockBound:
 		if f.TagWorldHere {
-			return fmt.Sprintf("this file is already bound to world %s. Continue that world, or remove its tag to found a new one.", short(f.TagWorld))
+			return fmt.Sprintf("co-op is not running: this file is already bound to world %s. Continue that world, or remove its tag to found a new one.", short(f.TagWorld))
 		}
-		return fmt.Sprintf("this file is bound to world %s (another player hosts it). Remove its tag, or load another file.", short(f.TagWorld))
+		return fmt.Sprintf("co-op is not running: this file is bound to world %s, which isn't in your worlds. Remove its tag, or load another file.", short(f.TagWorld))
 	case session.BlockForeign, session.BlockGarbage:
 		return "this file holds a tag this version can't use. Remove it, or load another file."
 	case session.BlockSecondQuest:
@@ -844,7 +844,7 @@ func foundingDialog(f *session.Founding, key func(...string) string) *DialogView
 			if f.TagWorldHere {
 				d.Text = fmt.Sprintf("This file is already bound to world %s. Continue that world instead (Leave, then pick it under Continue), or remove its tag to found a new world from this file.", f.TagWorld)
 			} else {
-				d.Text = fmt.Sprintf("This file is bound to world %s, which isn't on this computer (another player hosts it). Remove its tag to found a new world from this file, or load another file.", f.TagWorld)
+				d.Text = fmt.Sprintf("Co-op is not running yet. This file is bound to world %s, which isn't in your worlds on this computer (an old or deleted world, or one another player hosts). Remove its tag to found a new world from this file, or load another file.", f.TagWorld)
 			}
 			d.Detail = "Removing the tag changes only your game's memory: the file leaves world " + short(f.TagWorld) + " at your next in-game save."
 			d.Actions = []DialogAction{{ID: actUnbind, Arg: f.TagWorld, Label: "Remove the tag", Primary: true}, {ID: actOK, Label: "Close"}}
