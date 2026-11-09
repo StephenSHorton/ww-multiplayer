@@ -41,7 +41,7 @@ ww-multiplayer/
 │   ├── cliutil/                 # What both binaries' command lines share: FindDolphin/OpenDolphin (WW_DOLPHIN_INDEX/PID), ExeCmd, ExitUsage, --color/WW_COLOR; clitest/ = the CLI golden harness
 │   ├── gamefiles/               # Spots Nintendo game files and saves (names, extensions, magic, zip entries): tools/check_game_files, bugreport
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
-│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend (sidebar pages Play/Session, Setup, Mods, Settings; light/dark theme.js); first-run Setup (setup.go); the Mods page (mods.go); the update banner + re-patch after an update (update.go); room.go: the host's rules mid-session (SetCoopShares over hub.SetFeatures), the Room items card, the Players row's co-op chip and Warp to; Bridge = the JS API; `ui --browser` server
+│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend (sidebar pages Play/Session, Setup, Mods, Settings; light/dark theme.js); first-run Setup (setup.go); the Mods page (mods.go); the update banner (update.go); disc.go: the disc kept this build's (checked at open, Host, Join, every launch; a stale one re-patched by itself with a line on Play, Start waits; closes only an app-launched Dolphin with no save in play; vanilla search; the -app.log); room.go: the host's rules mid-session (SetCoopShares over hub.SetFeatures), the Room items card, the Players row's co-op chip and Warp to; Bridge = the JS API; `ui --browser` server
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
 │   ├── mailboxgen/              # mailbox header parser (mailbox_core.h + the mailbox_mp.h it includes) + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
@@ -69,6 +69,7 @@ ww-multiplayer/
 │   ├── coop/                    # The co-op mod (D2c: mod.go + mod.json, requires multiplayer; CLI commands + the stage tables post-patch step). Co-op engine (docs/08): replica, hub, world, wire, derive, class, story, inventory, bind, ...; proto/ (the Feature bits, policies and scoped filters hub and replica share)
 │   │                            #   combat/ (M6: K1 classes, layouts, gates, Revalidate over wwapi/actors), savemerge/ (offline save merge), synctables/ (sync verdicts and acceptance over wwapi/tables),
 │   │                            #   roomitems/ (what a world image holds: items, songs, charts, bags, hearts; the app's Room items card via replica.Status.Room)
+│   │                            #   cardtag/ (the app's pending co-op tags: each tag a lobby session writes in game memory, written into the GCI card while no Dolphin runs, after a backup, with a read-back; #1178)
 │   │                            #   session/ (package coopsession, D2b: the --coop session, console, puzzles, combat status, the app's co-op (app.go) and the engine seam (hook.go: Env, App/CLIApp);
 │   │                            #   the co-op golden + converge tests, testdata/coop-golden), stagetables/ (+ stagetablestest/), procstate/ (session marker process check),
 │   │                            #   diag/ (what coop_diag.go shares: Tick, GateSnapshots, SplitFlags, Where, WithMem, DiffSave/SaveLabel), bind/bindtest/ (a FakeGame with a bound file),
@@ -362,7 +363,7 @@ GOOS=windows GOARCH=amd64 go vet ./... && GOOS=windows GOARCH=amd64 go vet -tags
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -o /tmp/ww-multiplayer.exe ./cmd/ww-multiplayer
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/ww-multiplayer-cli.exe ./cmd/ww-multiplayer
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/wwdev.exe ./cmd/wwdev
-grep -q 'requestedExecutionLevel level="asInvoker"' /tmp/ww-multiplayer.exe && grep -q 'permonitorv2' /tmp/ww-multiplayer.exe
+LC_ALL=C grep -aq 'requestedExecutionLevel level="asInvoker"' /tmp/ww-multiplayer.exe && LC_ALL=C grep -aq 'permonitorv2' /tmp/ww-multiplayer.exe   # -a: BSD grep (macOS) fails silently on a binary
 go test -count=1 -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions' ./cmd/ww-multiplayer ./internal/inject/... ./wwapi/mailbox
 go run ./tools/check_game_files
 go run ./tools/validate_manifests && go vet ./mods/_fixtures/

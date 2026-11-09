@@ -352,6 +352,14 @@ func waitPatchDone(t *testing.T, b *Bridge) PatchView {
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if v := b.PatchStatus(); !v.Running {
+			// The last event goes out after Running turns false; done
+			// closes after it.
+			b.jobMu.Lock()
+			j := b.job
+			b.jobMu.Unlock()
+			if j != nil {
+				<-j.done
+			}
 			return v
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -1039,10 +1047,69 @@ func TestBridgePrepareRefusesRunningCopy(t *testing.T) {
 	}
 }
 
-// TestBridgeRefusesSessionsWhilePatching: Host, Join and Start wait for
-// a running patch (Start would open Dolphin on a disc not yet written;
-// the sidebar reaches Home from Setup mid-patch), and work once it ends.
-func TestBridgeRefusesSessionsWhilePatching(t *testing.T) {
+// TestBridgeSessionsWaitForAPatch: while a disc is being patched (the
+// sidebar reaches Home from Setup mid-patch), Host goes ahead (the lobby
+// gathers), while Start and Join wait for the patch to end and then go
+// on: Start would open Dolphin on a disc not yet written.
+func TestBridgeSessionsWaitForAPatch(t *testing.T) {
+	f := &fakePatcher{hold: make(chan struct{}), started: make(chan struct{})}
+	b, _, _ := patchBridge(t, f)
+	in := touch(t, filepath.Join(t.TempDir(), "ww.iso"))
+	b.mu.Lock()
+	b.cfg.Dolphin.LaunchOnStart = false // nothing to launch: the wait is the point
+	b.mu.Unlock()
+	if err := b.StartPatch(PatchRequest{Path: in}); err != nil {
+		t.Fatal(err)
+	}
+	<-f.started
+	if err := b.Host(HostRequest{Name: "Link"}); err != nil {
+		t.Fatalf("Host while patching: %v", err)
+	}
+	waitLobby(t, b)
+	started := make(chan error, 1)
+	go func() { started <- b.Start(true) }()
+	select {
+	case err := <-started:
+		t.Fatalf("Start returned while patching: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if st := b.State(); st.Lobby == nil || st.Lobby.CanStart || !st.StartWaiting {
+		t.Fatalf("Start's button while it waits: %+v", st.Lobby)
+	}
+	if err := b.Start(true); err != nil {
+		t.Fatalf("a second Start while one waits: %v", err)
+	}
+	close(f.hold)
+	select {
+	case err := <-started:
+		if err != nil {
+			t.Fatalf("Start after the patch: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start never went on after the patch")
+	}
+	if v := waitPatchDone(t, b); v.Stage != "done" {
+		t.Fatalf("%+v", v)
+	}
+}
+
+// waitLobby waits for b's hosted lobby to gather (Start may go).
+func waitLobby(t *testing.T, b *Bridge) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		st := b.ctrl.Snapshot()
+		if canStart(st.Lobby, st.Session != 0) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the lobby never gathered")
+}
+
+// TestBridgeJoinWaitsForAPatch: a joiner's Join waits for a running
+// patch (its Dolphin launches at the host's Start), then joins.
+func TestBridgeJoinWaitsForAPatch(t *testing.T) {
 	f := &fakePatcher{hold: make(chan struct{}), started: make(chan struct{})}
 	b, _, _ := patchBridge(t, f)
 	in := touch(t, filepath.Join(t.TempDir(), "ww.iso"))
@@ -1050,23 +1117,20 @@ func TestBridgeRefusesSessionsWhilePatching(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-f.started
-	if err := b.Host(HostRequest{Name: "Link"}); !errors.Is(err, errPatching) {
-		t.Fatalf("Host while patching: %v", err)
-	}
-	if err := b.Join(JoinRequest{Addr: "127.0.0.1", Name: "Link"}); !errors.Is(err, errPatching) {
-		t.Fatalf("Join while patching: %v", err)
-	}
-	if err := b.Start(true); !errors.Is(err, errPatching) {
-		t.Fatalf("Start while patching: %v", err)
-	}
-	if b.running() {
-		t.Fatal("a session started while patching")
+	joined := make(chan error, 1)
+	go func() { joined <- b.Join(JoinRequest{Addr: "127.0.0.1", Name: "Link"}) }()
+	select {
+	case err := <-joined:
+		t.Fatalf("Join returned while patching: %v", err)
+	case <-time.After(150 * time.Millisecond):
 	}
 	close(f.hold)
-	if v := waitPatchDone(t, b); v.Stage != "done" {
-		t.Fatalf("%+v", v)
-	}
-	if err := b.Host(HostRequest{Name: "Link"}); err != nil {
-		t.Fatalf("Host after the patch: %v", err)
+	select {
+	case err := <-joined:
+		if err != nil {
+			t.Fatalf("Join after the patch: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Join never went on after the patch")
 	}
 }

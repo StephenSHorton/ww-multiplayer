@@ -19,6 +19,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
@@ -72,6 +73,17 @@ type appCoopDeps struct {
 	// GO went out at Start, so nobody waits on the founding, and a host
 	// who loads another file later still gets co-op.
 	giveUp time.Duration
+	// record records a co-op tag written in the game memory of the
+	// Dolphin on user folder userDir, for its memory card
+	// (cardtag.Store.Record); nil records none.
+	record func(userDir string, w bind.Written, rep log.Reporter)
+	// dolphinDir is the user folder of Dolphin pid, the one co-op plays
+	// on: its card is the one a tag write goes to. ok is false when it
+	// can't be told (a process whose command line can't be read).
+	dolphinDir func(pid uint32) (dir string, ok bool)
+	// forget drops the pending tags of the file w wrote to
+	// (cardtag.Store.Forget): a newer write to it that can't be recorded.
+	forget func(w bind.Written, rep log.Reporter)
 }
 
 // whyNoGame is the founding's Why while no Dolphin runs the game.
@@ -117,7 +129,7 @@ func isNoGameWhy(why string) bool {
 }
 
 func realAppCoopDeps(env Env) *appCoopDeps {
-	return &appCoopDeps{
+	d := &appCoopDeps{
 		env: appCoopEnv,
 		openMem: func(pid uint32) (mem.Mem, func(), error) {
 			d, err := env.Open(pid)
@@ -129,6 +141,63 @@ func realAppCoopDeps(env Env) *appCoopDeps {
 		tick: diag.Tick,
 		wait: time.Second,
 	}
+	if env.Tags != nil {
+		d.record, d.dolphinDir, d.forget = env.Tags.Record, processUserDir, env.Tags.Forget
+	}
+	return d
+}
+
+// processUserDir is the user folder of Dolphin pid: its -u argument, or
+// the folder its executable uses without one (launch.ProcessUserDir).
+func processUserDir(pid uint32) (string, bool) {
+	for _, p := range launch.Processes() {
+		if p.PID == pid {
+			return launch.ProcessUserDir(launch.Host(), p)
+		}
+	}
+	return "", false
+}
+
+// coopEnv is deps' co-op environment for this player, with its tag
+// writes recorded for its memory card.
+func (ac *appCoop) coopEnv() coopEnv {
+	env := ac.deps.env(ac.userDir())
+	if ac.deps.record != nil {
+		env.tags = ac.recordTag
+	}
+	return env
+}
+
+// recordTag records tag write w, made in the game memory of Dolphin pid,
+// for the memory card of that Dolphin's own user folder: the one it
+// plays on, which may not be the one the app launches (a Dolphin the
+// player started, WW_DOLPHIN_PID). A Dolphin whose folder can't be told
+// gets no record, and the log says to save in game.
+func (ac *appCoop) recordTag(pid uint32, w bind.Written, rep log.Reporter) {
+	if ac.deps.record == nil {
+		return
+	}
+	dir, ok := "", false
+	if pid != 0 && ac.deps.dolphinDir != nil {
+		dir, ok = ac.deps.dolphinDir(pid)
+	}
+	if !ok || dir == "" {
+		if ac.deps.forget != nil {
+			ac.deps.forget(w, rep) // an older pending tag of this file must not reach the card over this write
+		}
+		rep.Log(log.Info, "co-op: the app can't tell which user folder your Dolphin plays from, so the tag reaches your memory card only at your next in-game save.")
+		return
+	}
+	ac.deps.record(dir, w, rep)
+}
+
+// tagRecorder records a tag write made in Dolphin pid's memory for its
+// memory card; nil when deps records none.
+func (ac *appCoop) tagRecorder(pid uint32) func(bind.Written) {
+	if ac.deps.record == nil {
+		return nil
+	}
+	return func(w bind.Written) { ac.recordTag(pid, w, ac.out) }
 }
 
 // appCoopEnv is the co-op environment of an app player: the cards of its
@@ -250,7 +319,7 @@ func (ac *appCoop) OnStart(s network.LobbySettingsBody) {
 		return
 	}
 	own := ac.own()
-	f := Flags{on: true, world: s.Coop, merge: s.Merge, dryRun: s.DryRun, liveSwitches: s.LiveSwitches, iso: own.ISO, yes: own.Yes,
+	f := Flags{on: true, world: s.Coop, merge: s.Merge, dryRun: s.DryRun, liveSwitches: s.LiveSwitches, iso: own.ISO, yes: true,
 		bossKill: own.BossKill, refresh: own.Refresh, sharesOff: own.SharesOff}
 	ac.wg.Add(1)
 	go func() {
@@ -298,7 +367,7 @@ func (ac *appCoop) host(f Flags) (string, error) {
 		// confirmed here, with no question (docs/coop-just-works.md §4).
 		f.yes = true
 	}
-	env := ac.deps.env(ac.userDir())
+	env := ac.coopEnv()
 	env.front = ac.front(f)
 	cs := startCoopSide(ac.out, f, env, true)
 	cs.poseClient = ac.poseClient
@@ -356,6 +425,17 @@ func (ac *appCoop) sendGo(world string) {
 	engine.SendGo(ac.ctx, lc, world, ac.out, nil)
 }
 
+// noticeOf is a joiner's one-line outcome sink: the window's co-op line,
+// in place of the questions it used to ask.
+func (ac *appCoop) noticeOf(worldID string) func(outcome, world string) {
+	return func(outcome, w string) {
+		if w == "" {
+			w = worldID
+		}
+		ac.found1(session.Founding{Phase: session.FoundingFounded, World: w, Outcome: outcome})
+	}
+}
+
 // OnGo is a joiner's GO: with a world, its co-op side starts. The card
 // backup and the stage tables (a disc read, a build when none is cached)
 // take a while, so they run beside the lobby connection, whose reads
@@ -368,10 +448,17 @@ func (ac *appCoop) OnGo(s network.LobbySettingsBody, worldID string) {
 	go func() {
 		defer ac.wg.Done()
 		own := ac.own()
-		f := Flags{on: true, dryRun: s.DryRun || own.DryRun, iso: own.ISO, yes: own.Yes, bossKill: own.BossKill, refresh: own.Refresh}
-		env := ac.deps.env(ac.userDir())
+		// A joiner follows the host (docs/coop-just-works.md §5): its bind
+		// and scrub are answered yes here, and a tag of another world is
+		// cleared before the hello, so the window asks nothing.
+		f := Flags{on: true, dryRun: s.DryRun || own.DryRun, iso: own.ISO, yes: true, follow: true, bossKill: own.BossKill, refresh: own.Refresh}
+		env := ac.coopEnv()
 		env.front = ac.front(f)
 		cs := startCoopSession(ac.out, f, env)
+		if w, err := bind.ParseWorldID(worldID); err == nil {
+			cs.world = w
+		}
+		cs.notice = ac.noticeOf(worldID)
 		cs.poseClient = ac.poseClient
 		cs.console.setCtx(ac.ctx)
 		ac.mu.Lock()
@@ -653,7 +740,7 @@ func (ac *appCoop) foundLoop(ctx context.Context, pol *world.Policy, auto bool) 
 		}
 		select {
 		case req := <-unbind:
-			req.reply <- clearLoadedTag(ac.out, m, ac.deps.tick, req.want, "")
+			req.reply <- clearLoadedTag(ac.out, m, ac.deps.tick, req.want, "", ac.tagRecorder(memPID))
 			unblock()
 			continue
 		default:
@@ -760,11 +847,11 @@ func (ac *appCoop) UnbindFile(want string) error {
 	if cs == nil {
 		return errors.New("co-op has not started yet")
 	}
-	m := cs.console.firstMem()
-	if m == nil {
+	s := cs.console.first()
+	if s == nil {
 		return errors.New("co-op isn't looking at your game yet: try again once Dolphin runs it")
 	}
-	return clearLoadedTag(ac.out, m, ac.deps.tick, want, own)
+	return clearLoadedTag(ac.out, s.m, ac.deps.tick, want, own, ac.tagRecorder(s.pid.Load()))
 }
 
 // SetShares changes what the host's hub allows while it runs (the app's
@@ -795,13 +882,13 @@ func (ac *appCoop) SetShares(on []string) error {
 var errFileChanged = errors.New("the loaded file changed: try again")
 
 // clearLoadedTag is `coop-tag clear --yes` for the app: it zeroes the
-// co-op tag of the file loaded in m, in memory only (the card keeps it
-// until the next in-game save), and logs what it did. The tag must name
-// world want, the one the dialog showed ("": a file shown with no
-// readable tag must still have none), and never own, the session's
-// world ("" for none yet): a dialog clicked after another file was
-// loaded unbinds nothing.
-func clearLoadedTag(rep log.Reporter, m mem.Mem, tick func(), want, own string) error {
+// co-op tag of the file loaded in m, in game memory, hands the write to
+// record (nil: none) so the memory card gets it too once no Dolphin runs
+// (mods/coop/cardtag), and logs what it did. The tag must name world
+// want, the one the dialog showed ("": a file shown with no readable tag
+// must still have none), and never own, the session's world ("" for none
+// yet): a dialog clicked after another file was loaded unbinds nothing.
+func clearLoadedTag(rep log.Reporter, m mem.Mem, tick func(), want, own string, record func(bind.Written)) error {
 	s, st, _, err := diag.GateSnapshots(m, tick)
 	if err != nil {
 		return err
@@ -832,8 +919,12 @@ func clearLoadedTag(rep log.Reporter, m mem.Mem, tick func(), want, own string) 
 	if p.Verdict.HasTag {
 		what = fmt.Sprintf("world %s, %s", p.Verdict.Tag.World, p.Verdict.State)
 	}
-	log.Logf(rep, log.OK, "co-op: cleared the co-op tag (%s) of %s at 0x%08X. Save in game to write the unbound file to the memory card; loading it from the card again brings the tag back.",
-		what, bind.Describe(p.File), addr.Reserve)
+	log.Logf(rep, log.OK, "co-op: cleared the co-op tag (%s) of %s at 0x%08X.", what, bind.Describe(p.File), addr.Reserve)
+	if record != nil {
+		record(p.Written())
+	} else {
+		rep.Log(log.Info, "co-op: save in game to write the unbound file to the memory card; loading it from the card again brings the tag back.")
+	}
 	return nil
 }
 
@@ -876,6 +967,7 @@ func appCoopSync(ctx context.Context, env Env, name, addr string, pid uint32, re
 	}
 	defer d.Close()
 	return appSyncOnClaimed(ctx, cs, name, d, rep, claimed, func(ctx context.Context, s *coopSync) error {
+		s.pid.Store(pid)
 		s.publishPartner(pid)
 		return s.run(ctx, addr)
 	})
@@ -902,12 +994,20 @@ func appSyncOnClaimed(ctx context.Context, cs *Session, name string, m mem.Mem, 
 // firstMem is the memory of the console's first pipeline, nil before
 // one runs.
 func (c *coopConsole) firstMem() mem.Mem {
+	if s := c.first(); s != nil {
+		return s.m
+	}
+	return nil
+}
+
+// first is the console's first pipeline, nil before one runs.
+func (c *coopConsole) first() *coopSync {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.syncs) == 0 {
 		return nil
 	}
-	return c.syncs[0].m
+	return c.syncs[0]
 }
 
 // reportCoop tells the window the co-op options the session runs with.

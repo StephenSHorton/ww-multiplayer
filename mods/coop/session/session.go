@@ -91,6 +91,10 @@ type Flags struct {
 	merge bool
 	// yes is --yes: every bind and scrub question is answered yes.
 	yes bool
+	// follow is the app joiner's: a tag of another world is cleared from
+	// the loaded file before the hello (docs/coop-just-works.md §5), so
+	// the file binds to the host's world as an unbound one.
+	follow bool
 	// dryRun is --coop-dry-run: M2's dry run. This side's replicas write
 	// no game data but a binding tag after a yes; the plan is logged.
 	dryRun bool
@@ -282,6 +286,10 @@ type coopEnv struct {
 	tables func(iso string) (*stagetables.Tables, error)
 	// front is the session's front end; its zero value is the CLI's.
 	front coopFront
+	// tags records each tag write a replica made in the game memory of
+	// Dolphin pid (0: unknown), for the memory card (the app's,
+	// mods/coop/cardtag); nil records none (the CLI).
+	tags func(pid uint32, w bind.Written, rep log.Reporter)
 }
 
 // coopFront is how a co-op session meets its front end: who answers its
@@ -338,12 +346,17 @@ type Session struct {
 	// (OutcomeContinued, OutcomeAdopted, OutcomeFounded); "" otherwise.
 	outcome string
 	// world is the hub's world, so the host's own replicas check their
-	// files against it; zero on a joiner, whose replica learns it from
-	// the host's welcome.
+	// files against it; zero on a CLI joiner, whose replica learns it
+	// from the host's welcome, and the host's world from GO on an app
+	// joiner (Flags.follow).
 	world bind.WorldID
-	hub   *hub.Hub
-	store *world.Store // the hub's world; the hub is its only writer
-	dir   string       // the hub's world directory, which holds the session marker
+	// notice, when set, hears each one-line outcome of a joiner's
+	// automatic bind, scrub and clear (the Outcome* constants, the
+	// world); the app shows it as the co-op line.
+	notice func(outcome, world string)
+	hub    *hub.Hub
+	store  *world.Store // the hub's world; the hub is its only writer
+	dir    string       // the hub's world directory, which holds the session marker
 	// noTags says why no tag may be written this session (the backup
 	// failed); nil when tag writes may be offered.
 	noTags error
@@ -681,6 +694,13 @@ const (
 	OutcomeAdopted   = "adopted"   // a world not on this computer, founded under its ID
 	OutcomeFounded   = "founded"   // a new world from an untied save
 	OutcomeNone      = "none"      // no co-op: the save takes no part (Founding.Phase Failed)
+	// A joiner's (docs/coop-just-works.md §5), with Founding.World the
+	// host's world: its save was bound to it, a stale tag was removed from
+	// it, or it was tied to another world and follows the host instead.
+	OutcomeJoined   = "joined"
+	OutcomeScrubbed = "scrubbed"
+	OutcomeFollowed = "followed"
+	OutcomeCleared  = "cleared"
 )
 
 // noCoopError is auto mode's decision that the host's save takes no part
@@ -1381,7 +1401,8 @@ func (p *coopPrompter) ask(ctx context.Context, rep log.Reporter, question strin
 // and a co-op connection to the host's hub.
 type coopSync struct {
 	cs     *Session
-	name   string // the player's name: the console's handle on it
+	name   string        // the player's name: the console's handle on it
+	pid    atomic.Uint32 // the Dolphin it plays on (the app's), 0 when unknown
 	rep    log.Reporter
 	m      mem.Mem
 	r      *replica.Replica
@@ -1390,6 +1411,9 @@ type coopSync struct {
 	mu    sync.Mutex
 	asked map[coopFileKey]bool // files a bind was asked for this session (cs.askedFor; under cs.askedMu)
 	over  string               // why run gave up co-op for the session ("" while it has not)
+	// cleared says clearForeign took a tag of another world off the file:
+	// the bind that follows says "followed" rather than "joined".
+	cleared bool
 }
 
 // gaveUp returns why run gave up co-op for the session, or "".
@@ -1472,6 +1496,9 @@ func (cs *Session) newSyncClaimed(ctx context.Context, name string, m mem.Mem, r
 		BossKill:    cs.flags.bossKill,
 		Refresh:     cs.flags.refresh,
 	}
+	if rec := cs.env.tags; rec != nil {
+		cfg.OnTagWritten = func(w bind.Written) { rec(s.pid.Load(), w, rep) }
+	}
 	if !cs.flags.dryRun {
 		cfg.Apply = true
 		cfg.StageTblHash = cs.tables.Hash()
@@ -1484,6 +1511,9 @@ func (cs *Session) newSyncClaimed(ctx context.Context, name string, m mem.Mem, r
 			log.Logf(rep, log.Warn, "%s. Pose sync goes on; type /coop on to write the world again.", fmt.Sprintf(format, args...))
 		}})
 		cfg.PartnerPos = cs.partnerPos(name)
+	}
+	if cs.flags.follow && !cs.world.IsZero() {
+		cfg.OnForeignTag = s.clearForeign
 	}
 	r, err := replica.New(cfg)
 	if err != nil {
@@ -1616,6 +1646,19 @@ func (s *coopSync) offer(ctx context.Context, o replica.Offer) {
 	answer := func() {
 		if s.cs.ask.question(ctx, s.rep, q) {
 			s.r.Confirm(o.Plan)
+			if s.cs.notice != nil {
+				if o.Plan.Kind == bind.KindScrub {
+					s.say(OutcomeScrubbed, s.cs.world.String())
+				} else {
+					s.mu.Lock()
+					out := OutcomeJoined
+					if s.cleared {
+						out = OutcomeFollowed
+					}
+					s.mu.Unlock()
+					s.say(out, o.Plan.Tag.World.String())
+				}
+			}
 		} else {
 			s.r.Decline(o.Plan)
 		}
@@ -1673,6 +1716,39 @@ func (s *coopSync) preflight(pf replica.PreflightReport) {
 	if !asked {
 		s.r.RequestBind()
 	}
+}
+
+// say passes outcome to the session's notice sink, if it has one.
+func (s *coopSync) say(outcome, world string) {
+	if s.cs.notice != nil {
+		s.cs.notice(outcome, world)
+	}
+}
+
+// clearForeign is replica.Config.OnForeignTag: the loaded file is tied to
+// a world other than the host's, whether on this computer or not, so its
+// tag is zeroed in the game's memory (the world file stays on disk), and
+// the file then says hello as an unbound one. In the app the clear is
+// recorded for the memory card too, as "Remove the tag" is (the CLI's
+// card keeps the old tag until the next in-game save).
+func (s *coopSync) clearForeign(w bind.WorldID) {
+	own := s.cs.world.String()
+	tick := s.cs.env.tick
+	if tick == nil {
+		tick = diag.Tick
+	}
+	var record func(bind.Written)
+	if rec := s.cs.env.tags; rec != nil {
+		record = func(wr bind.Written) { rec(s.pid.Load(), wr, s.rep) }
+	}
+	if err := clearLoadedTag(s.rep, s.m, tick, w.String(), own, record); err != nil {
+		log.Logf(s.rep, log.Info, "co-op: %s: the tag of world %s is not cleared yet: %v", s.name, w, err)
+		return
+	}
+	s.mu.Lock()
+	s.cleared = true
+	s.mu.Unlock()
+	s.say(OutcomeCleared, own)
 }
 
 // advise passes advice of kind, logged as text, to the session's front

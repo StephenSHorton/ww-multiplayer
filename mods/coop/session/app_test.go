@@ -515,15 +515,24 @@ func TestClearLoadedTag(t *testing.T) {
 		{"", ""},                 // ... or a file with no readable tag
 		{bindtest.World.String(), bindtest.World.String()}, // the session's own world
 	} {
-		if err := clearLoadedTag(log, m, tick, c.want, c.own); err == nil {
+		var heard []bind.Written
+		if err := clearLoadedTag(log, m, tick, c.want, c.own, func(w bind.Written) { heard = append(heard, w) }); err == nil || len(heard) != 0 {
 			t.Fatalf("clear %+v removed the tag", c)
 		}
 	}
 	if s, _, _, err := diag.GateSnapshots(m, tick); err != nil || bind.Classify(bind.FileOf(s), bind.Expect{}).State != bind.Bound {
 		t.Fatalf("a refused clear changed the file (%v)", err)
 	}
-	if err := clearLoadedTag(log, m, tick, bindtest.World.String(), "0000000000000001"); err != nil {
+	var heard []bind.Written
+	if err := clearLoadedTag(log, m, tick, bindtest.World.String(), "0000000000000001", func(w bind.Written) { heard = append(heard, w) }); err != nil {
 		t.Fatal(err)
+	}
+	// The write is handed on for the memory card: zeros over the bound tag.
+	if len(heard) != 1 || heard[0].Kind != bind.KindClear || heard[0].Bytes != [bind.TagSize]byte{} {
+		t.Fatalf("recorded %+v, want one clear", heard)
+	}
+	if tg, err := bind.Decode(heard[0].File.Tag[:]); err != nil || tg.World != bindtest.World {
+		t.Fatalf("the recorded file's tag before: %+v, %v", tg, err)
 	}
 	if !log.has("co-op: cleared the co-op tag (world "+bindtest.World.String()+", bound)") || !log.has(`"Link"`) {
 		t.Fatalf("log:\n%s", log)
@@ -536,7 +545,7 @@ func TestClearLoadedTag(t *testing.T) {
 		t.Fatalf("after the clear: %+v", v)
 	}
 	log = &coLog{}
-	if err := clearLoadedTag(log, m, tick, "", ""); err != nil || !log.has("has no co-op tag") {
+	if err := clearLoadedTag(log, m, tick, "", "", nil); err != nil || !log.has("has no co-op tag") {
 		t.Fatalf("second clear: %v\n%s", err, log)
 	}
 }
@@ -778,4 +787,51 @@ func TestRetryBindsAfterMerge(t *testing.T) {
 	<-done
 	<-frames
 	<-gaFrames
+}
+
+// TestRecordTagPlayedFolder: a tag write is recorded for the card of the
+// user folder of the Dolphin co-op played on (not the folder the app
+// launches: a Dolphin the player started, WW_DOLPHIN_PID); a Dolphin
+// whose folder can't be told, or none, records nothing and says why.
+func TestRecordTagPlayedFolder(t *testing.T) {
+	type rec struct {
+		dir string
+		w   bind.Written
+	}
+	var got []rec
+	var forgot int
+	ac := &appCoop{
+		launch: func() session.LaunchOptions { return session.LaunchOptions{UserDir: "/configured"} },
+		deps: &appCoopDeps{
+			env:    func(string) coopEnv { return coopEnv{} },
+			record: func(dir string, w bind.Written, _ log.Reporter) { got = append(got, rec{dir, w}) },
+			forget: func(bind.Written, log.Reporter) { forgot++ },
+			dolphinDir: func(pid uint32) (string, bool) {
+				if pid == 7 {
+					return "/played", true
+				}
+				return "", false
+			},
+		},
+	}
+	w := bind.Written{Kind: bind.KindBind}
+	env := ac.coopEnv()
+	if env.tags == nil {
+		t.Fatal("the app's co-op env records no tags")
+	}
+	l := &coLog{}
+	env.tags(7, w, l)
+	if len(got) != 1 || got[0].dir != "/played" {
+		t.Fatalf("recorded %+v, want one for the played folder", got)
+	}
+	for _, pid := range []uint32{0, 9} {
+		env.tags(pid, w, l)
+	}
+	if len(got) != 1 || forgot != 2 || !l.has("can't tell which user folder") {
+		t.Fatalf("recorded %+v for an unknown folder; log:\n%s", got, l)
+	}
+	ac.deps.record = nil
+	if ac.coopEnv().tags != nil || ac.tagRecorder(7) != nil {
+		t.Fatal("records with no store")
+	}
 }

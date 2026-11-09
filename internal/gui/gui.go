@@ -28,6 +28,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // ErrNoGUI is Run's error in a build without the window (see the package
@@ -66,6 +67,17 @@ type Options struct {
 	// (package main's listHostIPs, what the CLI's host prints); nil lists
 	// none.
 	HostIPs func() []string
+	// ProbeDolphin looks at a running Dolphin (engine.ProbeDolphin): the
+	// disc update may close a Dolphin the app launched only when this
+	// reads it on the title screen (no save in play). Nil: the app never closes a Dolphin.
+	ProbeDolphin func(pid uint32) session.Probe
+	// SearchDiscs lets the disc update look for the vanilla disc in
+	// Dolphin's game folders (its Config/Dolphin.ini) when the one Setup
+	// saved is gone. Off in tests.
+	SearchDiscs bool
+	// AppLogDir is the folder of the app's own log (applog.DefaultDir):
+	// the disc checks and updates are written there. Nil: no app log.
+	AppLogDir func() (string, error)
 	// Mods is the app's mod runtime (package main's startApp): the Mods
 	// page lists its mods and CallMod runs their commands. Nil: the page
 	// lists none.
@@ -78,4 +90,8 @@ type Options struct {
 	// Args are this run's arguments (os.Args[1:]): an update starts the
 	// new version with them. Nil is os.Args[1:].
 	Args []string
+	// CardTags writes the co-op tags waiting for the memory card, if no
+	// Dolphin runs (co-op's cardtag.Store.Flush); the app calls it as it
+	// opens and as it quits, after the session ended. Nil writes none.
+	CardTags func(rep log.Reporter)
 }

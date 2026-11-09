@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/cardtag"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/world"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
@@ -16,6 +17,11 @@ import (
 // the one WW_DOLPHIN_INDEX / WW_DOLPHIN_PID select (openDolphin).
 type Env struct {
 	Open func(pid uint32) (*emu.Dolphin, error)
+	// Tags is where the app's lobby sessions record each co-op tag they
+	// write in game memory, for the memory card (mods/coop/cardtag); nil
+	// records none. The CLI's host and join never record: their tags
+	// reach the card at the player's in-game save, as before.
+	Tags *cardtag.Store
 }
 
 // App is co-op for the app's engine (the TUI's and the window's): host

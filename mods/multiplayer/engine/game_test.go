@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
@@ -299,6 +301,63 @@ func TestGameRunnerDolphinClosed(t *testing.T) {
 	ev := f.Events()
 	if !slices.Contains(ev, "reset 100") || !slices.Contains(ev, "reset 101") || len(f.Launches()) != 2 {
 		t.Fatalf("events %v", ev)
+	}
+}
+
+// TestGameRunnerCardTags: the co-op tags waiting for the memory card
+// are written (GameDeps.CardTags) right before each launch, when no
+// Dolphin holds the card, and once the Dolphin played on closed; never
+// while it runs.
+func TestGameRunnerCardTags(t *testing.T) {
+	f := newFakeGame()
+	deps := fakeDeps(f)
+	deps.CardTags = func(rep log.Reporter) {
+		if rep == nil {
+			t.Error("CardTags without the session's log")
+		}
+		f.Event("card tags")
+	}
+	out := &gameOut{}
+	g := NewGameRunner(deps, func() session.LaunchOptions { return optsA }, "Link", "127.0.0.1:1", out, func(string) {}, func(error) {})
+	g.Start(context.Background())
+	waitFor(t, "the pipelines", hasEvent(f, "pipelines 100 start"))
+	f.Script(100, closed)
+	waitFor(t, "closed", func() bool { return out.Last().State == session.DolphinNone })
+	waitFor(t, "the flush after the close", func() bool {
+		return len(slices.DeleteFunc(f.Events(), func(e string) bool { return e != "card tags" })) == 2
+	})
+	if err := g.launchAgain(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the pipelines again", hasEvent(f, "pipelines 101 start"))
+	g.Stop()
+	var got []string
+	for _, e := range f.Events() {
+		if e == "card tags" || strings.HasPrefix(e, "launch ") || e == "pipelines 100 stop" {
+			got = append(got, e)
+		}
+	}
+	want := []string{"card tags", "launch 100", "pipelines 100 stop", "card tags", "card tags", "launch 101"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("events %q, want %q", got, want)
+	}
+}
+
+// TestGameRunnerCardTagsManual: a player who starts Dolphin themselves
+// gets the waiting card tags written before the runner waits for it.
+func TestGameRunnerCardTagsManual(t *testing.T) {
+	f := newFakeGame()
+	deps := fakeDeps(f)
+	deps.CardTags = func(log.Reporter) { f.Event("card tags") }
+	o := optsA
+	o.Manual = true
+	out := &gameOut{}
+	g := NewGameRunner(deps, func() session.LaunchOptions { return o }, "Link", "127.0.0.1:1", out, func(string) {}, func(error) {})
+	g.Start(context.Background())
+	waitFor(t, "the wait", func() bool { return out.Logged("Start Dolphin with your patched disc") })
+	g.Stop()
+	if ev := f.Events(); len(ev) == 0 || ev[0] != "card tags" || len(f.Launches()) != 0 {
+		t.Fatalf("events %q, launches %d", ev, len(f.Launches()))
 	}
 }
 
@@ -587,5 +646,63 @@ func TestLobbyStartGoInGame(t *testing.T) {
 	cb.Leave()
 	if ev := fb.Events(); ev[len(ev)-1] != "reset 200" {
 		t.Fatalf("joiner teardown %v", ev)
+	}
+}
+
+// TestGameRunnerPreparesBeforeLaunch (card #1176): a joiner's Dolphin
+// launches on the wire START, so the runner's last check before the launch
+// (SetPrepare) updates a stale disc first. The row shows "updating" for
+// it, the launch comes after it, and the Dolphin goes on to the title
+// screen as always.
+func TestGameRunnerPreparesBeforeLaunch(t *testing.T) {
+	f := newFakeGame()
+	g, out, lob, _ := newTestRunner(f, optsA)
+	release := make(chan struct{})
+	var calls atomic.Int32
+	g.SetPrepare(func(ctx context.Context) error {
+		calls.Add(1)
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	g.Start(context.Background())
+	waitFor(t, "the updating row", func() bool { return out.Last().State == session.DolphinUpdating })
+	if l := f.Launches(); len(l) != 0 {
+		t.Fatalf("launched during the update: %+v", l)
+	}
+	if got := lob.list(); !slices.Equal(got, []string{"updating"}) {
+		t.Fatalf("lobby states %v", got)
+	}
+	close(release)
+	waitFor(t, "the pipelines", hasEvent(f, "pipelines 100 start"))
+	if l := f.Launches(); len(l) != 1 || calls.Load() != 1 {
+		t.Fatalf("launches %+v, prepares %d", l, calls.Load())
+	}
+	if got := lob.list(); len(got) < 2 || got[0] != "updating" || got[1] != "none" && got[1] != "launching" {
+		t.Fatalf("lobby states %v", got)
+	}
+	if err := g.Stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A failed last check launches nothing and says why.
+func TestGameRunnerPrepareFailureBlocksLaunch(t *testing.T) {
+	f := newFakeGame()
+	g, out, _, _ := newTestRunner(f, optsA)
+	g.SetPrepare(func(context.Context) error { return errors.New("close Dolphin to update your disc") })
+	g.Start(context.Background())
+	waitFor(t, "the error", func() bool { return out.Last().Err != "" })
+	if d := out.Last(); !strings.Contains(d.Err, "update your disc") || d.PID != 0 || d.State != session.DolphinNone {
+		t.Fatalf("Dolphin %+v", d)
+	}
+	if l := f.Launches(); len(l) != 0 {
+		t.Fatalf("launched: %+v", l)
+	}
+	if err := g.Stop(); err != nil {
+		t.Fatal(err)
 	}
 }

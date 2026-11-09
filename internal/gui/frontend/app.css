@@ -757,6 +757,8 @@ form.chat input { max-width: none; flex: 1; }
 .updtext b { display: block; font: 400 17px var(--display); color: var(--heading); }
 .updbtns { display: flex; gap: 8px; flex-wrap: wrap; }
 .updbar .meterrow { margin: 12px 0 0; }
+.discbar.warn { border-color: color-mix(in srgb, var(--red) 55%, var(--line)); background: linear-gradient(90deg, color-mix(in srgb, var(--red) 10%, var(--surface)), var(--surface) 60%); }
+.discbar .spin { margin-right: 4px; }
 
 /* ---------- the dialog and toasts ---------- */
 .dialog { padding: 0; border: 0; background: transparent; width: 100%; max-width: min(600px, calc(100vw - 32px)); overflow: visible; color: var(--text); }
