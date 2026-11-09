@@ -771,7 +771,7 @@ func TestFileHintToLobby(t *testing.T) {
 // the lobby, with no line, or with co-op on, it says nothing. The host's
 // own blocked founding names its give-up.
 func TestHostCoopBanner(t *testing.T) {
-	const line = "The host's save file can't found a co-op world: it is a second quest."
+	const line = "the host's save file can't found a world, as it is a second quest."
 	st := session.State{Session: 1, Lobby: &session.Lobby{Member: 2, Phase: session.LobbyPhaseStarting, Members: []session.LobbyMember{
 		{ID: 1, Name: "Host", Host: true, Via: session.ViaApp, CoopStatus: line}, {ID: 2, Name: "Jo", Via: session.ViaApp}}}}
 	if b := coopBanner(st, true); b == nil || b.Kind != "coop" || b.Text != line || b.Action != "" {

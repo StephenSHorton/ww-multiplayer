@@ -3,9 +3,10 @@
 // page's ?s= names. The shapes are internal/gui's views (view.go, coop.go,
 // lobby.go, setup.go, mods.go, update.go, lan.go); the values are made up.
 // Scenarios: home, home-update, home-empty, setup, setup-game,
-// setup-dolphin, mods, lobby-host, lobby-join, ingame, ingame-host,
-// reconnecting, dialog, ended, ingame-ended (in game with co-op, then
-// ended: the recap). ?theme=dark|light sets the theme.
+// setup-dolphin, mods, lobby-host, lobby-join, starting-join (the
+// host's founding blocked: its co-op line on the joiner's banner),
+// ingame, ingame-host, reconnecting, dialog, ended, ingame-ended (in game
+// with co-op, then ended: the recap). ?theme=dark|light sets the theme.
 // Variants (main_test.go's DOM checks use them):
 //
 //	&legacy=1        a pre-lobby host: a legacy lobby, no members, players
@@ -20,6 +21,7 @@
 //	&slow=1          SetCoopShares answers out of order: the first call takes 800 ms, the rest none
 //	&upd=1           a newer release is out, in any scenario
 //	&vitals=none     in game, nobody's hearts, magic and rupees are known (senders from before them)
+//	&coopoff=1       ingame: the host's founding gave up, so co-op is off this session (the host's line on the banner)
 //	&click=a,b       click these element ids in turn once the page is up
 (function () {
 	const q = new URLSearchParams(location.search);
@@ -35,6 +37,7 @@
 	const places = q.get("places") === "1";
 	const dry = q.get("dry") === "1";
 	const slow = q.get("slow") === "1";
+	const coopOff = q.get("coopoff") === "1";
 	let shareCalls = 0;
 	const updOut = S === "home-update" || q.get("upd") === "1";
 	try {
@@ -118,12 +121,18 @@
 	const t0 = Date.now(); // the Activity entries' clock
 	const host = S === "lobby-host" || S === "ingame-host";
 	const playing = S.startsWith("ingame") || S === "reconnecting";
-	const phase = playing ? "in game" : "lobby";
+	const starting = S === "starting-join";
+	const phase = playing ? "in game" : starting ? "starting" : "lobby";
 	// "ended": a lobby that ends a moment after the page opens (the
 	// Session page's ended card needs a session that was running).
 	let isOver = false;
 	const over = () => isOver;
-	const lobbyPhase = playing ? "in game" : "lobby";
+	const lobbyPhase = playing ? "in game" : starting ? "starting" : "lobby";
+	// The host's co-op status line (its lobby row's coopStatus, coop.go
+	// hostCoopBanner): a founding blocked on a bound file, then given up.
+	const coopLine = starting
+		? "the host's save file can't found a world, as it is bound to another co-op world. Unless the host loads another file or removes its tag, the session goes on without co-op in a minute."
+		: coopOff && playing ? "off this session: the host's save file can't found a world, as it is bound to another co-op world. Everyone still sees each other's Link." : "";
 	const dolphinChip = playing ? { dolphin: "in_game", dolphinLabel: "In game" } : { dolphin: "", dolphinLabel: "" };
 	// In game, co-op's row facts (room.go memberCoop): the host's hub knows
 	// every peer, a joiner only where its partner is (with one other
@@ -210,10 +219,10 @@
 	const coopMode = S === "lobby-join" ? "continue" : "new";
 	const coop = {
 		setting: coopMode === "new" ? "new" : worlds[0].id, mode: coopMode, world: coopMode === "continue" ? worlds[0].id : "",
-		dryRun: false, merge: false, liveSwitches: false, on: playing, myDryRun: dry, autoYes: false,
+		dryRun: false, merge: false, liveSwitches: false, on: playing && !coopOff, myDryRun: dry, autoYes: false,
 		relays: { bossKill: "", refresh: "" },
 		choice: { mode: coopMode, world: worlds[0].id, dryRun: false, merge: false, liveSwitches: false, iso: "" },
-		cards: playing ? null : {
+		cards: playing || starting ? null : {
 			card: "MemoryCardA.USA.raw", hint: "Load File 2 after Start: it binds to this world.", short: "",
 			files: [
 				{ slot: 1, state: "used", name: "Link", hearts: 9, bind: "this", bindText: "Bound to this world", world: worlds[0].id },
@@ -221,7 +230,7 @@
 				{ slot: 3, state: "empty", name: "", hearts: 0, bind: "", bindText: "" },
 			],
 		},
-		panel: playing ? {
+		panel: playing && !coopOff ? {
 			partners: ["Blake"],
 			pipes: [{
 				player: "Stephen", state: "bound", headline: "Bound and writing: your game follows world 7f3a91c2", tone: "ok",
@@ -306,7 +315,8 @@
 				key: "bind:1", kind: "bind", title: "Bind this file?", text: "File 2 “Stephen” isn't bound to a co-op world. Bind it to world 7f3a91c2? Its progress joins the world.",
 				actions: [{ id: "answer-yes", label: "Bind", primary: true, arg: "q1" }, { id: "answer-no", label: "Not now", arg: "q1" }], cancel: "answer-no:q1", autoYes: true,
 			} : null,
-			banner: S === "reconnecting" ? { kind: "reconnecting", title: "Reconnecting to the host…", text: "Your game keeps running; the others come back once the link does.", attempts: 3 } : null,
+			banner: S === "reconnecting" ? { kind: "reconnecting", title: "Reconnecting to the host…", text: "Your game keeps running; the others come back once the link does.", attempts: 3 }
+				: coopLine ? { kind: "coop", title: "Co-op:", text: coopLine } : null,
 			showIPs: false,
 			dolphin: playing ? { state: "in_game", label: "In game", pid: 4120, launched: true, manual: false, pipelines: true } : { state: "" },
 			// The sea chart (game.go mapView): you sailing off Outset, Blake

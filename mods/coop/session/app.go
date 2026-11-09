@@ -228,13 +228,13 @@ func (ac *appCoop) OnStart(s network.LobbySettingsBody) {
 			var gu *foundingGaveUp
 			switch {
 			case errors.As(err, &gu):
-				why = "the host's save file can't found a co-op world (" + gu.reason + ")"
+				why = "the host's save file can't found a world, as " + gu.reason
 				ac.found1(session.Founding{Phase: session.FoundingFailed, Err: gu.appText()})
 			case f.world == coopWorldNew:
-				why = "the host's game couldn't found the co-op world"
+				why = "the host's game couldn't found the world"
 				ac.found1(session.Founding{Phase: session.FoundingFailed, Err: err.Error()})
 			}
-			ac.setStatus("Co-op is off this session: " + why + ". Everyone still sees each other's Link.")
+			ac.setStatus("off this session: " + why + ". Everyone still sees each other's Link.")
 		} else {
 			ac.setStatus("")
 		}
@@ -415,8 +415,8 @@ func (ac *appCoop) found1(f session.Founding) {
 }
 
 // setStatus sets this player's co-op status line on its lobby row, which
-// every member's window shows ("" clears it); an unchanged line is not
-// sent again.
+// every member's window shows after "Co-op:" ("" clears it); an
+// unchanged line is not sent again.
 func (ac *appCoop) setStatus(text string) {
 	ac.mu.Lock()
 	lc, same := ac.lc, ac.status == text
@@ -431,17 +431,18 @@ func (ac *appCoop) setStatus(text string) {
 }
 
 // foundingStatus is the host's lobby status line for a founding that
-// waits or is blocked: what the others wait on, in their words. The
-// gate's reason is left out: it changes from tick to tick.
+// waits or is blocked: what the others wait on, in their words, read
+// after "Co-op:" (the window's banner, the log). The gate's reason is
+// left out: it changes from tick to tick.
 func foundingStatus(f session.Founding, giveUp time.Duration) string {
 	switch {
 	case f.Phase == session.FoundingBlocked:
-		return fmt.Sprintf("The host's save file can't found a co-op world: %s. Unless the host loads another file or removes its tag, the session goes on without co-op in %s.",
+		return fmt.Sprintf("the host's save file can't found a world, as %s. Unless the host loads another file or removes its tag, the session goes on without co-op in %s.",
 			blockReason(f.Blocker), session.AboutDuration(giveUp))
 	case f.File != "" || f.Why != whyNoGame:
-		return "The host is founding the co-op world: waiting for the host's save file in game."
+		return "the host is founding the world and waits for their save file in game."
 	}
-	return "The host is founding the co-op world: waiting for the host's Dolphin to run Wind Waker."
+	return "the host is founding the world and waits for their Dolphin to run Wind Waker."
 }
 
 // blockReason is why a file can't found a world, in a few words that

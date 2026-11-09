@@ -315,7 +315,7 @@ func TestLobbyCoopFoundingGivesUp(t *testing.T) {
 
 	// While blocked: the joiner, still starting, reads why on the host's row.
 	sb := waitSnap(t, cb, "the host's blocked status on the joiner's side", func(st session.State) bool {
-		return strings.Contains(hostRow(st).CoopStatus, "can't found a co-op world")
+		return strings.Contains(hostRow(st).CoopStatus, "can't found a world")
 	})
 	if got := hostRow(sb).CoopStatus; !strings.Contains(got, "bound to another co-op world") || !strings.Contains(got, "without co-op in a moment") {
 		t.Fatalf("blocked status %q", got)
@@ -336,7 +336,7 @@ func TestLobbyCoopFoundingGivesUp(t *testing.T) {
 		t.Fatalf("host co-op still on: %+v", st.Coop)
 	}
 	sb = waitSnap(t, cb, "the joiner in game with the host's reason", func(st session.State) bool {
-		return st.Phase == session.InGame && strings.HasPrefix(hostRow(st).CoopStatus, "Co-op is off this session:")
+		return st.Phase == session.InGame && strings.HasPrefix(hostRow(st).CoopStatus, "off this session:")
 	})
 	if got := hostRow(sb).CoopStatus; !strings.Contains(got, "bound to another co-op world") {
 		t.Fatalf("off status %q", got)
@@ -357,10 +357,10 @@ func TestFoundingStatus(t *testing.T) {
 		f    session.Founding
 		want string
 	}{
-		{session.Founding{Phase: session.FoundingWaiting, Why: whyNoGame}, "waiting for the host's Dolphin to run Wind Waker"},
-		{session.Founding{Phase: session.FoundingWaiting, Why: "settling: stage and room unchanged for 3 of 10 ticks"}, "waiting for the host's save file in game."},
-		{session.Founding{Phase: session.FoundingWaiting, File: `File 1 "Link"`}, "waiting for the host's save file in game."},
-		{session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockBound}, "it is bound to another co-op world. Unless the host loads another file or removes its tag, the session goes on without co-op in a minute."},
+		{session.Founding{Phase: session.FoundingWaiting, Why: whyNoGame}, "waits for their Dolphin to run Wind Waker"},
+		{session.Founding{Phase: session.FoundingWaiting, Why: "settling: stage and room unchanged for 3 of 10 ticks"}, "waits for their save file in game."},
+		{session.Founding{Phase: session.FoundingWaiting, File: `File 1 "Link"`}, "waits for their save file in game."},
+		{session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockBound}, "can't found a world, as it is bound to another co-op world. Unless the host loads another file or removes its tag, the session goes on without co-op in a minute."},
 		{session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockSecondQuest}, "second quest"},
 		{session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockGarbage}, "a co-op tag this version can't use"},
 	} {
