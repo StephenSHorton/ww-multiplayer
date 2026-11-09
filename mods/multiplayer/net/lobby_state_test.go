@@ -806,6 +806,21 @@ func TestLobbyMachineCoopStatusFits(t *testing.T) {
 	}
 }
 
+// TestLobbyMachineAppVersions: STATE carries each member's HELLO app
+// version, so every window can compare them (version-skew line).
+func TestLobbyMachineAppVersions(t *testing.T) {
+	m := testMachine(time.Minute)
+	mustJoin(t, m, 1, "Link", true, LobbyHelloBody{App: "0.6.1"})
+	mustJoin(t, m, 2, "Whitney", false, LobbyHelloBody{App: "0.6.0"})
+	got := map[string]string{}
+	for _, r := range m.snapshot().Members {
+		got[r.Name] = r.App
+	}
+	if got["Link"] != "0.6.1" || got["Whitney"] != "0.6.0" {
+		t.Errorf("apps %v", got)
+	}
+}
+
 // TestLobbyMachineLateWorld: GO goes out at Start with no world and the
 // co-op world follows in a second GO. The lobby is in game after the
 // first; the second reaches everyone, replaces what a rejoin or a late

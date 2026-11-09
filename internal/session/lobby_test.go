@@ -355,3 +355,31 @@ func TestLobbyLink(t *testing.T) {
 		t.Fatalf("a late LobbyLink changed the ended state: %+v", st.Lobby.Link)
 	}
 }
+
+// TestLobbyVersionSkew: members on another app version than ours get one
+// status line; matching versions, unknown versions and CLI rows get none.
+func TestLobbyVersionSkew(t *testing.T) {
+	l := Lobby{Member: 1, Members: []LobbyMember{
+		{ID: 1, Name: "Link", Via: ViaApp, App: "ww-multiplayer 0.6.1"},
+		{ID: 2, Name: "Whitney", Via: ViaApp, App: "0.6.0"},
+	}}
+	want := "Whitney is on 0.6.0, you're on 0.6.1: ask them to update"
+	if got := l.VersionSkew(); got != want {
+		t.Errorf("skew %q, want %q", got, want)
+	}
+	l.Members = append(l.Members, LobbyMember{ID: 3, Name: "Tetra", Via: ViaApp, App: "v0.6.0"},
+		LobbyMember{ID: 4, Name: "Zelda", Via: ViaApp, App: "0.6.1"},
+		LobbyMember{ID: 5, Name: "Old", Via: ViaApp},
+		LobbyMember{ID: 6, Name: "Cli", Via: ViaCLI, App: "0.1.0"})
+	want = "Whitney and Tetra are on 0.6.0, you're on 0.6.1: ask them to update"
+	if got := l.VersionSkew(); got != want {
+		t.Errorf("skew %q, want %q", got, want)
+	}
+	l.Members = l.Members[:1]
+	if got := l.VersionSkew(); got != "" {
+		t.Errorf("alone: %q", got)
+	}
+	if got := (Lobby{}).VersionSkew(); got != "" {
+		t.Errorf("no self row: %q", got)
+	}
+}

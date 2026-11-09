@@ -347,7 +347,7 @@ func lobbyView(st network.LobbyStateBody, w network.LobbyWelcomeBody) session.Lo
 	for _, m := range st.Members {
 		c, _ := playercolor.Parse(m.Color)
 		l.Members = append(l.Members, session.LobbyMember{ID: m.ID, Name: m.Name, Color: c, Ready: m.Ready, Host: m.Host,
-			Dolphin: m.Dolphin, File: m.File, CoopStatus: m.CoopStatus, RTT: time.Duration(m.RTTMs) * time.Millisecond, Via: m.Via, Away: m.Away})
+			Dolphin: m.Dolphin, File: m.File, CoopStatus: m.CoopStatus, RTT: time.Duration(m.RTTMs) * time.Millisecond, Via: m.Via, Away: m.Away, App: m.App})
 	}
 	// Our row says whether we are host now: the host's slot can pass to
 	// us after WELCOME (docs/10 §3).

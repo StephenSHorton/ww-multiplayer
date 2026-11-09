@@ -192,6 +192,9 @@ type LobbyMember struct {
 	CoopStatus string `json:"coopStatus,omitempty"`
 	RTTMs      int    `json:"rttMs,omitempty"`
 	Via        string `json:"via"`
+	// App is the member's app version, as its HELLO said ("" from a
+	// build before it, and for a CLI row); the lobby compares them.
+	App string `json:"app,omitempty"`
 	// Away: the member's lobby connection dropped and the server holds
 	// its slot for its token (LobbyHoldTimeout).
 	Away bool `json:"away,omitempty"`
