@@ -86,6 +86,26 @@ void clip_setup_hook(f32 fovy, f32 aspect, f32 near_, f32 far_) {
     mDoLib_clipper_setup(fovy, ws_clip_aspect(aspect), near_, far_);
 }
 
+// The picto box judge's call to dSnap_packet::SetResult (0x800CE5E8, `bl
+// 0x800CEB80`; r3 = the dSnap_packet* from `mr r3,r31`; docs/design/
+// native-widescreen.md 3.6 option A). In native mode the 3D is widened by F,
+// so each subject covers 1/F as many EFB pixels: scale the counted pixels
+// back by F before the verdict. The ratios are left alone.
+typedef void (*snap_setresult_fn)(void* pkt);
+#define dSnap_packet_SetResult ((snap_setresult_fn)0x800CEB80)
+__attribute__((optimize("Os"))) void ws_snap_setresult(void* pkt) {
+    f32 f = ws_live_factor();
+    if (f != 1.0f) {
+        s32 n = *(s32*)((u8*)pkt + 0x14);
+        s32 col;
+        for (col = 0; col < n; col++) {
+            s32* px = (s32*)((u8*)pkt + 0x38 + col * 0x3C);  // m_tbl[col].m_obj.mCapturedPixels
+            *px = (s32)((f32)*px * f + 0.5f);
+        }
+    }
+    dSnap_packet_SetResult(pkt);
+}
+
 // Hooked to main01 (0x80006338) via hook_branchlink. Runs once.
 // Publishes multiplayer_update's address for frame_shim to find.
 void main01_init(void) {

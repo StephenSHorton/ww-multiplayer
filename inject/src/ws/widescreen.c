@@ -11,7 +11,7 @@
 #include "wwws.h"
 #include "wwboat.h"
 #include "mailbox_mp.h"
-#include "mods.h"
+#include "../core/mods.h"
 
 _Static_assert(WWWS_OFF >= WWBOAT_OFF + WWBOAT_SIZE && WWWS_OFF + WWWS_SIZE <= MP_EYE_PACKETS_OFF &&
                (WWWS_OFF & 3) == 0 && (WWWS_FACTOR_OFF & 3) == 0 && WWWS_FLAGS_OFF + 1 <= WWWS_UI_FACTOR_OFF &&

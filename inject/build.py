@@ -457,6 +457,12 @@ def main():
     # of the one J3DUClipper culls against the wider picture.
     proj.hook_branchlink("clip_setup_hook", 0x8017BF90)
 
+    # Picto box judge (docs/design/native-widescreen.md 3.6, option A):
+    # dSnap_packet::Judge's `bl SetResult` (0x800CEB80) at 0x800CE5E8.
+    # ws_snap_setresult scales the counted subject pixels by the native
+    # factor (mode 2 only), so photos judge the same as on a 4:3 screen.
+    proj.hook_branchlink("ws_snap_setresult", 0x800CE5E8)
+
     # Set entry function (required for linker)
     proj.set_entry_function("main01_init")
 

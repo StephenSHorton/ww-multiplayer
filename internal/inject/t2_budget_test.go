@@ -372,23 +372,34 @@ func TestSeachartShimLoadsVisWord(t *testing.T) {
 // TestClipSetupHookSite: the widescreen clipper hook (docs/design/
 // widescreen-culling.md section 5). build.py hooks clip_setup_hook at
 // 0x8017BF90 (view_setup's `bl mDoLib_clipper::setup`, DOL file offset
-// 0x178ED0), and the committed blob's DOLPatches turn that vanilla bl
-// (0x4BE9B72D) into a bl (opcode 18, LK = 1) whose target lies in T2.
-// Bytes the diff leaves out are the vanilla ones.
+// 0x178ED0, vanilla 0x4BE9B72D).
 func TestClipSetupHookSite(t *testing.T) {
-	const (
-		site    = 0x8017BF90
-		fileOff = 0x178ED0
-		vanilla = 0x4BE9B72D
-	)
+	checkHookSite(t, "clip_setup_hook", 0x8017BF90, 0x178ED0, 0x4BE9B72D)
+}
+
+// TestSnapSetResultHookSite: the picto box judge's hook (docs/design/
+// native-widescreen.md 3.6, option A). build.py hooks ws_snap_setresult at
+// 0x800CE5E8 (dSnap_packet::Judge's `bl SetResult`, DOL file offset
+// 0xCB528, vanilla 0x48000599).
+func TestSnapSetResultHookSite(t *testing.T) {
+	checkHookSite(t, "ws_snap_setresult", 0x800CE5E8, 0xCB528, 0x48000599)
+}
+
+// checkHookSite: build.py has proj.hook_branchlink("<fn>", 0x<site>), and
+// the committed blob's DOLPatches turn the vanilla bl at fileOff into a bl
+// (opcode 18, LK = 1) whose target lies in T2. Bytes the diff leaves out
+// are the vanilla ones.
+func checkHookSite(t *testing.T, fn string, site, fileOff, vanilla uint32) {
+	t.Helper()
 	py, err := os.ReadFile(buildPy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`(?m)^\s*proj\.hook_branchlink\("clip_setup_hook",\s*0x8017BF90\)`).Match(py) {
-		t.Fatal(`build.py does not hook clip_setup_hook at 0x8017BF90 (view_setup's bl mDoLib_clipper::setup)`)
+	re := regexp.MustCompile(fmt.Sprintf(`(?m)^\s*proj\.hook_branchlink\("%s",\s*0x%08X\)`, regexp.QuoteMeta(fn), site))
+	if !re.Match(py) {
+		t.Fatalf("build.py does not hook %s at 0x%08X", fn, site)
 	}
-	word := [4]byte{vanilla >> 24, vanilla >> 16 & 0xFF, vanilla >> 8 & 0xFF, vanilla & 0xFF}
+	word := [4]byte{byte(vanilla >> 24), byte(vanilla >> 16), byte(vanilla >> 8), byte(vanilla)}
 	patched := false
 	for _, p := range DOLPatches {
 		for i, b := range p.Bytes {
@@ -399,7 +410,7 @@ func TestClipSetupHookSite(t *testing.T) {
 		}
 	}
 	if !patched {
-		t.Fatal("DOLPatches holds no change at file offset 0x178ED0: the blob was built without the clipper hook; rebuild it (cd inject && python build.py, scripts/extract_blob.py)")
+		t.Fatalf("DOLPatches holds no change at file offset 0x%X: the blob was built without the %s hook; rebuild it (cd inject && python build.py, scripts/extract_blob.py)", fileOff, fn)
 	}
 	w := binary.BigEndian.Uint32(word[:])
 	if w>>26 != 18 || w&1 != 1 || w&2 != 0 {
@@ -408,6 +419,6 @@ func TestClipSetupHookSite(t *testing.T) {
 	li := int32(w&0x03FFFFFC) << 6 >> 6 // sign-extended LI field
 	target := uint32(int64(site) + int64(li))
 	if target < T2Address || target >= T2End {
-		t.Errorf("clip hook bl lands at 0x%08X, outside T2 0x%08X..0x%08X", target, T2Address, T2End)
+		t.Errorf("%s bl lands at 0x%08X, outside T2 0x%08X..0x%08X", fn, target, T2Address, T2End)
 	}
 }
