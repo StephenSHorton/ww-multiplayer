@@ -1,0 +1,291 @@
+2026-11-09T16:05:13.224Z INFO ww-multiplayer v0.7.0 windows/amd64: Host session 2 as "Alice"
+2026-11-09T16:05:13.224Z INFO [srv 09:05:13] Server listening on port 25570
+2026-11-09T16:05:13.224Z OK   Hosting a lobby as "Alice" on :25570.
+2026-11-09T16:05:13.242Z INFO   •••.•••.•••.20:25570
+2026-11-09T16:05:13.242Z INFO   •••.•••.•••.227:25570
+2026-11-09T16:05:13.242Z INFO   •••.•••.•••.1:25570
+2026-11-09T16:05:13.260Z NET  Connected to the lobby
+2026-11-09T16:05:13.260Z INFO [srv 09:05:13] Alice (lobby 1) connected
+2026-11-09T16:05:14.238Z INFO [srv 09:05:14] Bob (lobby 2) connected
+2026-11-09T16:05:48.796Z OK   co-op: backed up 1 memory-card file(s) to ~\.claude\jobs\e0b03f06\tmp\rig\appdata-A\ww-multiplayer\backups\20261109T160548Z (`coop-world restore 20261109T160548Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+2026-11-09T16:05:48.796Z INFO co-op:   slot A GCI folder ~\.claude\jobs\e0b03f06\tmp\rig\ud-A\GC\USA\Card A (default, in use):
+2026-11-09T16:05:48.796Z INFO co-op:     ~\.claude\jobs\e0b03f06\tmp\rig\ud-A\GC\USA\Card A\01-GZLE-gczelda.gci, 98368 bytes
+2026-11-09T16:05:48.819Z INFO Starting Dolphin with your patched disc.
+2026-11-09T16:05:48.819Z OK   cheats: installed bundled GZLE01.ini at ~\.claude\jobs\e0b03f06\tmp\rig\ud-A\GameSettings\GZLE01.ini (enable individual codes via Dolphin → game properties → Gecko Codes)
+2026-11-09T16:05:48.824Z OK   Dolphin started (pid 35548).
+2026-11-09T16:05:48.825Z OK   co-op: stage tables 07fce914c47490e7, ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso from the cache: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
+2026-11-09T16:05:48.825Z OK   co-op: shared progression this session: story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic; derived from the stage tables: the small keys of DRC, FW, TotG, ET, WT and max hearts.
+2026-11-09T16:05:48.825Z OK   co-op: room puzzles this session: a partner's latching dan switches (103 in 6 save table(s)) sync while both are in the same stage, its zone switches (13) while both are in the same room, and its room switches (410) as it sets them, in 115 room(s); timed and other switches that clear never travel.
+2026-11-09T16:05:48.827Z OK   co-op: combat this session: a partner's kills of keyed enemies (333 in 14 stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; 1070 unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.
+2026-11-09T16:05:52.874Z OK   Playing on Dolphin (pid 35548): remote Links appear in your game.
+2026-11-09T16:05:52.874Z INFO === Enemy host: Alice -> localhost:25570 ===
+2026-11-09T16:05:52.874Z INFO === Broadcast Link + Pose: Alice -> localhost:25570 ===
+2026-11-09T16:05:52.874Z INFO === Puppet Sync: Alice <- localhost:25570 ===
+2026-11-09T16:05:52.894Z OK   Dolphin found.
+2026-11-09T16:05:52.894Z OK   Dolphin found.
+2026-11-09T16:05:52.894Z OK   game GZLE01, WWMB header ABI 1 layout 3, code hash 62DBA05C (matches this version), strict mode, features avatar,eyefix,face,input,ops,tunic,warp; writes allowed
+2026-11-09T16:05:52.894Z INFO enemy host: host-authoritative enemies on (kinds mo2,bk+u,cc+u,ki+u,am2+u,tn+u), remote Link bodies step6 (WW_ENEMY_SYNC=0 turns enemy sync off); selecting by distance (WW_ENEMY_SELECT), STATE 30 Hz gate false
+2026-11-09T16:05:52.894Z INFO enemy host: remote-Link block on, flags 0x24FF, 21 policies, FF denylist [MajyuE majroom Majroom Mjtower]
+2026-11-09T16:05:52.895Z INFO Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+2026-11-09T16:05:52.895Z INFO Filtering self-echo: remotes named "Alice" will be ignored.
+2026-11-09T16:05:52.896Z INFO Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+2026-11-09T16:05:52.897Z INFO [srv 09:05:52] Bob (enemy client 1) connected
+2026-11-09T16:05:52.915Z INFO [srv 09:05:52] Bob (ID:1) connected
+2026-11-09T16:05:52.916Z INFO [srv 09:05:52] Bob (ID:2) connected
+2026-11-09T16:05:52.919Z NET  Connected for enemy sync (enemy ID 2)
+2026-11-09T16:05:52.919Z INFO [srv 09:05:52] Alice (enemy host 2) connected
+2026-11-09T16:05:52.919Z NET  Connected as player 3
+2026-11-09T16:05:52.919Z INFO [srv 09:05:52] Alice (ID:3) connected
+2026-11-09T16:05:52.919Z INFO [srv 09:05:52] Alice (ID:4) connected
+2026-11-09T16:05:52.919Z NET  Connected as player 4
+2026-11-09T16:05:52.919Z NET  Player Bob (ID:1) in game
+2026-11-09T16:05:52.919Z NET  Player Bob (ID:2) in game
+2026-11-09T16:05:52.919Z NET  Player Alice (ID:4) in game
+2026-11-09T16:05:52.919Z NET  Player Bob (ID:1) in game
+2026-11-09T16:05:52.919Z NET  Player Bob (ID:2) in game
+2026-11-09T16:05:52.919Z NET  Player Bob (ID:1) in game
+2026-11-09T16:05:52.919Z NET  Player Bob (ID:2) in game
+2026-11-09T16:05:52.919Z NET  Player Alice (ID:3) in game
+2026-11-09T16:05:52.919Z NET  Player Bob (ID:1) in game
+2026-11-09T16:05:52.919Z NET  Player Bob (ID:2) in game
+2026-11-09T16:05:52.919Z NET  Player Alice (ID:3) in game
+2026-11-09T16:05:52.920Z NET  Player Alice (ID:4) in game
+2026-11-09T16:05:52.921Z OK   puppet-sync session 1 armed (server epoch 1794240313224751000)
+2026-11-09T16:05:52.921Z INFO tunic colors waiting: Link not loaded
+2026-11-09T16:05:52.936Z WARN enemy host: the REL module is not linked; host hits wait
+2026-11-09T16:05:54.251Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (Link is not loaded)
+2026-11-09T16:05:59.466Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (Link is not loaded)
+2026-11-09T16:06:00.798Z INFO tunic colors waiting: mpCurrLinktex not set (0x00000000)
+2026-11-09T16:06:00.815Z INFO tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+2026-11-09T16:06:04.682Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (on the title screen)
+2026-11-09T16:06:09.896Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (on the title screen)
+2026-11-09T16:06:11.284Z OK   pose-feed slot 0 armed: pose_buf=0x81FE98A0
+2026-11-09T16:06:11.284Z OK   link slot 0 := player 1 (Bob)
+2026-11-09T16:06:15.016Z OK   enemy host: REL module linked (build CACDFFF7); host hits apply
+2026-11-09T16:06:15.016Z INFO enemy remote: seq 1 ack 0 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=3180 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:06:15.114Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (on the title screen)
+2026-11-09T16:06:20.023Z INFO enemy remote: seq 314 ack 312 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=11848 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:06:20.332Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (on the title screen)
+2026-11-09T16:06:25.031Z INFO enemy remote: seq 627 ack 625 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=18971 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:06:25.549Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (on the title screen)
+2026-11-09T16:06:30.040Z INFO enemy remote: seq 940 ack 939 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=26231 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:06:30.766Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (on the title screen)
+2026-11-09T16:06:35.047Z INFO enemy remote: seq 1253 ack 1251 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=33613 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:06:35.981Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (on the title screen)
+2026-11-09T16:06:40.056Z INFO enemy remote: seq 1566 ack 1565 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=40085 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:06:41.205Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (Link is not loaded)
+2026-11-09T16:06:41.944Z INFO link slot 0 frozen: player 1 pose stalled
+2026-11-09T16:06:44.934Z WARN link slot 0 despawned: player 1 silent (no MsgLeave yet)
+2026-11-09T16:06:45.063Z INFO enemy remote: seq 1879 ack 1877 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=40532 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:06:46.427Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (Link is not loaded)
+2026-11-09T16:06:50.072Z INFO enemy remote: seq 2192 ack 2190 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=40982 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:06:51.642Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (Link is not loaded)
+2026-11-09T16:06:54.946Z INFO link slot 0 reservation expired: freed for reuse (player 1)
+2026-11-09T16:06:55.080Z INFO enemy remote: seq 2505 ack 2503 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=41432 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:06:56.860Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (Link is not loaded)
+2026-11-09T16:07:00.087Z INFO enemy remote: seq 2818 ack 2816 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=41882 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:02.075Z INFO co-op: waiting for your save file to be loaded in game, out of menus and cutscenes, to found the world from it (Link is not loaded)
+2026-11-09T16:07:05.095Z INFO enemy remote: seq 3131 ack 3130 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=42335 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:06.887Z OK   co-op: founded world 0868da446caca9bf from file slot 0, " STEPHEN", clear count 0, saved and loaded (9 shared bytes).
+2026-11-09T16:07:06.892Z OK   Co-op world 0868da446caca9bf at seq 1: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them; --coop-merge: files with progress the world lacks may bind; live switches: the current table's switches apply when idle, once every shown room's actors have run 2 s (--coop-live-switches=off waits for the next room change)).
+2026-11-09T16:07:06.892Z INFO co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>. With two or more partners, name the one: /warp to <partner>.
+2026-11-09T16:07:07.926Z INFO [srv 09:07:07] Bob (co-op 1) connected
+2026-11-09T16:07:07.947Z INFO [srv 09:07:07] Alice (co-op 2) connected
+2026-11-09T16:07:07.947Z NET  Connected for co-op (co-op ID 2)
+2026-11-09T16:07:08.011Z INFO [srv 09:07:08] co-op: Alice (co-op 2) joined world 0868da446caca9bf (seq 1; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|chest-claim|merge)
+2026-11-09T16:07:08.011Z INFO co-op: welcome to world 0868da446caca9bf (seq 1; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|chest-claim|merge)
+2026-11-09T16:07:08.111Z INFO co-op: armed in world 0868da446caca9bf: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (live: in the room you stand in, once idle); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give
+2026-11-09T16:07:08.211Z INFO co-op: room puzzles: written to this game when idle: the partner's latching dan switches (same stage and save table) and zone switches (same room), and its room switches as it sets them, while both are in the room
+2026-11-09T16:07:08.211Z INFO co-op: combat: written to this game when idle: the partner's kills of keyed enemies (into each loaded room's zone, so they stay dead), and a live one of them light-shrinks; unkeyed enemies stay each player's own
+2026-11-09T16:07:08.232Z INFO enemy host: 0 enemies (mo2,bk+u,cc+u,ki+u,am2+u,tn+u) in sea room 44
+2026-11-09T16:07:08.232Z WARN enemy host: no loaded Mo2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:07:08.232Z WARN enemy host: no loaded Bk entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:07:08.232Z WARN enemy host: no loaded CC entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:07:08.232Z WARN enemy host: no loaded Ki entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:07:08.232Z WARN enemy host: no loaded AM2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:07:08.232Z WARN enemy host: no loaded Tn entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:07:10.103Z INFO enemy remote: seq 3443 ack 3441 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=56776 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:15.111Z INFO enemy remote: seq 3756 ack 3754 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=82726 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:20.119Z INFO enemy remote: seq 4069 ack 4066 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=108676 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:25.129Z INFO enemy remote: seq 4382 ack 4380 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=134641 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:30.135Z INFO enemy remote: seq 4695 ack 4693 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=160576 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:35.144Z INFO enemy remote: seq 5008 ack 5006 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=186526 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:40.151Z INFO enemy remote: seq 5320 ack 5318 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=212476 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:45.160Z INFO enemy remote: seq 5633 ack 5630 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=238426 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:50.168Z INFO enemy remote: seq 5946 ack 5945 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=264479 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:07:55.177Z INFO enemy remote: seq 6259 ack 6258 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=290430 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:00.184Z INFO enemy remote: seq 6572 ack 6571 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=316376 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:05.192Z INFO enemy remote: seq 6885 ack 6884 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=342261 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:10.200Z INFO enemy remote: seq 7198 ack 7196 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=368192 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:15.208Z INFO enemy remote: seq 7511 ack 7510 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=394299 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:20.215Z INFO enemy remote: seq 7824 ack 7823 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=420249 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:25.223Z INFO enemy remote: seq 8137 ack 8136 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=446199 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:30.232Z INFO enemy remote: seq 8450 ack 8449 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=472149 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:35.240Z INFO enemy remote: seq 8763 ack 8762 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=498099 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:40.248Z INFO enemy remote: seq 9076 ack 9075 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=524049 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:45.256Z INFO enemy remote: seq 9389 ack 9387 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=549999 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:50.264Z INFO enemy remote: seq 9702 ack 9701 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=575949 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:08:55.272Z INFO enemy remote: seq 10015 ack 10014 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=601899 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:00.279Z INFO enemy remote: seq 10328 ack 10327 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=627849 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:05.287Z INFO enemy remote: seq 10641 ack 10640 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=653799 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:10.296Z INFO enemy remote: seq 10954 ack 10952 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=679749 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:15.304Z INFO enemy remote: seq 11267 ack 11265 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=705699 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:20.312Z INFO enemy remote: seq 11580 ack 11578 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=731649 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:25.320Z INFO enemy remote: seq 11893 ack 11891 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=757599 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:30.327Z INFO enemy remote: seq 12206 ack 12204 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=783549 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:35.336Z INFO enemy remote: seq 12519 ack 12517 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=809499 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:40.344Z INFO enemy remote: seq 12832 ack 12830 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=835449 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:45.352Z INFO enemy remote: seq 13145 ack 13143 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=861399 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:50.359Z INFO enemy remote: seq 13458 ack 13456 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=887349 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:09:55.368Z INFO enemy remote: seq 13771 ack 13769 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=913299 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:00.376Z INFO enemy remote: seq 14084 ack 14082 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=939249 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:05.384Z INFO enemy remote: seq 14397 ack 14395 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=965199 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:10.391Z INFO enemy remote: seq 14710 ack 14709 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=991249 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:15.400Z INFO enemy remote: seq 15023 ack 15022 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1017134 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:20.408Z INFO enemy remote: seq 15336 ack 15334 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1043069 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:25.415Z INFO enemy remote: seq 15649 ack 15647 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1068999 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:30.423Z INFO enemy remote: seq 15962 ack 15960 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1094949 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:35.432Z INFO enemy remote: seq 16275 ack 16274 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1121019 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:40.440Z INFO enemy remote: seq 16588 ack 16587 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1147022 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:45.447Z INFO enemy remote: seq 16901 ack 16900 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1172972 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:50.455Z INFO enemy remote: seq 17214 ack 17213 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1198870 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:10:55.464Z INFO enemy remote: seq 17527 ack 17526 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1224775 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:00.472Z INFO enemy remote: seq 17840 ack 17839 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1250749 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:05.480Z INFO enemy remote: seq 18153 ack 18152 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1276772 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:10.488Z INFO enemy remote: seq 18466 ack 18465 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1302722 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:15.496Z INFO enemy remote: seq 18779 ack 18778 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1328672 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:20.503Z INFO enemy remote: seq 19092 ack 19091 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1354622 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:25.511Z INFO enemy remote: seq 19405 ack 19404 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1380572 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:30.520Z INFO enemy remote: seq 19718 ack 19717 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1406522 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:35.528Z INFO enemy remote: seq 20031 ack 20029 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1432472 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:40.536Z INFO enemy remote: seq 20344 ack 20342 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1458422 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:45.544Z INFO enemy remote: seq 20657 ack 20655 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1484372 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:50.552Z INFO enemy remote: seq 20970 ack 20969 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1510322 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:11:55.560Z INFO enemy remote: seq 21283 ack 21281 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1536272 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:00.568Z INFO enemy remote: seq 21596 ack 21594 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1562222 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:03.587Z INFO player 1 (Bob) is between stages: hidden until it is back here (sea)
+2026-11-09T16:12:03.625Z INFO [srv 09:12:03] co-op: Bob (co-op 1) joined with an unbound file (unbound)
+2026-11-09T16:12:04.129Z INFO [srv 09:12:04] co-op: Bob (co-op 1) may bind its file to world 0868da446caca9bf (nonce 8a9e086df16d03de; a subset of the world, a fresh bind)
+2026-11-09T16:12:04.225Z INFO [srv 09:12:04] co-op: Bob (co-op 1) joined world 0868da446caca9bf (seq 2; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|chest-claim|merge)
+2026-11-09T16:12:05.449Z INFO player 1 (Bob) is in this stage (sea): shown
+2026-11-09T16:12:05.500Z OK   pose-feed slot 0 armed: pose_buf=0x81FE98A0
+2026-11-09T16:12:05.500Z OK   link slot 0 := player 1 (Bob)
+2026-11-09T16:12:05.576Z INFO enemy remote: seq 21909 ack 21907 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1588174 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:10.583Z INFO enemy remote: seq 22222 ack 22220 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1614274 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:15.592Z INFO enemy remote: seq 22535 ack 22533 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1640374 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:20.600Z INFO enemy remote: seq 22848 ack 22846 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1666474 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:25.608Z INFO enemy remote: seq 23161 ack 23159 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1692574 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:30.616Z INFO enemy remote: seq 23474 ack 23472 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1718689 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:35.624Z INFO enemy remote: seq 23787 ack 23785 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1744774 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:40.632Z INFO enemy remote: seq 24100 ack 24098 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1770874 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:45.640Z INFO enemy remote: seq 24413 ack 24411 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1796974 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:50.648Z INFO enemy remote: seq 24726 ack 24724 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1823074 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:12:55.656Z INFO enemy remote: seq 25039 ack 25038 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1849223 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:00.664Z INFO enemy remote: seq 25352 ack 25351 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1875379 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:05.671Z INFO enemy remote: seq 25665 ack 25664 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1901477 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:10.679Z INFO enemy remote: seq 25978 ack 25976 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1927494 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:15.687Z INFO enemy remote: seq 26291 ack 26289 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1953574 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:20.696Z INFO enemy remote: seq 26604 ack 26603 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=1979779 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:25.704Z INFO enemy remote: seq 26917 ack 26916 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2005948 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:30.712Z INFO enemy remote: seq 27230 ack 27229 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2032048 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:35.720Z INFO enemy remote: seq 27543 ack 27542 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2058148 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:40.727Z INFO enemy remote: seq 27856 ack 27855 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2084248 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:45.736Z INFO enemy remote: seq 28169 ack 28168 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2110348 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:50.744Z INFO enemy remote: seq 28482 ack 28481 bodies [0:s2 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2136448 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:13:55.751Z INFO enemy remote: seq 28795 ack 28794 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2162548 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:00.760Z INFO enemy remote: seq 29108 ack 29107 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2188648 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:05.768Z INFO enemy remote: seq 29421 ack 29420 bodies [0:s2 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2214748 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:10.776Z INFO enemy remote: seq 29734 ack 29733 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2240848 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:15.784Z INFO enemy remote: seq 30047 ack 30045 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2266948 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:20.792Z INFO enemy remote: seq 30360 ack 30358 bodies [0:s2 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2293048 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:25.800Z INFO enemy remote: seq 30673 ack 30671 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2319148 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:30.808Z INFO enemy remote: seq 30986 ack 30984 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2345248 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:35.815Z INFO enemy remote: seq 31298 ack 31296 bodies [0:s2 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2371348 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:40.824Z INFO enemy remote: seq 31610 ack 31608 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2397448 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:45.832Z INFO enemy remote: seq 31923 ack 31921 bodies [0:s2 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2423548 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:50.841Z INFO enemy remote: seq 32236 ack 32234 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2449648 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:14:55.848Z INFO enemy remote: seq 32549 ack 32547 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2475748 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:00.855Z INFO enemy remote: seq 32862 ack 32860 bodies [0:s2 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2501848 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:05.863Z INFO enemy remote: seq 33175 ack 33172 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2527948 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:10.872Z INFO enemy remote: seq 33488 ack 33486 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2554048 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:15.880Z INFO enemy remote: seq 33799 ack 33798 bodies [0:s2 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2580224 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:20.888Z INFO enemy remote: seq 34112 ack 34111 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2606285 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:25.896Z INFO enemy remote: seq 34424 ack 34422 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2632368 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:30.904Z INFO enemy remote: seq 34737 ack 34735 bodies [0:s2 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2658448 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:35.912Z INFO enemy remote: seq 35050 ack 35048 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2684548 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:40.923Z INFO enemy remote: seq 35363 ack 35362 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2710822 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:45.927Z INFO enemy remote: seq 35676 ack 35675 bodies [0:s2 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2736922 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:50.936Z INFO enemy remote: seq 35989 ack 35988 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=2763022 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:15:55.468Z WARN enemy host paused: read failed at 0x803CA754: ReadProcessMemory failed; no enemy STATE and no hits until it runs again
+2026-11-09T16:15:55.477Z WARN pose feed paused: the game cannot be read; no pose, face or tunic writes until it runs again
+2026-11-09T16:15:55.835Z INFO [srv 09:15:55] Alice (co-op 2) disconnected
+2026-11-09T16:15:55.835Z WARN enemy host: clearing the remote-Link block: mailbox: remote-Link block magic: write failed at 0x80415420: WriteProcessMemory failed
+2026-11-09T16:15:55.835Z WARN enemy host: clearing the block: mailbox: enemy block magic: write failed at 0x80415100: WriteProcessMemory failed
+2026-11-09T16:15:55.835Z INFO [srv 09:15:55] Alice disconnected
+2026-11-09T16:15:55.835Z INFO [srv 09:15:55] Alice (enemy host 2) disconnected
+2026-11-09T16:15:55.835Z NET  Alice left the game
+2026-11-09T16:15:55.835Z NET  Player Bob (ID:1) in game
+2026-11-09T16:15:55.835Z NET  Player Bob (ID:2) in game
+2026-11-09T16:15:55.835Z INFO Disconnected.
+2026-11-09T16:15:55.836Z INFO Disconnected.
+2026-11-09T16:15:55.836Z INFO [srv 09:15:55] Alice disconnected
+2026-11-09T16:15:55.836Z WARN Dolphin (pid 35548) closed. Start it again to keep playing, or Leave.
+2026-11-09T16:16:03.637Z INFO Starting Dolphin with your patched disc.
+2026-11-09T16:16:03.637Z INFO cheats: ~\.claude\jobs\e0b03f06\tmp\rig\ud-A\GameSettings\GZLE01.ini already exists, leaving it untouched (merge from cheats/GZLE01.ini if you want the bundled codes)
+2026-11-09T16:16:03.643Z OK   Dolphin started (pid 43680).
+2026-11-09T16:16:06.883Z OK   Playing on Dolphin (pid 43680): remote Links appear in your game.
+2026-11-09T16:16:06.884Z INFO === Enemy host: Alice -> localhost:25570 ===
+2026-11-09T16:16:06.884Z INFO === Puppet Sync: Alice <- localhost:25570 ===
+2026-11-09T16:16:06.886Z INFO === Broadcast Link + Pose: Alice -> localhost:25570 ===
+2026-11-09T16:16:06.914Z OK   Dolphin found.
+2026-11-09T16:16:06.914Z INFO enemy host: host-authoritative enemies on (kinds mo2,bk+u,cc+u,ki+u,am2+u,tn+u), remote Link bodies step6 (WW_ENEMY_SYNC=0 turns enemy sync off); selecting by distance (WW_ENEMY_SELECT), STATE 30 Hz gate false
+2026-11-09T16:16:06.914Z INFO enemy host: remote-Link block on, flags 0x24FF, 21 policies, FF denylist [MajyuE majroom Majroom Mjtower]
+2026-11-09T16:16:06.914Z OK   Dolphin found.
+2026-11-09T16:16:06.914Z OK   game GZLE01, WWMB header ABI 1 layout 3, code hash 62DBA05C (matches this version), strict mode, features avatar,eyefix,face,input,ops,tunic,warp; writes allowed
+2026-11-09T16:16:06.915Z INFO Projectile events on (WW_PROJECTILES=off turns them off): the other players' bombs, cannonballs and arrows are made in this game.
+2026-11-09T16:16:06.915Z INFO Filtering self-echo: remotes named "Alice" will be ignored.
+2026-11-09T16:16:06.917Z INFO Projectile events on (WW_PROJECTILES=off turns them off): this Link's bombs, cannonballs and arrows are sent.
+2026-11-09T16:16:06.936Z INFO [srv 09:16:06] Alice (ID:5) connected
+2026-11-09T16:16:06.936Z INFO [srv 09:16:06] Alice (ID:6) connected
+2026-11-09T16:16:06.936Z NET  Connected as player 6
+2026-11-09T16:16:06.936Z NET  Connected as player 5
+2026-11-09T16:16:06.936Z INFO [srv 09:16:06] Alice (enemy host 3) connected
+2026-11-09T16:16:06.936Z NET  Connected for co-op (co-op ID 3)
+2026-11-09T16:16:06.936Z NET  Player Bob (ID:1) in game
+2026-11-09T16:16:06.936Z NET  Player Bob (ID:2) in game
+2026-11-09T16:16:06.936Z NET  Player Alice (ID:5) in game
+2026-11-09T16:16:06.936Z INFO [srv 09:16:06] Alice (co-op 3) connected
+2026-11-09T16:16:06.936Z NET  Player Alice (ID:6) in game
+2026-11-09T16:16:06.936Z NET  Player Bob (ID:1) in game
+2026-11-09T16:16:06.936Z NET  Player Bob (ID:2) in game
+2026-11-09T16:16:06.936Z NET  Player Bob (ID:1) in game
+2026-11-09T16:16:06.936Z NET  Player Bob (ID:2) in game
+2026-11-09T16:16:06.936Z NET  Player Alice (ID:6) in game
+2026-11-09T16:16:06.936Z NET  Player Bob (ID:1) in game
+2026-11-09T16:16:06.936Z NET  Player Bob (ID:2) in game
+2026-11-09T16:16:06.936Z NET  Connected for enemy sync (enemy ID 3)
+2026-11-09T16:16:06.936Z NET  Player Alice (ID:5) in game
+2026-11-09T16:16:06.937Z OK   puppet-sync session 1 armed (server epoch 1794240313224751000)
+2026-11-09T16:16:06.937Z INFO tunic colors waiting: Link not loaded
+2026-11-09T16:16:06.953Z WARN enemy host: the REL module is not linked; host hits wait
+2026-11-09T16:16:17.776Z INFO tunic colors: hero texture 160x96 (7680 B) at 0x80CE6AA0, green measured at hue 111 from 546 endpoints
+2026-11-09T16:16:24.832Z OK   pose-feed slot 0 armed: pose_buf=0x81FE98A0
+2026-11-09T16:16:24.833Z OK   link slot 0 := player 1 (Bob)
+2026-11-09T16:16:46.015Z INFO [srv 09:16:46] co-op: Alice (co-op 3) joined world 0868da446caca9bf (seq 2; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|chest-claim|merge)
+2026-11-09T16:16:46.015Z INFO co-op: welcome to world 0868da446caca9bf (seq 2; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|chest-claim|merge)
+2026-11-09T16:16:46.115Z INFO co-op: armed in world 0868da446caca9bf: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (live: in the room you stand in, once idle); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give
+2026-11-09T16:16:46.215Z INFO co-op: room puzzles: written to this game when idle: the partner's latching dan switches (same stage and save table) and zone switches (same room), and its room switches as it sets them, while both are in the room
+2026-11-09T16:16:46.215Z INFO co-op: combat: written to this game when idle: the partner's kills of keyed enemies (into each loaded room's zone, so they stay dead), and a live one of them light-shrinks; unkeyed enemies stay each player's own
+2026-11-09T16:16:47.880Z INFO enemy host: 0 enemies (mo2,bk+u,cc+u,ki+u,am2+u,tn+u) in sea room 44
+2026-11-09T16:16:47.880Z WARN enemy host: no loaded Mo2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:16:47.880Z WARN enemy host: no loaded Bk entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:16:47.880Z WARN enemy host: no loaded CC entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:16:47.880Z WARN enemy host: no loaded Ki entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:16:47.880Z WARN enemy host: no loaded AM2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:16:47.880Z WARN enemy host: no loaded Tn entry in mObjectInfo: that kind's animation stream is off until it resolves
+2026-11-09T16:16:49.161Z OK   enemy host: REL module linked (build CACDFFF7); host hits apply
+2026-11-09T16:16:49.161Z INFO enemy remote: seq 1 ack 0 bodies [0:s0 e0 h0 l0 t0 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=6228 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:16:54.169Z INFO enemy remote: seq 314 ack 313 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=32327 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:16:59.177Z INFO enemy remote: seq 627 ack 626 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=58427 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:17:04.185Z INFO enemy remote: seq 940 ack 939 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=84527 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
+2026-11-09T16:17:09.193Z INFO enemy remote: seq 1253 ack 1252 bodies [0:s3 e0 h0 l0 t1 k0][1:s0 e0 h0 l0 t0 k0][2:s0 e0 h0 l0 t0 k0] counters hook_calls=110627 swaps=0 switches=0 attacker_overrides=0 denied=0 rouya_skips=0 park_rewrites=0 both_word_swaps=0 vt_refusals=0 gate_skips=0 phits 0 packs 0
