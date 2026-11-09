@@ -372,3 +372,26 @@ func TestPickupVerdictsLife(t *testing.T) {
 		t.Errorf("heart double: %+v", c)
 	}
 }
+
+func TestItemGetOver(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		saw      bool
+		idle     bool
+		run      int
+		since    time.Duration
+		flag     bool
+		wantOver bool
+	}{
+		{"lid opening, idle counted before the event", false, true, 30, 300 * time.Millisecond, false, false},
+		{"in the event", true, false, 0, 2 * time.Second, true, false},
+		{"idle 1 s after the event", true, true, 10, 5 * time.Second, true, false},
+		{"idle 2 s after the event", true, true, 20, 6 * time.Second, true, true},
+		{"no event, flag set, 6 s idle", false, true, 60, 6 * time.Second, true, true},
+		{"no event, flag clear", false, true, 60, 10 * time.Second, false, false},
+	} {
+		if got := itemGetOver(c.saw, c.idle, c.run, c.since, c.flag); got != c.wantOver {
+			t.Errorf("%s: %v, want %v", c.name, got, c.wantOver)
+		}
+	}
+}

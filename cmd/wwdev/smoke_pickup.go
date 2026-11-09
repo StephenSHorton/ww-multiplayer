@@ -961,9 +961,12 @@ func (r *smokeRun) pickup(rec pickupRecipe) {
 	}
 	tOpen := time.Now()
 
-	// Then A every ~700 ms until A is idle for 2 s (the item-get text).
+	// Then A every ~700 ms until A is idle for 2 s (the item-get text),
+	// counted only once the event was seen: the lid's OPENING comes
+	// before it, with idle ticks already counted.
 	lastPress := time.Now()
 	aKeyMax, aLifMax := a0.keyEff(), a0.lifeEff()
+	sawEvent := st.Heartbeat && !st.Idle
 	for time.Since(tOpen) < rec.TextTimeout && r.ctx.Err() == nil {
 		s, err := state.Read(r.a, state.Options{})
 		if err == nil {
@@ -971,10 +974,12 @@ func (r *smokeRun) pickup(rec pickupRecipe) {
 		} else {
 			st = tr.Observe(nil)
 		}
-		if v, err := readPickupVals(r.a, rec); err == nil {
+		sawEvent = sawEvent || (st.Heartbeat && !st.Idle)
+		v, verr := readPickupVals(r.a, rec)
+		if verr == nil {
 			aKeyMax, aLifMax = max(aKeyMax, v.keyEff()), max(aLifMax, v.lifeEff())
 		}
-		if st.Idle && st.IdleRun >= 20 {
+		if itemGetOver(sawEvent, st.Idle, st.IdleRun, time.Since(tOpen), verr == nil && v.Flag) {
 			break
 		}
 		if !st.Idle && time.Since(lastPress) >= 700*time.Millisecond {
@@ -1042,6 +1047,19 @@ func (r *smokeRun) pickup(rec pickupRecipe) {
 	r.add(cs...)
 }
 
+// itemGetOver says the item get is over: A idle for 2 s (20 ticks) after
+// its event was seen, or, for a chest that never ran one, 6 s idle after
+// the open with the flag set.
+func itemGetOver(sawEvent, idle bool, idleRun int, since time.Duration, flag bool) bool {
+	switch {
+	case !idle || idleRun < 20:
+		return false
+	case sawEvent:
+		return true
+	}
+	return flag && since >= 6*time.Second
+}
+
 // gateLine says st in a few words.
 func gateLine(st gate.Status) string {
 	if w := st.Why(); w != "" {
@@ -1100,6 +1118,11 @@ func (r *smokeRun) pickupKill(rec pickupRecipe, w io.Writer) (s, why string) {
 		}
 	}
 	left, err := targets()
+	if err == nil && len(left) > 0 {
+		// A shrink that took the whole watch is still running.
+		sleepCtx(r.ctx, 3*time.Second)
+		left, err = targets()
+	}
 	if err != nil {
 		return "", "the actor walk: " + err.Error()
 	}
