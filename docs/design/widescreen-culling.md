@@ -20,7 +20,7 @@ designed here; section 9 says what it inherits.
   multiplies the aspect argument by a factor from a small mailbox block, default 4/3. That widens
   every frustum user in the game at once. The camera's `mAspect`, and with it the picture, is left
   alone.
-- **Cost:** roughly 0x80-0x100 bytes of T2 (0xBF8 free on main), one 0x10-byte mailbox block in
+- **Cost:** roughly 0x80-0x100 bytes of T2 (0xBF8 free on main), one 0x18-byte mailbox block in
   free slack, one op number, a new BlobHash (every player re-patches, start saves are recaptured),
   and the C build needs devkitPPC (the PC today).
 - **Checked against main at `735c8d7`**, which includes co-op M7's `WwModuleDesc` table and Go → C
@@ -44,7 +44,7 @@ PC 2609a, assumed to behave the same):
   terms of **perspective** projections by W. Orthographic (2D, HUD) projections are untouched,
   which is why the HUD looks stretched.
 - Nothing in that path writes emulated RAM, so the game cannot know the picture got wider.
-- With the hack on, Dolphin's widescreen heuristic (`Widescreen.cpp:82-151`) compares the
+- With the hack on, Dolphin's widescreen heuristic (`Widescreen.cpp:84-151`, overrides in `GetWidescreenOverride` at `:55-80`) compares the
   projection's aspect with the viewport's. WW's ratio is 1.28 / 1.333 = 0.96, which reads as a
   normal 4:3 game, so the hack applies. **If anything widened the camera's `mAspect` itself, the
   heuristic would read the game as anamorphic and switch the hack off.** That is why this mod must
@@ -152,9 +152,9 @@ to `0x803A570C` and all 19 calls to `calcViewFrustum` in the functions below.
 | Room load/unload | `d_stage.cpp:2263-2290` | zone-based, not view | unchanged (correct) |
 | J3D model level, JParticle, Dolphin's CPU Cull | `J3DJoint::entryIn`, `JPAEmitterManager.cpp:101-112`, `CPUCull.cpp` | no frustum culling of their own (JPA's aspect only builds projected-texture matrices) | n/a |
 | Weather, sea sparkles, clouds, sea mesh | `d_kankyo_rain.cpp`, `d_a_sea.cpp:504-646` | volumes around the eye, not frustum. Rain or sparkles may look a little thinner in the bands | unchanged (separate spawn-radius tweak if anyone notices) |
-| **Screen-space 0..640 checks:** sun glare and lens flare (`dKyr_sun_move`), firefly glow (`d_a_ff`), lantern glow (`d_a_kantera`), lock-on framing (`pointInSight`, `radiusActorInSight`) | `d_kankyo_rain.cpp:617`, `d_a_ff.cpp:44-46`, `d_a_kantera.cpp:150-152`, `d_camera.cpp:1658-1760` | the glow fades in the bands, and `peekZ` samples the wrong pixel (the GPU picture is squeezed ×0.75 relative to the game's own projection) | **not fixed** by this hook. Cosmetic. Native widescreen (#1186) fixes them all at once, because `mDoLib_project` follows `view->mAspect`. Not worth hooks under the Dolphin hack |
-| HUD and reticles placed with `mDoLib_project` (boomerang sight, enemy HP bar, text box anchor) | `d_a_boomerang.cpp:247`, `d_meter.cpp:3728`, `d_msg.cpp:739` | drift outward from their targets under the hack | not culling; #1186 |
-| Our own name tags over remote Links (REL, `WWVIS` names) | `inject/rel/visuals.c` | projected with `mDoLib_project` and drawn as 2D, so they would drift outward under the hack | **already handled on main** (#1157): puppet-sync measures the hack's scale (`mods/multiplayer/feed/widescreen.go`) and the REL corrects the tags (`WWVIS_FLAGS_XSCALE_*`). Nothing to do here |
+| **Screen-space 0..640 checks:** sun glare and lens flare (`dKyr_sun_move`), firefly glow (`d_a_ff`), lantern glow (`d_a_kantera`), lock-on framing (`pointInSight`, `radiusActorInSight`) | `d_kankyo_rain.cpp:602`, `d_a_ff.cpp:44-46`, `d_a_kantera.cpp:150-152`, `d_camera.cpp:1658-1760` | the glow fades in the bands, and `peekZ` samples the wrong pixel (the GPU picture is squeezed ×0.75 relative to the game's own projection) | **not fixed** by this hook. Cosmetic. Native widescreen (#1186) fixes the sun, firefly, lantern and `pointInSight` checks at once, because `mDoLib_project` follows `view->mAspect`; `radiusActorInSight` reads `mWindowAspectRatio` and stays 4:3 on purpose (native-widescreen.md 3.1). Not worth hooks under the Dolphin hack |
+| HUD and reticles placed with `mDoLib_project` (boomerang sight, enemy HP bar, text box anchor) | `d_a_boomerang.cpp:247`, `d_meter.cpp:3728`, `d_msg.cpp:739` | drift outward from their targets under the hack | not culling; #1186 (`ws_project_2d`, native-widescreen.md 3.4) |
+| Our own name tags over remote Links (REL, `WWVIS` names) | `inject/rel/visuals.c` | projected with `mDoLib_project` and drawn as 2D, so they would drift outward under the hack | **already handled on main** (#1157): puppet-sync measures the hack's scale (`mods/multiplayer/feed/widescreen.go`) and the REL corrects the tags (`WWVIS_FLAGS_XSCALE_*`). Nothing to do here in mode 1. Native mode (#1186 stage 2) needs a REL change: the q16 XScale cannot carry F > 1, so the REL reads the WWWS block (native-widescreen.md 3.7) |
 
 Not traced: REL actors whose decomp is still stub-only (`/* Nonmatching */`). Any clipper call they
 make goes through relocations to the same `mClipper`, so the hook covers it too.
@@ -226,12 +226,19 @@ at the start of the free `CanaryArenaHigh` region (+0xA6C..+0xD00, 0x294 bytes).
 |---|---|---|---|
 | +0x00 | u32 | `magic` | `'WWWS'` (0x57575753) |
 | +0x04 | u8 | `version` | 1 |
-| +0x05 | u8 | `mode` | 0 = off; 1 = clip (Dolphin hack on: widen the clipper only); 2 = native, reserved for #1186 (widen `view->mAspect`; the clipper then follows and this hook does nothing) |
+| +0x05 | u8 | `mode` | 0 = off; 1 = clip (Dolphin hack on: widen the clipper only); 2 = native, #1186 (widen `view->mAspect` through the 4/3 literal `0x803FA998`; the clipper then follows and this hook does nothing) |
 | +0x06 | u16 | `pad` | 0 |
-| +0x08 | f32 | `factor` | output aspect ÷ (4/3). 16:9 → 1.3333, 16:10 → 1.2, 21:9 (64/27) → 1.7778, 32:9 → 2.6667 |
-| +0x0C | u32 | `reserved` | 0; for #1186 (e.g. HUD flags) |
+| +0x08 | f32 | `factor` | output aspect ÷ (4/3). 16:9 → 1.3333, 16:10 → 1.2, 21:9 (7:3) → 1.75, 64:27 (2560x1080) → 1.7778, 32:9 → 2.6667 |
+| +0x0C | u8 | `flags` | #1186: bit 0 compress 2D, bit 1 anchor HUD (WS_SET's c, masked by what the build supports; 0 in #1185's build) |
+| +0x0D | u8 | `ui_mode` | #1186: latched 2D mode (0 or 2) |
+| +0x0E | u16 | pad | 0 |
+| +0x10 | f32 | `ui_factor` | #1186: latched 2D factor (1.0 unless `ui_mode` is 2) |
+| +0x14 | f32 | `ui_shift` | #1186: latched HUD edge shift |
 
-Size 0x10, so the block ends at +0xA7C.
+Size 0x18 (grown from 0x10 by #1186's plan before #1185 builds it, so no later stage changes the
+layout; see `native-widescreen.md` section 5), so the block ends at +0xA84. WS_SET's c carries the
+flags byte, and in mode 2 the handler also writes the 3D knob (`native-widescreen.md` 3.1); in
+#1185's build it writes the knob back to `0x3FAAAAAB` in modes 0 and 1.
 
 **Rules in C:**
 
@@ -306,8 +313,8 @@ later in-process writer must share the session's Queue. The app's mod runtime st
   own C unit costs a little more than inlining it in hooks.c (E3 measured split costs, 00-design.md
   §6.6), but it keeps the mod separate. Either fits. #1186 shares the same 0xBF8, so it should
   measure before it plans kilobytes of HUD code there (the REL is the room for bulk code).
-- **Mailbox:** the 0x10-byte block above. No `WWMB_LAYOUT` bump, no change to `layout_gen.go`'s
-  struct. `CanaryArenaHigh` shrinks by 0x10.
+- **Mailbox:** the 0x18-byte block above. No `WWMB_LAYOUT` bump, no change to `layout_gen.go`'s
+  struct. `CanaryArenaHigh` shrinks by 0x18.
 - **The REL** is not a better home. It can't patch DOL code, it loads only after Link exists and
   the 300-frame boot gate, and every REL feature on a DOL call site still keeps a T2 shim. That
   shim is as big as this whole hook.
@@ -328,7 +335,7 @@ later in-process writer must share the session's Queue. The app's mod runtime st
 
 Each step is small enough to commit on its own. The checks are CLAUDE.md's "Checks (run locally)".
 
-1. **Header.** Add `inject/include/wwws.h`: `WWWS_OFF 0xA6C`, `WWWS_SIZE 0x10`, `WWWS_MAGIC
+1. **Header.** Add `inject/include/wwws.h`: `WWWS_OFF 0xA6C`, `WWWS_SIZE 0x18` (the layout in 6.1), `WWWS_MAGIC
    0x57575753`, `WWWS_VERSION 1`, `WWWS_MODE_OFF/CLIP/NATIVE` (0/1/2), the field offsets above, and
    a `_Static_assert` that `WWWS_OFF + WWWS_SIZE <= MP_EYE_PACKETS_OFF` and `WWWS_OFF >= WWBOAT_OFF +
    WWBOAT_SIZE` (copy minilink.c's assert for the boats block). Add a feature bit in
@@ -349,8 +356,8 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
 4. **Go mirror and pins.** `go generate ./wwapi/mailbox` (the feature constant). Add
    `wwapi/mailbox/widescreen.go` (the offsets, `WidescreenAddr`, `Decode` of the block for status),
    with `widescreen_test.go` pinning them to `wwws.h` the way `boat_test.go` pins `wwboat.h`. Move
-   `CanaryArenaHigh`'s start to `+0xA7C` in `wwapi/mailbox/mod.go` and update `TestModRegions`
-   (size 0x284). Add `{mailbox.WwFeatWidescreen, "widescreen"}` to `featureBits` in
+   `CanaryArenaHigh`'s start to `+0xA84` in `wwapi/mailbox/mod.go` and update `TestModRegions`
+   (size 0x27C). Add `{mailbox.WwFeatWidescreen, "widescreen"}` to `featureBits` in
    `wwapi/contract.go`. In `internal/inject/t2_budget_test.go`, add a pin test modelled on
    `TestSeachartShimLoadsVisWord`: build.py has the `hook_branchlink` line, and `DOLPatches`
    holds a `bl` at `0x178ED0` that lands in T2.
@@ -387,7 +394,8 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
       count the real-shadow slots in use (`dDlst_shadowControl_c` `mReal[8]`, `mState != 0`) and
       watch for missing shadows or effects near the centre. Report the numbers. If a 4:3 player
       loses more than 1 fps, make mode 0 the C default (6.1). The hack can be forced on a test rig
-      with `-C GFX.Settings.wideScreenHack=True -C GFX.Settings.AspectRatio=1`.
+      with `-C Graphics.Settings.wideScreenHack=True -C Graphics.Settings.AspectRatio=1` (Dolphin's
+      `-C` system name is `Graphics`; `GFX.*` is silently dropped).
    6. A two-Dolphin `mp-local` run with the hook (`scripts/mac-rig.sh pair` + `mp-local`): remote
       Links, puppets and enemy copies still show, and nothing new crashes (`wwdev crash-context`
       if a JUTException appears).
@@ -401,33 +409,37 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
 
 ## 9. What #1186 (native widescreen) reuses
 
+#1186's plan is `docs/design/native-widescreen.md`. It settled the points this section left open;
+the short version:
+
 - **The block and the mode field.** Mode 2 means "native": #1186 widens the camera's aspect at its
-  source and leaves the clipper hook as a pass-through. One field, so the two widenings can't stack.
-- **The upstream knob for mode 2** is `g_HIO.mAspectRatio` (`0x803B9A08`, default 0.96). Six DOL
-  loads read it, and nothing writes it at runtime: only its constructor, in static init. Setting it to `0.96 × factor` widens, in one place,
-  `view->mAspect` (the main projection, the clipper through `view_setup`, the particle aspect),
-  the pause-menu and file-select cloth backdrops (`d_menu_capture.inc:83`, `d_s_name.cpp:1542`),
-  the stage-transition fade (`d_ovlp_fade2.cpp:54`) and the file-select camera (`d_s_name.cpp:201`).
-  `mDoLib_project` follows too, which fixes the sun, firefly, lantern and reticle cases from
-  section 4. C must restore 0.96 when it leaves mode 2. Narrower alternatives: the 4/3 literal at
-  `0x803FA998` (loaded only by `preparation`), or a `hook_branchlink` on camera_draw's
-  `bl C_MTXPerspective` at `0x8017C444` (main projection only, f2 = aspect).
-- **Dolphin side:** with `view->mAspect` widened to 1.7067 the projection-to-viewport ratio becomes
-  1.28, within the heuristic's 0.11 of 1.333. Dolphin should then read the game as anamorphic 16:9
-  and the hack stops widening, even if it is left on (inferred from `Widescreen.cpp`; #1186 must
-  check this live).
+  source and leaves the clipper hook as a pass-through. One field, so the two widenings can't
+  stack. The block grows to 0x18 bytes (6.1) before #1185 builds it.
+- **The knob for mode 2 is the 4/3 literal at `0x803FA998`**, read only by `preparation`
+  (`0x8017BE5C`). C writes `(4·factor)/3` in mode 2 and `0x3FAAAAAB` in modes 0 and 1.
+  `g_HIO.mAspectRatio` (`0x803B9A08`) is not written: of its six readers, the stage-transition fade
+  (`d_ovlp_fade2.cpp:54`) would shrink to 77% of the width with gaps at the sides, and the pause
+  cloth would stop covering the screen. A hook on camera_draw's `bl C_MTXPerspective` at
+  `0x8017C444` is rejected too: it leaves the clipper, the particle aspect and the cutscene aspect
+  at 1.28. The literal knob widens `view->mAspect` (the projection, the clipper through
+  `view_setup`, the particle aspect, cutscenes) and `mDoLib_project`, which fixes the sun, firefly,
+  lantern and `pointInSight` cases from section 4. 2D drawn at a projected point (reticles, the
+  enemy HP bar, the talk-box start, the baton sparkle, our name tags) also needs #1186's
+  `ws_project_2d` once 2D is compressed.
+- **Dolphin side:** the app runs mode 2 only with the hack off and the aspect forced (Force 16:9 or
+  Custom). With the hack left on, the heuristic reads the widened game as anamorphic only at
+  exactly 16:9, and only after its transition count (frames can pop); at any other factor the hack
+  and the mode widen twice.
 - **Prior art:** Dolphin ships a "$16:9 Widescreen" Gecko code for GZLE01
-  (`Data/Sys/GameSettings/GZLE01.ini` in Dolphin's source, disabled by default). It is native
-  widescreen in Gecko form: its last line `043FA998 3FE38E39` rewrites `preparation`'s 4/3 to 16/9,
-  so it widens the projection **and** the clipper, and the rest patches HUD and menu functions
-  (`dMeter_*`, `dMenu_*`, `dMap_c::calcScissor`, the boomerang sight, the game-over screen). Its
-  patched-function list is a starting inventory for #1186's HUD work. Its code caves at
-  `0x800037E0` and `0x80004038` sit in `gTRKInterruptVectorTable`, inside the repo's `CanaryTRK`
-  region (`wwapi/mailbox/mod.go:66`). Check that conflict before anyone tries the code with our
-  patched disc, even as a stopgap.
-- **Camera framing:** `dCamera_c::mWindowAspectRatio` (`camera_process+0x848`, set in
-  `preparation` at `0x8017BE84`) drives lock-on framing. It is 4:3 in either mode and is #1186's
-  to decide.
+  (`Data/Sys/GameSettings/GZLE01.ini:347-452`, disabled by default). It is native widescreen in
+  Gecko form: its line `043FA998 3FE38E39` (`:450`; the last line is `043FB78C C2F60000`) rewrites
+  `preparation`'s 4/3 to 16/9, and the rest patches HUD and menu functions. Its code caves at
+  `0x800037E0` and `0x80004038..0x800040F7` sit in zeroed padding in `gTRKInterruptVectorTable`,
+  **not** in `CanaryTRK` (`0x8040CFB0..0x80410000`), and no repo hook site is near any of its
+  sites. It must not run together with mode 2: Go checks the knob word and the user's GameSettings.
+- **Camera framing:** `dCamera_c::mWindowAspectRatio` (viewport w/h, set in `preparation` at
+  `0x8017BE84`, read only at `0x801659BC`) stays 4:3 in every mode: targets are framed inside
+  ±38°, within the native ±44.6°; multiplying by F would give 50.7°.
 - **The `cull-probe` command** and the live recipe in step 7 carry over unchanged.
 
 ## 10. Open questions and risks
@@ -447,6 +459,6 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
 - **Default on for 4:3 players:** decided in 6.1, revisited by the step 7.5 numbers.
 - **Stretch and Custom users** need the CLI setting until the persistent app setting exists (6.2).
 - **The screen-space gates** (sun glare, fireflies, lantern glow, picto-box ratio, reticles) stay
-  4:3 under the hack by design. #1186 fixes them.
+  4:3 under the hack by design. #1186's native mode fixes them (`native-widescreen.md`).
 - **Dolphin versions:** the hack's maths was read in tag 2603. The PC's 2609a is assumed to be the
   same. The live check above was on the Mac's 2603-342.
