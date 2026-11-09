@@ -80,9 +80,18 @@ above, with these details:
   the patched folder, and Dolphin's `ISOPath*` folders. It reads at most
   16 Wind Waker discs and gives up after 5 s. A miss is not searched
   again this run.
-- Join waits for a running patch until card 3's `Prepare` step. Host
-  doesn't wait.
+- Join waits for a running patch. Host doesn't wait.
 - `ISO_PATH` (a rig override) turns the automatic update off.
+
+**As built (card #1176, D7):** the joiner's launch has its own last check.
+`session.HostOptions/JoinOptions.PrepareFn` (the Bridge's `prepareLaunch`,
+which is `discReady("launch")`) reaches `GameRunner.SetPrepare`; `doLaunch`
+calls it right before the Dolphin starts, so a START that arrives mid-patch
+waits for the update instead of launching on the old disc. While it runs
+the Dolphin chip says `updating` ("Updating disc…", `session.DolphinUpdating`).
+A failed check launches nothing and shows its error (the launch dialog's
+Try again retries). In the lobby phase the chip says `updating` too while
+the update runs (`Bridge.discChip`), and Ready also starts the check.
 - The app log is `<config>/ww-multiplayer/logs/<stamp>-app.log`. It is
   opened only when a check finds something to do.
 

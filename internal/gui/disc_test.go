@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -147,7 +148,7 @@ func TestStartRepatchesStaleDiscThenLaunches(t *testing.T) {
 	started := make(chan error, 1)
 	go func() { started <- r.b.Start(true) }()
 	waitUntil(t, "Start waiting", func() bool { return r.b.State().StartWaiting })
-	if cmds := r.e.commands(); len(cmds) != 0 {
+	if cmds := r.e.commandsExceptChip(); len(cmds) != 0 {
 		t.Fatalf("Start went on during the patch: %+v", cmds)
 	}
 	if st := r.b.State(); st.Dialog != nil {
@@ -162,7 +163,7 @@ func TestStartRepatchesStaleDiscThenLaunches(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Start never went on")
 	}
-	cmds := r.e.commands()
+	cmds := r.e.commandsExceptChip()
 	if len(cmds) != 1 || cmds[0].Kind != session.LobbyStart {
 		t.Fatalf("lobby commands %+v, want one Start", cmds)
 	}
@@ -431,4 +432,72 @@ func TestDiscAppLogFile(t *testing.T) {
 	if !strings.Contains(string(data), "app log") || !strings.Contains(string(data), "disc check (app opened)") || !strings.Contains(string(data), "ask for it") {
 		t.Fatalf("log:\n%s", data)
 	}
+}
+
+// TestDiscUpdateShowsOnLobbyRowAndLaunchWaits (card #1176): while a
+// player's disc is updated, their lobby row says "updating" (the Dolphin
+// chip), and the game side's last check before a launch (prepareLaunch)
+// waits for the update instead of launching on the old disc. The row goes
+// back to the Dolphin's own state when the update ends.
+func TestDiscUpdateShowsOnLobbyRowAndLaunchWaits(t *testing.T) {
+	r := newDiscRig(t, true)
+	r.host(t)
+	<-r.fp.started
+	dolphinCmds := func() []string {
+		var s []string
+		for _, c := range r.e.commands() {
+			if c.Kind == session.LobbySetDolphin {
+				s = append(s, c.Text)
+			}
+		}
+		return s
+	}
+	waitUntil(t, "the updating chip", func() bool { return slices.Equal(dolphinCmds(), []string{"updating"}) })
+	prep := make(chan error, 1)
+	go func() { prep <- r.b.prepareLaunch(r.b.ctx) }()
+	select {
+	case err := <-prep:
+		t.Fatalf("prepareLaunch went on during the update: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(r.fp.hold)
+	select {
+	case err := <-prep:
+		if err != nil {
+			t.Fatalf("prepareLaunch after the update: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("prepareLaunch never went on")
+	}
+	waitUntil(t, "the chip back", func() bool { return len(dolphinCmds()) == 2 })
+	if got := dolphinCmds(); got[1] == "updating" {
+		t.Fatalf("chip stayed %v", got)
+	}
+	if r.fp.calls != 1 {
+		t.Fatalf("%d patches", r.fp.calls)
+	}
+}
+
+// A launch that is canceled (Leave) while the disc updates returns at once.
+func TestPrepareLaunchCanceled(t *testing.T) {
+	r := newDiscRig(t, true)
+	r.host(t)
+	<-r.fp.started
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := r.b.prepareLaunch(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	close(r.fp.hold)
+}
+
+// commandsExceptChip are the lobby commands but the Dolphin chip's.
+func (e *fakeEngine) commandsExceptChip() []session.LobbyCommand {
+	var out []session.LobbyCommand
+	for _, c := range e.commands() {
+		if c.Kind != session.LobbySetDolphin {
+			out = append(out, c)
+		}
+	}
+	return out
 }

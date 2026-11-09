@@ -89,6 +89,7 @@ var dolphinLabels = map[string]string{
 	string(session.DolphinNoGame):    "No game loaded",
 	string(session.DolphinWrongGame): "Wrong game",
 	string(session.DolphinUnpatched): "Not patched",
+	string(session.DolphinUpdating):  "Updating disc…",
 }
 
 // dolphinLabel is the chip's text for a Dolphin state, the state itself

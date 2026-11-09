@@ -147,6 +147,8 @@ type GameRunner struct {
 	out  session.LobbyOutput
 	// lobby reports the Dolphin's state to the lobby (its chip); nil-safe.
 	lobby func(state string)
+	// prepare, when set (SetPrepare), is the last check before a launch.
+	prepare func(ctx context.Context) error
 	// fail ends the session on a fatal pipelines error (a version
 	// mismatch, say).
 	fail func(error)
@@ -207,6 +209,16 @@ func (g *GameRunner) Stop() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.err
+}
+
+// SetPrepare sets the last check before this runner launches the player's
+// Dolphin (session.HostOptions.PrepareFn): it returns once the player's
+// disc is this build's, or an error that cancels the launch. Call it
+// before Start.
+func (g *GameRunner) SetPrepare(f func(ctx context.Context) error) {
+	g.mu.Lock()
+	g.prepare = f
+	g.mu.Unlock()
 }
 
 // SetHost says whether this player is the lobby's host, which decides
@@ -338,6 +350,21 @@ func (g *GameRunner) run(ctx context.Context) {
 			info.Err = "Choose your Dolphin and your patched disc in Setup first."
 			g.out.Log(log.Err, "Can't start Dolphin: "+info.Err)
 			return
+		}
+		if g.prepare != nil {
+			// The last disc check: a joiner's Dolphin launches on the wire
+			// START, which no Bridge call waits for.
+			info.State = session.DolphinUpdating
+			g.set(info)
+			err := g.prepare(ctx)
+			info.State = session.DolphinNone
+			if err != nil {
+				if ctx.Err() == nil {
+					info.Err = err.Error()
+					log.Logf(g.out, log.Err, "Can't start Dolphin: %v", err)
+				}
+				return
+			}
 		}
 		log.Logf(g.out, log.Info, "Starting Dolphin with your patched disc.")
 		pid, err := d.Launch(g.o, g.out)

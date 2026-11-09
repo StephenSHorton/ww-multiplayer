@@ -80,6 +80,7 @@ type discState struct {
 	view  DiscView
 	busy  chan struct{} // a close-then-patch running: closed when it ends
 	watch bool          // watchHolders runs
+	chip  bool          // the lobby row says "updating"
 	miss  string        // the config (patched|vanilla) findVanilla found nothing for
 	seq   int
 
@@ -219,6 +220,53 @@ func (b *Bridge) setDisc(v DiscView) {
 	b.disc.view = v
 	b.disc.mu.Unlock()
 	b.emitDisc()
+	b.discChip(v.State == "patching" || v.State == "closing")
+}
+
+// discChip puts "updating" on this player's lobby row while their disc is
+// being updated, and the Dolphin's own state back after. The game side
+// (GameRunner) shows it itself once it runs.
+func (b *Bridge) discChip(on bool) {
+	b.disc.mu.Lock()
+	was := b.disc.chip
+	b.disc.chip = on
+	b.disc.mu.Unlock()
+	if on == was {
+		return
+	}
+	state := string(session.DolphinUpdating)
+	if !on {
+		state = string(b.ctrl.Snapshot().Dolphin.State)
+		if state == "" {
+			state = string(session.DolphinNone)
+		}
+	}
+	_ = b.ctrl.SetDolphin(state) // no lobby session yet: resendChip after it starts
+}
+
+// resendChip says "updating" again once a lobby session exists, when the
+// update began before it (Host and Join check the disc first).
+func (b *Bridge) resendChip() {
+	b.disc.mu.Lock()
+	on := b.disc.chip
+	b.disc.mu.Unlock()
+	if on {
+		_ = b.ctrl.SetDolphin(string(session.DolphinUpdating))
+	}
+}
+
+// prepareLaunch is GameRunner's last check before it launches this
+// player's Dolphin (session.LaunchOptions.Prepare): the disc is checked
+// and updated, waiting for a running update, as Start does for the host.
+func (b *Bridge) prepareLaunch(ctx context.Context) error {
+	done := make(chan error, 1)
+	go func() { _, err := b.discReady("launch"); done <- err }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // emitState asks the pages to read the state again (Start's button).

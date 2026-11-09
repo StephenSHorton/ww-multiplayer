@@ -326,10 +326,11 @@ func (b *Bridge) Host(r HostRequest) (err error) {
 	b.myDryRun = false
 	b.mu.Unlock()
 	b.stopLanListen()
-	id, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen, LaunchFn: b.launchOptions, CoopFn: b.coopOptions})
+	id, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen, LaunchFn: b.launchOptions, PrepareFn: b.prepareLaunch, CoopFn: b.coopOptions})
 	if err != nil {
 		return err
 	}
+	b.resendChip()
 	b.sessMu.Lock()
 	b.hostPort = port
 	b.sessMu.Unlock()
@@ -400,7 +401,7 @@ func (b *Bridge) Join(r JoinRequest) (err error) {
 	}
 	// The disc is checked, and a running update (or a patch started in
 	// Setup) waited for: a joiner's Dolphin launches at the host's Start,
-	// which the joiner doesn't press (card 3 gives that launch its own
+	// which the joiner doesn't press (prepareLaunch is that launch's own
 	// wait). A Dolphin holding the disc doesn't stop the join: its line
 	// says to close it.
 	if err := b.waitDisc("join"); err != nil {
@@ -410,11 +411,12 @@ func (b *Bridge) Join(r JoinRequest) (err error) {
 	b.myDryRun = false
 	b.mu.Unlock()
 	b.stopLanListen()
-	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col, LaunchFn: b.launchOptions, CoopFn: b.coopOptions,
+	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col, LaunchFn: b.launchOptions, PrepareFn: b.prepareLaunch, CoopFn: b.coopOptions,
 		OwnerKey: strings.TrimSpace(r.OwnerKey)})
 	if err != nil {
 		return err
 	}
+	b.resendChip()
 	b.sessMu.Lock()
 	b.lastJoin = &JoinRequest{Addr: addr, Name: name, Color: r.Color, OwnerKey: r.OwnerKey}
 	b.joining = &pendingHost{session: id, addr: addr}
@@ -546,6 +548,9 @@ func (b *Bridge) SetColor(color string) (err error) {
 // SetReady sets this player's ready flag in the lobby.
 func (b *Bridge) SetReady(ready bool) (err error) {
 	defer b.maskErr(&err)
+	if ready {
+		b.ensureDisc("ready") // its update shows on the row; the launch waits for it (prepareLaunch)
+	}
 	return b.ctrl.SetReady(ready)
 }
 
