@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/cliutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop"
 	"github.com/StephenSHorton/ww-multiplayer/mods/example"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer"
+	"github.com/StephenSHorton/ww-multiplayer/mods/widescreen"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 )
 
@@ -31,6 +33,7 @@ func compiledModsWith(newEngine func() session.Engine) []wwapi.Mod {
 	return []wwapi.Mod{
 		multiplayer.New(newEngine),
 		coop.New(coopEnv),
+		widescreen.New(widescreen.Env{Open: cliutil.OpenDolphin}),
 	}
 }
 

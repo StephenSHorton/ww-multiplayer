@@ -39,7 +39,13 @@ var MEM1Override = []string{
 // clutter our terminal. On macOS it goes through LaunchServices
 // (launch_darwin.go).
 func Launch(exe, userDir, iso, saveState string) (int, error) {
-	return launch(exe, LaunchArgs(userDir, iso, saveState))
+	return LaunchWith(exe, userDir, iso, saveState, nil)
+}
+
+// LaunchWith is Launch with extra Dolphin arguments after the usual ones
+// (the widescreen -C pair, WidescreenArgs).
+func LaunchWith(exe, userDir, iso, saveState string, extra []string) (int, error) {
+	return launch(exe, append(LaunchArgs(userDir, iso, saveState), extra...))
 }
 
 // AppBundle returns the .app bundle of a macOS Dolphin executable path

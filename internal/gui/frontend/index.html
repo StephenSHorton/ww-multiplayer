@@ -322,7 +322,7 @@
 		</div>
 	</section>
 
-	<!-- Settings: the theme, IP addresses, updates, help (settings.js) -->
+	<!-- Settings: the theme, widescreen, IP addresses, updates, help (settings.js) -->
 	<section id="settings" class="screen" hidden>
 		<header class="pagehead">
 			<h1>Settings</h1>
@@ -339,6 +339,28 @@
 						<button type="button" role="radio" data-theme="dark" aria-checked="false">Dark</button>
 					</div>
 				</div>
+			</div>
+			<!-- the widescreen setting, Dolphin's aspect for the next Start (display.js) -->
+			<div class="card">
+				<h2>Display</h2>
+				<div class="setrow">
+					<div class="settext"><b>Widescreen</b><small>Takes effect at the next Start. Set the aspect here, not in Dolphin's graphics settings: the app launches Dolphin with it.</small></div>
+					<div class="seg" role="radiogroup" aria-label="Widescreen" id="ws-seg">
+						<button type="button" role="radio" data-ws="off" aria-checked="true">Off</button>
+						<button type="button" role="radio" data-ws="16:9" aria-checked="false">16:9</button>
+						<button type="button" role="radio" data-ws="16:10" aria-checked="false">16:10</button>
+						<button type="button" role="radio" data-ws="21:9" aria-checked="false">21:9</button>
+						<button type="button" role="radio" data-ws="custom" aria-checked="false">Custom</button>
+					</div>
+				</div>
+				<div class="row wscustom" id="ws-custom" hidden>
+					<span>Custom aspect</span>
+					<input id="ws-w" type="number" min="1" step="1" inputmode="numeric" aria-label="Aspect width">
+					<b aria-hidden="true">:</b>
+					<input id="ws-h" type="number" min="1" step="1" inputmode="numeric" aria-label="Aspect height">
+					<small class="dim">Whole numbers, wider than 4:3 and up to 4:1 (2560x1080 is 64:27).</small>
+				</div>
+				<p class="error" id="ws-err" role="alert"></p>
 			</div>
 			<div class="card">
 				<h2>Privacy</h2>

@@ -516,7 +516,7 @@ func TestCompareBlob(t *testing.T) {
 func TestCanaryRegions(t *testing.T) {
 	if mailbox.CanaryTRK.Start != 0x8040CFB0 || mailbox.CanaryTRK.End != 0x80410000 ||
 		mailbox.CanaryArena.Start != 0x804150B0 || mailbox.CanaryArena.End != 0x804150BC ||
-		mailbox.CanaryArenaHigh.Start != 0x8041596C || mailbox.CanaryArenaHigh.End != 0x80415C00 ||
+		mailbox.CanaryArenaHigh.Start != 0x80415984 || mailbox.CanaryArenaHigh.End != 0x80415C00 ||
 		mailbox.EyePacketsRegion.End != 0x80415D50 || mailbox.FxRegion.End != 0x80416000 {
 		t.Fatalf("canary ranges moved: %+v %+v %+v", mailbox.CanaryTRK, mailbox.CanaryArena, mailbox.CanaryArenaHigh)
 	}
@@ -602,7 +602,7 @@ func TestArmAndCheckCanaries(t *testing.T) {
 	}
 	for _, want := range []string{"4 changed (3 now zero, 1 other)", "0x8040D0B0-0x8040D0BC (3 words)",
 		"below arena  0x804150B0-0x804150BC (3 words): all intact",
-		"below arena (past the boats block) 0x8041596C-0x80415C00 (165 words): all intact"} {
+		"below arena (past the widescreen block) 0x80415984-0x80415C00 (159 words): all intact"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("region-probe check lacks %q:\n%s", want, out.String())
 		}
@@ -688,10 +688,10 @@ func TestParseStageHop(t *testing.T) {
 		args []string
 		want stageHop
 	}{
-		{[]string{"M_NewD2"}, stageHop{"M_NewD2", 0, 0, -1}},
-		{[]string{"sea", "3", "44"}, stageHop{"sea", 3, 44, -1}},
-		{[]string{"M_NewD2", "3", "2", "2"}, stageHop{"M_NewD2", 3, 2, 2}},
-		{[]string{"A_umikz", "0", "0", "11"}, stageHop{"A_umikz", 0, 0, 11}},
+		{[]string{"M_NewD2"}, stageHop{"M_NewD2", 0, 0, -1, 0}},
+		{[]string{"sea", "3", "44"}, stageHop{"sea", 3, 44, -1, 0}},
+		{[]string{"M_NewD2", "3", "2", "2"}, stageHop{"M_NewD2", 3, 2, 2, 0}},
+		{[]string{"A_umikz", "0", "0", "11"}, stageHop{"A_umikz", 0, 0, 11, 0}},
 	}
 	for _, c := range good {
 		if got, err := parseStageHop(c.args); err != nil || got != c.want {
@@ -716,6 +716,36 @@ func TestParseStageHop(t *testing.T) {
 	}
 }
 
+// --wipe N picks the wipe; 0..11, l_wipeType's entries.
+func TestCutStageHopWipe(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		rest []string
+		wipe int8
+	}{
+		{[]string{"sea", "--yes"}, []string{"sea", "--yes"}, stageHopWipe},
+		{[]string{"sea", "--wipe", "2", "--yes"}, []string{"sea", "--yes"}, 2},
+		{[]string{"--wipe=4", "sea", "0"}, []string{"sea", "0"}, 4},
+		{[]string{"sea", "--wipe", "11"}, []string{"sea"}, 11},
+	} {
+		rest, w, err := cutStageHopWipe(c.args)
+		if err != nil || !slices.Equal(rest, c.rest) || w != c.wipe {
+			t.Errorf("%q: %q %d %v", c.args, rest, w, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"sea", "--wipe"},
+		{"sea", "--wipe", "12"},
+		{"sea", "--wipe=-1"},
+		{"sea", "--wipe", "x"},
+		{"sea", "--wipe", "2", "--wipe=4"},
+	} {
+		if _, _, err := cutStageHopWipe(args); err == nil {
+			t.Errorf("%q accepted", args)
+		}
+	}
+}
+
 // TestStageHop sends a hop through the fake game: the bytes land where
 // ChangeStage reads them, mEnable is written last, nothing else is
 // written, and closed gates refuse.
@@ -733,9 +763,12 @@ func TestStageHop(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Record(true)
-	h := stageHop{Name: "M_NewD2", Point: 3, Room: 2, Layer: 2}
+	h := stageHop{Name: "M_NewD2", Point: 3, Room: 2, Layer: 2, Wipe: 2}
 	if err := applyStageHop(m, h, st); err != nil {
 		t.Fatal(err)
+	}
+	if w, _ := mem.ReadU8(m, addr.NextStage+addr.NextOffWipe); w != 2 {
+		t.Errorf("wipe %d, want 2 (OVERLAP2)", w)
 	}
 	ws := m.Writes()
 	next := addr.Region{Name: "mNextStage", Start: addr.NextStage, End: addr.NextStage + addr.NextStageSize}

@@ -39,8 +39,8 @@ const (
 // rf_ask.go, face.go, boss_end.go); wwdev's stress and stress-host
 // (cmd/wwdev/stress.go); netem (mp_local_netem.go, wind#82); ops
 // (cmd/wwdev/ops_cmd.go, wind#90); and tagdrift and app-found
-// (cmd/wwdev/tagdrift.go, app_found.go, #1165).
-var addedSinceD6 = []string{"bug-report", "smoke", "smooth-steps", "rf-ask", "face", "boss-end", "stress", "stress-host", "netem", "ops", "tagdrift", "app-found"}
+// (cmd/wwdev/tagdrift.go, app_found.go, #1165); and widescreen (mods/widescreen, #1185).
+var addedSinceD6 = []string{"bug-report", "smoke", "smooth-steps", "rf-ask", "face", "boss-end", "stress", "stress-host", "netem", "ops", "tagdrift", "app-found", "widescreen", "cull-probe"}
 
 // registrySubcommands returns every name and alias in the command
 // registry, sorted. A name used twice is an error.

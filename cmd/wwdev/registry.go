@@ -186,6 +186,8 @@ func commandTable() []command {
 		{name: "bdk-probe", group: groupDev, run: runBatchFProbe},
 		// The crash JUTException caught: registers, stack, REL modules (crash_context.go).
 		{name: "crash-context", group: groupDev, run: runCrashContext},
+		// Widescreen: side-band culling (cull_probe.go, widescreen-culling.md).
+		{name: "cull-probe", group: groupDev, run: runCullProbe},
 	}
 }
 

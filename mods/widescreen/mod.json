@@ -1,0 +1,19 @@
+{
+  "$schema": "../../wwapi/schema/mod.schema.json",
+  "id": "widescreen",
+  "name": "Widescreen",
+  "description": "One real aspect for the camera, the culling and (later stages) the 2D layers: objects at the screen edges stay drawn with Dolphin's widescreen hack, and native widescreen needs no hack.",
+  "version": "0.1.0",
+  "api": "^0.1",
+  "dependencies": {},
+  "optional_dependencies": {},
+  "load_order": 0,
+  "enabled_by_default": true,
+  "dev": false,
+  "game_ids": ["GZLE01"],
+  "multiplayer": "local_only",
+  "provides": [],
+  "needs": ["widescreen"],
+  "writes": [],
+  "c": null
+}

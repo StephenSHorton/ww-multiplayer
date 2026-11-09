@@ -21,5 +21,13 @@ exit 0
       "multiplayer": "^1.0"
     },
     "load_index": 1
+  },
+  {
+    "id": "widescreen",
+    "name": "Widescreen",
+    "version": "0.1.0",
+    "status": "LOADED",
+    "multiplayer": "local_only",
+    "load_index": 2
   }
 ]

@@ -58,7 +58,7 @@ func TestFaceModFlags(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"tui", "--mods=nope"}, "ERROR: no mod \"nope\" in this version (it has multiplayer, coop)\nUsage: " + exeCmd + " tui [--dev] [--mods=a,b] [--no-mod=x]\n"},
+		{[]string{"tui", "--mods=nope"}, "ERROR: no mod \"nope\" in this version (it has multiplayer, coop, widescreen)\nUsage: " + exeCmd + " tui [--dev] [--mods=a,b] [--no-mod=x]\n"},
 		{[]string{"tui", "--port", "1"}, "ERROR: unknown argument \"--port\"\nUsage: " + exeCmd + " tui [--dev] [--mods=a,b] [--no-mod=x]\n"},
 		{[]string{"ui", "--browser", "--no-mod=example"}, "ERROR: example is a dev mod: add --dev\nUsage: " + exeCmd + " ui [--browser [--port N] [--no-open]] [--dev] [--mods=a,b] [--no-mod=x]\n"},
 		{[]string{"ui", "--browser", "--bogus", "--dev"}, "ERROR: unknown argument \"--bogus\"\nUsage: " + exeCmd + " ui [--browser [--port N] [--no-open]] [--dev] [--mods=a,b] [--no-mod=x]\n"},
@@ -149,7 +149,7 @@ func TestAppDefaults(t *testing.T) {
 	t.Setenv("HOME", dir)
 	a := newApp(modFlags{}, nil)
 	defer a.stop()
-	if got := appStates(a); len(got) != 2 || got["multiplayer"] != session.Loaded || got["coop"] != session.Loaded {
+	if got := appStates(a); len(got) != 3 || got["multiplayer"] != session.Loaded || got["coop"] != session.Loaded || got["widescreen"] != session.Loaded {
 		t.Fatalf("mods = %v", got)
 	}
 	if _, err := a.ctrl.CoopWorlds(); errors.Is(err, session.ErrNoCoop) {

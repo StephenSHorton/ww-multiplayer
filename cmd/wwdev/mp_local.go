@@ -166,10 +166,17 @@ func runDolphin2(reset bool) {
 	// and never stops on a panic popup (launch.DevLogArgs, session-only -C).
 	devLog := launch.DevLogEnabled(os.Getenv)
 	var recs []launchRecord
+	// WW_WIDESCREEN=<setting> adds the widescreen -C pair (auto-recapture never does).
+	ws, werr := launch.ParseWidescreenSetting(os.Getenv("WW_WIDESCREEN"))
+	if werr != nil {
+		log.Logf(rep, log.Err, "WW_WIDESCREEN: %v", werr)
+		os.Exit(2)
+	}
+	wsArgs := launch.WidescreenArgs(ws)
 	for _, p := range plan {
 		logPath := launch.LogFile(p.userDir)
 		offset := fileSize(logPath) // Dolphin appends: this one's lines start here
-		pid, err := launch.LaunchTest(dolphinExe, p.userDir, isoPath, p.saveState, devLog)
+		pid, err := launch.LaunchTestWith(dolphinExe, p.userDir, isoPath, p.saveState, devLog, wsArgs)
 		if err != nil {
 			log.Logf(rep, log.Err, "launch %s: %v", p.label, err)
 			os.Exit(1)
@@ -437,6 +444,7 @@ func runMpLocal(nameA, nameB string, co coopsession.Flags) {
 	spawn("bcast-B", broadcast(nameB, addrB, pidB))
 	time.Sleep(300 * time.Millisecond)
 	spawn("puppet-B", puppet(nameB, addrB, pidB))
+	mpLocalWidescreen(ctx, rep, &wg, pidA, pidB) // WW_WIDESCREEN: the app's reconcile loop per Dolphin
 	// Dolphin B's enemy claims (enemy-mirror-general.json D8): enemy-B
 	// fills them and coop-B's K1 refuses what they claim. Per game, never
 	// shared: A is the host and mirrors nothing, so coop-A gets none.

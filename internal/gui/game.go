@@ -283,6 +283,10 @@ func (b *Bridge) launchOptions() session.LaunchOptions {
 	if o.UserDir == "" && o.Exe != "" {
 		o.UserDir, _ = launch.UserDir(b.denv(), o.Exe)
 	}
+	o.Widescreen = widescreenAspect(c) // the Display card's (display.go)
+	if on, saved := c.ModEnabled(widescreenMod); saved && !on {
+		o.Widescreen = "off" // the mod is off: vanilla Dolphin, and the engine runs no loop either
+	}
 	return o
 }
 

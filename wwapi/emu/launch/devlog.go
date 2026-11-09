@@ -76,5 +76,11 @@ func TestArgs(userDir, iso, saveState string, devLog bool) []string {
 // LaunchTest is Launch for the dev tools (wwdev dolphin2, auto-recapture):
 // with devLog, Dolphin also gets DevLogArgs.
 func LaunchTest(exe, userDir, iso, saveState string, devLog bool) (int, error) {
-	return launch(exe, TestArgs(userDir, iso, saveState, devLog))
+	return LaunchTestWith(exe, userDir, iso, saveState, devLog, nil)
+}
+
+// LaunchTestWith is LaunchTest with extra Dolphin arguments last (wwdev
+// dolphin2 passes WW_WIDESCREEN's pair; auto-recapture passes none).
+func LaunchTestWith(exe, userDir, iso, saveState string, devLog bool, extra []string) (int, error) {
+	return launch(exe, append(TestArgs(userDir, iso, saveState, devLog), extra...))
 }

@@ -89,12 +89,12 @@ func TestCLIModCommands(t *testing.T) {
 			t.Errorf("%s: hidden %v, group %d", c.name, c.hidden, c.group)
 		}
 	}
-	for _, name := range []string{"coop-tables", "coop-tag", "coop-world", "save-diff", "save-merge"} {
+	for _, name := range []string{"coop-tables", "coop-tag", "coop-world", "save-diff", "save-merge", "widescreen"} {
 		if !got[name] {
 			t.Errorf("%s is not a mod command", name)
 		}
 	}
-	if len(got) != 5 {
+	if len(got) != 6 {
 		t.Errorf("mod commands %v", got)
 	}
 }

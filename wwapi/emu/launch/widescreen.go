@@ -2,6 +2,7 @@ package launch
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,13 +37,17 @@ type GFXAspect struct {
 }
 
 // ReadGFXAspect reads userDir's Config/GFX.ini [Settings], then any
-// -C / --config GFX.Settings.<key>=<value> on the Dolphin command line
+// -C / --config Graphics.Settings.<key>=<value> on the Dolphin command line
 // args, then the user's game settings GameSettings/GZL.ini, GZLE01.ini and
 // GZLE01r0.ini [Video_Settings] over them: Dolphin's layer order (Base <
 // CommandLine < GlobalGame < LocalGame). Missing files and keys keep
-// Dolphin's defaults (hack off, Auto, custom 16:9).
+// Dolphin's defaults (hack off, Auto, custom 1:1). Dolphin's -C system name
+// for GFX.ini is "Graphics"; GFX.Settings.* is silently dropped, so it is
+// ignored here too. A SuggestedAspectRatio other than Auto (the game's own
+// suggestion, which the heuristic would otherwise pick) replaces Auto.
 func ReadGFXAspect(userDir string, args []string) GFXAspect {
-	a := GFXAspect{Mode: AspectAuto, CustomW: 16, CustomH: 9}
+	a := GFXAspect{Mode: AspectAuto, CustomW: 1, CustomH: 1}
+	suggested := AspectAuto
 	set := func(k, v string) {
 		v = strings.TrimSpace(v)
 		switch strings.ToLower(strings.TrimSpace(k)) {
@@ -51,6 +56,10 @@ func ReadGFXAspect(userDir string, args []string) GFXAspect {
 		case "aspectratio":
 			if n, err := strconv.Atoi(v); err == nil {
 				a.Mode = n
+			}
+		case "suggestedaspectratio":
+			if n, err := strconv.Atoi(v); err == nil {
+				suggested = n
 			}
 		case "customaspectratiowidth":
 			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
@@ -76,10 +85,10 @@ func ReadGFXAspect(userDir string, args []string) GFXAspect {
 		default:
 			continue
 		}
-		if !strings.HasPrefix(strings.ToLower(kv), "gfx.settings.") {
+		if !strings.HasPrefix(strings.ToLower(kv), "graphics.settings.") {
 			continue
 		}
-		if k, v, ok := strings.Cut(kv[len("gfx.settings."):], "="); ok {
+		if k, v, ok := strings.Cut(kv[len("graphics.settings."):], "="); ok {
 			set(k, v)
 		}
 	}
@@ -87,6 +96,9 @@ func ReadGFXAspect(userDir string, args []string) GFXAspect {
 		for _, name := range []string{"GZL.ini", "GZLE01.ini", "GZLE01r0.ini"} {
 			iniSection(filepath.Join(userDir, "GameSettings", name), "Video_Settings", set)
 		}
+	}
+	if a.Mode == AspectAuto && suggested != AspectAuto {
+		a.Mode = suggested
 	}
 	return a
 }
@@ -149,4 +161,76 @@ func (a GFXAspect) XScale(renderW, renderH int) (scale float64, why string) {
 		return 1, why
 	}
 	return standardAspect / target, why
+}
+
+// WidescreenSetting is the app's "Widescreen" choice, parsed: Off, or an
+// output aspect W:H wider than 4:3 (native widescreen, #1186).
+type WidescreenSetting struct {
+	W, H int // 0, 0 = Off
+}
+
+// Off reports whether the setting leaves Dolphin and the game alone.
+func (s WidescreenSetting) Off() bool { return s.W == 0 || s.H == 0 }
+
+// Aspect is W/H (0 when Off).
+func (s WidescreenSetting) Aspect() float64 {
+	if s.Off() {
+		return 0
+	}
+	return float64(s.W) / float64(s.H)
+}
+
+// Factor is the aspect over 4:3, the WWWS block's factor (1 when Off).
+func (s WidescreenSetting) Factor() float64 {
+	if s.Off() {
+		return 1
+	}
+	return s.Aspect() / standardAspect
+}
+
+// ParseWidescreenSetting reads "16:9", "16:10", "21:9", an integer "W:H"
+// with W/H in (4/3, 4], or "off" (also ""). At or below 4:3 counts as Off,
+// as native-widescreen.md section 7 says; no decimals, because Dolphin's
+// custom size is integer.
+func ParseWidescreenSetting(s string) (WidescreenSetting, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" || s == "off" {
+		return WidescreenSetting{}, nil
+	}
+	ws, hs, ok := strings.Cut(s, ":")
+	if !ok {
+		return WidescreenSetting{}, fmt.Errorf("widescreen %q: want off, 16:9, 16:10, 21:9 or W:H", s)
+	}
+	w, err1 := strconv.Atoi(ws)
+	h, err2 := strconv.Atoi(hs)
+	if err1 != nil || err2 != nil || w <= 0 || h <= 0 {
+		return WidescreenSetting{}, fmt.Errorf("widescreen %q: W and H must be whole numbers above 0", s)
+	}
+	r := float64(w) / float64(h)
+	switch {
+	case r > 4:
+		return WidescreenSetting{}, fmt.Errorf("widescreen %q: aspect above 4:1 is not supported", s)
+	case r <= standardAspect:
+		return WidescreenSetting{}, nil
+	}
+	return WidescreenSetting{W: w, H: h}, nil
+}
+
+// WidescreenArgs is the Dolphin command line for a setting (-C lasts for
+// the session; GFX.ini is untouched; the system name is Graphics). 16:9
+// forces 16:9 with the hack off, any other aspect is Custom; Off adds
+// nothing.
+func WidescreenArgs(s WidescreenSetting) []string {
+	if s.Off() {
+		return nil
+	}
+	const p = "Graphics.Settings."
+	if s.W*9 == s.H*16 {
+		return []string{"-C", p + "wideScreenHack=False", "-C", p + "AspectRatio=1"}
+	}
+	return []string{
+		"-C", p + "wideScreenHack=False", "-C", p + "AspectRatio=4",
+		"-C", p + "CustomAspectRatioWidth=" + strconv.Itoa(s.W),
+		"-C", p + "CustomAspectRatioHeight=" + strconv.Itoa(s.H),
+	}
 }

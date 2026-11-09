@@ -18,13 +18,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/widescreen"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/heap"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/ops"
 )
 
-const opsUsage = "ops status | echo [a b c] | kill <pid> <proc> [setID] | events"
+const opsUsage = "ops status | echo [a b c] | kill <pid> <proc> [setID] | events | ws <mode> <aspect> [flags]"
 
 func cmdOps(_ string, args []string) {
 	if len(args) == 0 {
@@ -111,6 +112,40 @@ func runOps(m mem.Mem, args []string, w interface{ Write([]byte) (int, error) })
 		}
 		if bad != 0 || !ok || r != ops.ROK {
 			return fmt.Errorf("echo: result %s, echo event seen %v, %d bad entries", r, ok, bad)
+		}
+		return nil
+	case "ws":
+		// ws <mode 0|1|2> <aspect> [flags]: WWAP_OP_WS_SET with the
+		// aspect's factor (W:H, a decimal, or "off"); flags default 0xFF
+		// (all the blob supports). One writer: not while mp-local runs.
+		if len(args) < 3 || len(args) > 4 {
+			return fmt.Errorf("usage: wwdev ops ws <mode 0|1|2> <aspect|off> [flags]")
+		}
+		mode, err := parseWord(args[1])
+		if err != nil || mode > 2 {
+			return fmt.Errorf("ws: mode %q is not 0, 1 or 2", args[1])
+		}
+		set, err := widescreen.ParseSetting(args[2])
+		if err != nil || set.Auto {
+			return fmt.Errorf("ws: aspect %q: want off, 16:9, W:H or a decimal", args[2])
+		}
+		flags := uint32(0xFF)
+		if len(args) == 4 {
+			if flags, err = parseWord(args[3]); err != nil || flags > 0xFF {
+				return fmt.Errorf("ws: flags %q do not fit a byte", args[3])
+			}
+		}
+		a, b, c := widescreen.Request{Mode: uint8(mode), Factor: float32(max(set.Factor(), 1)), Flags: uint8(flags)}.Words()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		r, err := q.Run(ctx, mailbox.OpsOpWsSet, a, b, c)
+		if err != nil {
+			return err
+		}
+		blk, _ := mailbox.ReadWidescreen(m)
+		p("ws mode %d factor %.4f flags 0x%02X: %s; block: %s\n", mode, set.Factor(), flags, r, blk)
+		if r != ops.ROK {
+			return fmt.Errorf("ws: %s", r)
 		}
 		return nil
 	case "kill":

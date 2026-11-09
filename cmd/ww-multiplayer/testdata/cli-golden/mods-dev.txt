@@ -3,3 +3,4 @@ Mods (wwapi 0.1.0):
   example                  0.1.0        LOADED
   multiplayer              1.0.0        LOADED
   coop                     1.0.0        LOADED
+  widescreen               0.1.0        LOADED

@@ -33,6 +33,7 @@ C_SOURCES = [
     "src/mp/minilink.c",
     "src/mp/face.c",
     "src/mp/relload.c",
+    "src/ws/widescreen.c",
 ]
 
 DEFAULT_DEVKITPRO = r"C:\devkitpro"
@@ -448,6 +449,19 @@ def main():
     # 0x801BB070. ww-online branches at 0x801BB070 for the same call
     # (seachart_players.asm); nothing else of ours patches this function.
     proj.hook_branchlink("seachart_shim", 0x801BB06C)
+
+    # Widescreen clipper hook (docs/design/widescreen-culling.md section 5).
+    # view_setup (0x8017BEB0) calls `bl mDoLib_clipper::setup` (0x800176BC)
+    # at 0x8017BF90, the only call: clip_setup_hook forwards f1..f4 with the
+    # aspect widened by ws_clip_aspect (src/ws, mode 1 only), so every user
+    # of the one J3DUClipper culls against the wider picture.
+    proj.hook_branchlink("clip_setup_hook", 0x8017BF90)
+
+    # Picto box judge (docs/design/native-widescreen.md 3.6, option A):
+    # dSnap_packet::Judge's `bl SetResult` (0x800CEB80) at 0x800CE5E8.
+    # ws_snap_setresult scales the counted subject pixels by the native
+    # factor (mode 2 only), so photos judge the same as on a 4:3 screen.
+    proj.hook_branchlink("ws_snap_setresult", 0x800CE5E8)
 
     # Set entry function (required for linker)
     proj.set_entry_function("main01_init")

@@ -748,6 +748,11 @@ form.chat input { max-width: none; flex: 1; }
 .settext small { color: var(--text-dim); font-size: 13px; }
 .setcheck { margin-top: 10px; }
 #set-showips { min-width: 76px; }
+/* Display: the custom W:H under the widescreen choice */
+.wscustom { margin-top: 12px; justify-content: flex-end; }
+.wscustom > span { font: 700 13px var(--body); color: var(--text); }
+.wscustom input { flex: none; width: 84px; }
+.wscustom small { flex: 1 0 100%; margin: 0; text-align: right; font-size: 12.5px; }
 
 /* ---------- the update banner ---------- */
 .updbar { margin-bottom: 18px; border-color: color-mix(in srgb, var(--orange) 50%, var(--line)); background: linear-gradient(90deg, color-mix(in srgb, var(--orange) 12%, var(--surface)), var(--surface) 60%); }

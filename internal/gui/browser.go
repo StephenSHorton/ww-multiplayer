@@ -66,6 +66,8 @@ var browserMethods = map[string]bool{
 	"LanSessions": true,
 	// The Mods page (Phase D D4).
 	"Mods": true, "SetModEnabled": true, "CallMod": true,
+	// Settings' Display card (display.go).
+	"Widescreen": true, "SetWidescreen": true,
 	// One-click updates (update.go).
 	"UpdateStatus": true, "CheckUpdate": true, "SetCheckUpdates": true, "InstallUpdate": true, "CancelUpdate": true, "Repatch": true, "RestartUpdate": true, "CheckDisc": true,
 	// Save bug report (bugreport.go): the zip is written on this machine,

@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -31,18 +32,41 @@ func TestReadGFXAspect(t *testing.T) {
 	if a := ReadGFXAspect(dir, nil); !a.Hack || a.Mode != AspectForceWide {
 		t.Fatalf("game ini over GFX.ini: %+v", a)
 	}
-	if a := ReadGFXAspect(dir, []string{"-u", dir, "-C", "GFX.Settings.wideScreenHack=False"}); a.Hack {
+	if a := ReadGFXAspect(dir, []string{"-u", dir, "-C", "Graphics.Settings.wideScreenHack=False"}); a.Hack {
 		t.Fatalf("-C over GFX.ini: %+v", a)
 	}
-	if a := ReadGFXAspect(dir, []string{"--config=GFX.Settings.AspectRatio=2"}); a.Mode != AspectForceWide {
+	if a := ReadGFXAspect(dir, []string{"--config=Graphics.Settings.AspectRatio=2"}); a.Mode != AspectForceWide {
 		t.Fatalf("the game ini over -C: %+v", a)
 	}
-	if a := ReadGFXAspect(dir, []string{"--config=GFX.Settings.wideScreenHack=False"}); a.Hack {
+	if a := ReadGFXAspect(dir, []string{"--config=Graphics.Settings.wideScreenHack=False"}); a.Hack {
 		t.Fatalf("--config= over GFX.ini: %+v", a)
 	}
 	writeFile(t, filepath.Join(dir, "GameSettings", "GZLE01r0.ini"), "[Video_Settings]\nAspectRatio = 2\n")
 	if a := ReadGFXAspect(dir, nil); a.Mode != AspectForceStandard {
 		t.Fatalf("GZLE01r0.ini last: %+v", a)
+	}
+}
+
+// TestReadGFXAspectDolphinNames: GFX.* is dropped, SuggestedAspectRatio
+// replaces Auto, the custom size defaults to 1:1.
+func TestReadGFXAspectDolphinNames(t *testing.T) {
+	dir := t.TempDir()
+	if a := ReadGFXAspect(dir, []string{"-C", "GFX.Settings.wideScreenHack=True"}); a.Hack {
+		t.Fatalf("GFX.* must be ignored: %+v", a)
+	}
+	if a := ReadGFXAspect(dir, []string{"-C", "graphics.settings.wideScreenHack=True"}); !a.Hack {
+		t.Fatalf("Graphics.* (any case) must apply: %+v", a)
+	}
+	if a := ReadGFXAspect(dir, nil); a.CustomW != 1 || a.CustomH != 1 {
+		t.Fatalf("custom default: %+v", a)
+	}
+	writeFile(t, filepath.Join(dir, "Config", "GFX.ini"), "[Settings]\nSuggestedAspectRatio = 1\n")
+	if a := ReadGFXAspect(dir, nil); a.Mode != AspectForceWide {
+		t.Fatalf("suggested over Auto: %+v", a)
+	}
+	writeFile(t, filepath.Join(dir, "Config", "GFX.ini"), "[Settings]\nSuggestedAspectRatio = 1\nAspectRatio = 2\n")
+	if a := ReadGFXAspect(dir, nil); a.Mode != AspectForceStandard {
+		t.Fatalf("explicit mode beats suggested: %+v", a)
 	}
 }
 
@@ -65,5 +89,49 @@ func TestGFXAspectXScale(t *testing.T) {
 		if got, why := c.a.XScale(c.w, c.h); !near(got, c.want) || why == "" {
 			t.Errorf("%+v %dx%d: %v (%s), want %v", c.a, c.w, c.h, got, why, c.want)
 		}
+	}
+}
+
+func TestParseWidescreenSetting(t *testing.T) {
+	for _, c := range []struct {
+		in      string
+		w, h    int
+		wantErr bool
+	}{
+		{"", 0, 0, false}, {"off", 0, 0, false}, {" OFF ", 0, 0, false},
+		{"16:9", 16, 9, false}, {"16:10", 16, 10, false}, {"21:9", 21, 9, false},
+		{"4:3", 0, 0, false}, {"5:4", 0, 0, false}, {"64:27", 64, 27, false},
+		{"32:9", 32, 9, false}, {"5:1", 0, 0, true}, {"2.39", 0, 0, true}, {"a:b", 0, 0, true}, {"16:0", 0, 0, true}, {"-16:9", 0, 0, true},
+	} {
+		s, err := ParseWidescreenSetting(c.in)
+		if (err != nil) != c.wantErr || s.W != c.w || s.H != c.h {
+			t.Errorf("%q: %+v, %v", c.in, s, err)
+		}
+	}
+	s, _ := ParseWidescreenSetting("21:9")
+	if math.Abs(s.Factor()-1.75) > 1e-9 {
+		t.Errorf("21:9 factor %v", s.Factor())
+	}
+	if (WidescreenSetting{}).Factor() != 1 {
+		t.Error("off factor")
+	}
+}
+
+func TestWidescreenArgs(t *testing.T) {
+	s16, _ := ParseWidescreenSetting("16:9")
+	want := []string{"-C", "Graphics.Settings.wideScreenHack=False", "-C", "Graphics.Settings.AspectRatio=1"}
+	if got := WidescreenArgs(s16); !reflect.DeepEqual(got, want) {
+		t.Errorf("16:9: %v", got)
+	}
+	s, _ := ParseWidescreenSetting("21:9")
+	if got := WidescreenArgs(s); len(got) != 8 || got[5] != "Graphics.Settings.CustomAspectRatioWidth=21" || got[7] != "Graphics.Settings.CustomAspectRatioHeight=9" {
+		t.Errorf("21:9: %v", got)
+	}
+	if WidescreenArgs(WidescreenSetting{}) != nil {
+		t.Error("off must add nothing")
+	}
+	// What the args say reads back as the same picture.
+	if a := ReadGFXAspect(t.TempDir(), WidescreenArgs(s)); a.Hack || a.Mode != AspectCustom || a.CustomW != 21 {
+		t.Errorf("round trip: %+v", a)
 	}
 }
