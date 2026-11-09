@@ -5,13 +5,16 @@
 //
 // The tag is still written live, in game memory (package bind): that is
 // where the file the player loaded is known. Each write is recorded here
-// as a pending tag (Store.Record): the card file, the file slot, the
-// file's name hash and clear count, the bytes written and the tags the
-// file had before. The pending tags wait in a small file in the app's
-// config folder, since quitting the app leaves Dolphin running, and are
-// written into the card when no Dolphin runs (Store.Flush): before the
-// app launches Dolphin, when the Dolphin it plays on closes, and when the
-// app quits.
+// as a pending tag (Store.Record), pinned to the exact card copy of that
+// file as the card holds it then: the card file, the file slot, the
+// slot's save date and a hash of its whole save image. Only a file the
+// game loaded from the card (mDateIPL not 0) whose card copy has the same
+// name hash and clear count, a non-zero save date and a save no older than
+// the one loaded is recorded. The pending tags wait in a small file in the
+// app's config folder, since quitting the app leaves Dolphin running, and
+// are written into the card when no Dolphin runs (Store.Flush): when the
+// app starts, before it launches or waits for Dolphin, when the Dolphin it
+// plays on closes, and when the app quits.
 //
 // A pending tag reaches the card only when all of these hold, else it is
 // dropped and the log says why:
@@ -22,13 +25,11 @@
 //   - the card is still the GCI folder Dolphin uses for slot A, the only
 //     slot the game uses (mCardSlot 0, m_Do_MemCard.cpp:34), and the file
 //     is a Wind Waker card file;
-//   - the slot is a played file with the same name hash and clear count,
-//     a non-zero save date (rule V5), and a save no older than the one the
-//     game loaded;
-//   - its tag on the card is one the file had in game memory before the
-//     write: anything else means it was saved or copied over since, and
-//     it is left alone. A tag already equal to the pending one (an
-//     in-game save carried it) needs no write.
+//   - the slot is byte for byte the copy the record pinned: any save,
+//     copy or new file in that slot since means the card no longer holds
+//     the file as the game had it, and it is left alone. A tag already
+//     equal to the pending one (an in-game save carried it) needs no
+//     write.
 //
 // Then: the card is backed up (backup.Create), the new file is built from
 // the card's own slot with only the 0x30 tag bytes changed
@@ -75,9 +76,11 @@ const (
 	// logMax is how large the log grows before it is moved to .1.
 	logMax = 512 << 10
 	// stateVersion is the state file layout this version writes.
-	stateVersion = 1
-	// maxBefore caps the tags a pending one remembers its file had.
-	maxBefore = 8
+	stateVersion = 2
+	// maxAttempts is how many flushes a pending tag may wait through (a
+	// write or backup that fails again and again) before it is dropped:
+	// each try takes a backup, and Keep rotates the older ones away.
+	maxAttempts = 4
 	// cardSlot is the memory card slot the game uses (mCardSlot 0).
 	cardSlot = "A"
 
@@ -106,17 +109,20 @@ type Pending struct {
 	NameHash   uint32 `json:"name_hash"`
 	ClearCount uint8  `json:"clear_count"`
 	// DateIPL is mDateIPL in game memory at the write: the save date of
-	// the card copy the game loaded the file from (0: none since boot).
+	// the card copy the game loaded the file from.
 	DateIPL uint64 `json:"date_ipl"`
+	// CardDate and CardSum pin the card copy the record saw: the slot's
+	// save date, and the SHA-256 of its save image as the game loads it.
+	CardDate uint64 `json:"card_date"`
+	CardSum  string `json:"card_sum"`
 	// Write is the 0x30 bytes the card's tag becomes, in hex.
 	Write string `json:"write"`
-	// Before are the tags the file had in game memory before Write, in
-	// hex: what the card holds unless it was saved since.
-	Before []string `json:"before"`
 	// World and Nonce are the bind's (KindBind only).
 	World    string    `json:"world,omitempty"`
 	Nonce    string    `json:"nonce,omitempty"`
 	Recorded time.Time `json:"recorded"`
+	// Attempts counts the flushes it waited through.
+	Attempts int `json:"attempts,omitempty"`
 }
 
 func (p Pending) String() string {
@@ -228,6 +234,48 @@ func (s *Store) save(ps []Pending) error {
 	return backup.Replace(p, append(b, '\n'), 0o644)
 }
 
+// The lock between app processes (two players on one computer share the
+// config folder): a lock file made with O_EXCL beside the pending tags,
+// held across each load and save.
+const (
+	lockName    = "card-tags.lock"
+	lockWait    = 5 * time.Second  // how long a Record or Flush waits for it
+	lockStale   = 30 * time.Second // a lock file older than this was left by a process that died
+	lockRetries = 50 * time.Millisecond
+)
+
+// lock takes the lock file and returns how to release it.
+func (s *Store) lock() (func(), error) {
+	dir, err := s.dir()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("cardtag: %w", err)
+	}
+	p := filepath.Join(dir, lockName)
+	deadline := time.Now().Add(lockWait)
+	for {
+		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			fmt.Fprintf(f, "%d\n", os.Getpid())
+			f.Close()
+			return func() { os.Remove(p) }, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return nil, fmt.Errorf("cardtag: %w", err)
+		}
+		if fi, err := os.Stat(p); err == nil && time.Since(fi.ModTime()) > lockStale {
+			os.Remove(p)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("cardtag: another ww-multiplayer holds %s", p)
+		}
+		time.Sleep(lockRetries)
+	}
+}
+
 // logf logs to rep (nil: none) and appends the line to the store's log.
 func (s *Store) logf(rep log.Reporter, level log.Level, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
@@ -308,74 +356,91 @@ func slotACard(userDir string) (backup.Card, error) {
 }
 
 // findCard returns the card file of userDir's slot A that holds file
-// slot n with this name hash and clear count.
-func findCard(userDir string, n int, nameHash uint32, clearCount uint8) (string, error) {
+// slot n with this name hash and clear count, and that slot.
+func findCard(userDir string, n int, nameHash uint32, clearCount uint8) (string, *savefile.Slot, error) {
 	c, err := slotACard(userDir)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	files, err := backup.GCIFiles(c.Path)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	var match []string
+	var slot *savefile.Slot
 	for _, p := range files {
 		f, kind, err := savefile.Read(p)
 		if err != nil || kind != savefile.KindGCI {
 			continue
 		}
 		if s, err := f.Slot(n); err == nil && sameFile(s, nameHash, clearCount) {
-			match = append(match, p)
+			match, slot = append(match, p), s
 		}
 	}
 	switch len(match) {
 	case 0:
-		return "", errNotOnCard
+		return "", nil, errNotOnCard
 	case 1:
-		return match[0], nil
+		return match[0], slot, nil
 	}
-	return "", fmt.Errorf("%w: %s", errAmbiguous, strings.Join(match, ", "))
+	return "", nil, fmt.Errorf("%w: %s", errAmbiguous, strings.Join(match, ", "))
 }
 
+// imgSum is the SHA-256 of a slot's save image, in hex.
+func imgSum(img *save.Image) string { return sha256Hex(img[:]) }
+
 // Record records tag write w, made in the game memory of the Dolphin
-// whose user folder is userDir, as a pending tag for that folder's card.
-// It replaces a pending tag of the same file (the newest write is what
-// the card should hold) and keeps its earlier tags as ones the card may
-// still have. A write with no GCI card to go to is logged and not kept.
+// whose user folder is userDir, as a pending tag for that folder's card,
+// pinned to the card copy of the file as the card holds it now. It
+// replaces a pending tag of the same file (the newest write is what the
+// card should hold). A write with no card copy to go to (no GCI card, a
+// file the game did not load from the card, a card copy older than the
+// one loaded) is logged and not kept.
 func (s *Store) Record(userDir string, w bind.Written, rep log.Reporter) {
 	if userDir == "" || int(w.File.Slot) >= savefile.Slots {
 		return
+	}
+	if abs, err := filepath.Abs(userDir); err == nil {
+		userDir = abs
 	}
 	n := int(w.File.Slot)
 	nameHash := bind.NameHash(w.File.Name[:])
 	p := Pending{
 		UserDir: userDir, Slot: n, Name: w.File.PlayerName(), NameHash: nameHash, ClearCount: w.File.ClearCount,
-		DateIPL: w.File.DateIPL, Write: hex.EncodeToString(w.Bytes[:]), Before: []string{hex.EncodeToString(w.File.Tag[:])},
-		Kind: KindClear, Recorded: s.now().UTC(),
+		DateIPL: w.File.DateIPL, Write: hex.EncodeToString(w.Bytes[:]), Kind: KindClear, Recorded: s.now().UTC(),
 	}
 	if w.Kind == bind.KindBind {
 		p.Kind, p.World, p.Nonce = KindBind, w.Tag.World.String(), w.Tag.Nonce.String()
 	}
-	card, cardErr := findCard(userDir, n, nameHash, w.File.ClearCount)
+	var cardErr error
+	if w.File.DateIPL == 0 {
+		cardErr = errNotOnCard // never loaded from the card since boot: which card copy it is can't be told
+	} else {
+		var sl *savefile.Slot
+		if p.Card, sl, cardErr = findCard(userDir, n, nameHash, w.File.ClearCount); cardErr == nil {
+			p.CardDate, p.CardSum = imgDate(&sl.Image), imgSum(&sl.Image)
+			if p.CardDate == 0 || p.CardDate < w.File.DateIPL {
+				cardErr = errNotOnCard // the card holds an older save than the one the game loaded
+			}
+		}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lock()
+	if err != nil {
+		s.logf(rep, log.Warn, "co-op: could not keep the pending co-op tag: %v. Save in game so your memory card keeps it.", err)
+		return
+	}
+	defer unlock()
 	ps, err := s.load()
 	if err != nil {
 		s.logf(rep, log.Warn, "co-op: %v", err)
 	}
-	keep := ps[:0]
-	for _, q := range ps {
-		if backup.SamePath(q.UserDir, userDir) && q.Slot == n && q.NameHash == nameHash && q.ClearCount == w.File.ClearCount {
-			p.Before = append(append(p.Before, q.Before...), q.Write)
-			continue
-		}
-		keep = append(keep, q)
-	}
-	ps = keep
+	ps = slices.DeleteFunc(ps, func(q Pending) bool {
+		return backup.SamePath(q.UserDir, userDir) && q.Slot == n && q.NameHash == nameHash && q.ClearCount == w.File.ClearCount
+	})
 	if cardErr == nil {
-		p.Card = card
-		p.Before = beforeList(p.Before, p.Write)
 		ps = append(ps, p)
 	}
 	if err := s.save(ps); err != nil {
@@ -384,38 +449,29 @@ func (s *Store) Record(userDir string, w bind.Written, rep log.Reporter) {
 	}
 	switch {
 	case cardErr == nil && p.Kind == KindBind:
-		s.logf(rep, log.Info, "co-op: the tag goes onto your memory card (file %d, %s) as soon as no Dolphin runs: no in-game save needed.", n+1, card)
+		s.logf(rep, log.Info, "co-op: the tag goes onto your memory card (file %d, %s) as soon as no Dolphin runs: no in-game save needed.", n+1, p.Card)
 	case cardErr == nil:
-		s.logf(rep, log.Info, "co-op: the cleared tag goes onto your memory card (file %d, %s) as soon as no Dolphin runs.", n+1, card)
+		s.logf(rep, log.Info, "co-op: the cleared tag goes onto your memory card (file %d, %s) as soon as no Dolphin runs.", n+1, p.Card)
 	case errors.Is(cardErr, errNotOnCard):
-		s.logf(rep, log.Info, "co-op: file %d (%q) is not on your memory card yet: save in game so the card keeps the tag.", n+1, p.Name)
+		s.logf(rep, log.Info, "co-op: file %d (%q) as loaded is not on your memory card: save in game so the card keeps the tag.", n+1, p.Name)
 	default:
 		s.logf(rep, log.Info, "co-op: the app can't put this tag onto your memory card (%v): save in game so the card keeps it.", cardErr)
 	}
 }
 
-// beforeList is tags without repeats and without write, the newest
-// maxBefore.
-func beforeList(tags []string, write string) []string {
-	var out []string
-	for _, t := range tags {
-		if t != write && !slices.Contains(out, t) {
-			out = append(out, t)
-		}
-	}
-	if len(out) > maxBefore {
-		out = out[len(out)-maxBefore:]
-	}
-	return out
-}
-
 // Flush writes the pending tags into their cards, if no Dolphin runs, and
 // keeps only the ones that must wait (a Dolphin started meanwhile, the
-// backup or the file write failed). Every outcome is logged to rep (nil:
-// the store's log alone).
+// backup or the file write failed), each at most maxAttempts flushes.
+// Every outcome is logged to rep (nil: the store's log alone).
 func (s *Store) Flush(rep log.Reporter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lock()
+	if err != nil {
+		s.logf(rep, log.Warn, "co-op: the pending co-op tags wait: %v", err)
+		return
+	}
+	defer unlock()
 	ps, err := s.load()
 	if err != nil {
 		s.logf(rep, log.Warn, "co-op: %v", err)
@@ -430,9 +486,14 @@ func (s *Store) Flush(rep log.Reporter) {
 	fl := &flush{s: s, rep: rep, backups: map[string]*backup.Backup{}, wrote: map[string][]byte{}}
 	var left []Pending
 	for _, p := range ps {
-		if fl.one(p) {
-			left = append(left, p)
+		if !fl.one(p) {
+			continue
 		}
+		if p.Attempts++; p.Attempts >= maxAttempts {
+			s.logf(rep, log.Warn, "co-op: %s is dropped after %d tries. Save in game so the card keeps the tag.", p, p.Attempts)
+			continue
+		}
+		left = append(left, p)
 	}
 	if err := s.save(left); err != nil {
 		s.logf(rep, log.Warn, "co-op: could not update the pending co-op tags: %v", err)
@@ -467,7 +528,7 @@ func (fl *flush) waitf(p Pending, format string, args ...any) bool {
 // one writes p into its card; it reports whether p must wait.
 func (fl *flush) one(p Pending) bool {
 	write, err1 := hex.DecodeString(p.Write)
-	if err1 != nil || len(write) != bind.TagSize || (p.Kind != KindBind && p.Kind != KindClear) || p.Slot < 0 || p.Slot >= savefile.Slots {
+	if err1 != nil || len(write) != bind.TagSize || (p.Kind != KindBind && p.Kind != KindClear) || p.Slot < 0 || p.Slot >= savefile.Slots || p.CardSum == "" {
 		return fl.dropf(p, "the pending record is damaged")
 	}
 	if p.Kind == KindBind {
@@ -476,14 +537,6 @@ func (fl *flush) one(p Pending) bool {
 		}
 	} else if !bytes.Equal(write, make([]byte, bind.TagSize)) {
 		return fl.dropf(p, "a cleared tag must be zeros")
-	}
-	before := make([][]byte, 0, len(p.Before))
-	for _, h := range p.Before {
-		b, err := hex.DecodeString(h)
-		if err != nil || len(b) != bind.TagSize {
-			return fl.dropf(p, "the pending record is damaged")
-		}
-		before = append(before, b)
 	}
 
 	// The card must still be the one Dolphin uses for slot A.
@@ -509,30 +562,17 @@ func (fl *flush) one(p Pending) bool {
 		return fl.dropf(p, "%v", err)
 	}
 
-	// The slot must still hold the file, as the game had it before the
-	// write.
+	// The slot must still be the card copy the record pinned.
 	sl, err := f.Slot(p.Slot)
 	if err != nil {
 		return fl.dropf(p, "%v", err)
 	}
-	date := imgDate(&sl.Image)
-	switch {
-	case sl.State != savefile.InUse:
-		return fl.dropf(p, "file %d on the card is %s", p.Slot+1, sl.State)
-	case !sameFile(sl, p.NameHash, p.ClearCount):
-		return fl.dropf(p, "file %d on the card is now %q, clear count %d", p.Slot+1, sl.PlayerName(), imgClearCount(&sl.Image))
-	case date == 0:
-		return fl.dropf(p, "file %d on the card has no save date", p.Slot+1)
-	case date < p.DateIPL:
-		return fl.dropf(p, "file %d on the card is an older save than the one the game loaded", p.Slot+1)
-	}
-	cur := imgTag(&sl.Image)
-	if bytes.Equal(cur, write) {
+	if bytes.Equal(imgTag(&sl.Image), write) && sameFile(sl, p.NameHash, p.ClearCount) {
 		fl.s.logf(fl.rep, log.OK, "co-op: %s is already on the memory card (an in-game save put it there): nothing to write.", p)
 		return drop
 	}
-	if !slices.ContainsFunc(before, func(b []byte) bool { return bytes.Equal(b, cur) }) {
-		return fl.dropf(p, "file %d's tag on the card changed since (saved or copied over): it is left as it is", p.Slot+1)
+	if imgSum(&sl.Image) != p.CardSum || imgDate(&sl.Image) != p.CardDate || sl.State != savefile.InUse || !sameFile(sl, p.NameHash, p.ClearCount) {
+		return fl.dropf(p, "file %d on the card changed since (saved, copied over or replaced by another file): it is left as it is", p.Slot+1)
 	}
 
 	// The new file: the card's own slot with only the tag changed.

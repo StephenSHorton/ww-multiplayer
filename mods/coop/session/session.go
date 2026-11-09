@@ -282,9 +282,10 @@ type coopEnv struct {
 	tables func(iso string) (*stagetables.Tables, error)
 	// front is the session's front end; its zero value is the CLI's.
 	front coopFront
-	// tags records each tag write a replica made, for the memory card
-	// (the app's, mods/coop/cardtag); nil records none (the CLI).
-	tags func(w bind.Written, rep log.Reporter)
+	// tags records each tag write a replica made in the game memory of
+	// Dolphin pid (0: unknown), for the memory card (the app's,
+	// mods/coop/cardtag); nil records none (the CLI).
+	tags func(pid uint32, w bind.Written, rep log.Reporter)
 }
 
 // coopFront is how a co-op session meets its front end: who answers its
@@ -1384,7 +1385,8 @@ func (p *coopPrompter) ask(ctx context.Context, rep log.Reporter, question strin
 // and a co-op connection to the host's hub.
 type coopSync struct {
 	cs     *Session
-	name   string // the player's name: the console's handle on it
+	name   string        // the player's name: the console's handle on it
+	pid    atomic.Uint32 // the Dolphin it plays on (the app's), 0 when unknown
 	rep    log.Reporter
 	m      mem.Mem
 	r      *replica.Replica
@@ -1476,7 +1478,7 @@ func (cs *Session) newSyncClaimed(ctx context.Context, name string, m mem.Mem, r
 		Refresh:     cs.flags.refresh,
 	}
 	if rec := cs.env.tags; rec != nil {
-		cfg.OnTagWritten = func(w bind.Written) { rec(w, rep) }
+		cfg.OnTagWritten = func(w bind.Written) { rec(s.pid.Load(), w, rep) }
 	}
 	if !cs.flags.dryRun {
 		cfg.Apply = true

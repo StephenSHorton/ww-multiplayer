@@ -67,7 +67,8 @@ type GameDeps struct {
 	EnvPID uint32
 	// CardTags writes the co-op tags waiting for the memory card, if no
 	// Dolphin runs (co-op's cardtag.Store.Flush): called right before a
-	// launch and once the Dolphin played on closed. Nil writes none.
+	// launch, before waiting for the player's own Dolphin, and once the
+	// Dolphin played on closed. Nil writes none.
 	CardTags func(rep log.Reporter)
 
 	Tick      time.Duration // how often the Dolphin is looked at
@@ -373,6 +374,9 @@ func (g *GameRunner) run(ctx context.Context) {
 		case session.PlanLaunch:
 			doLaunch()
 		case session.PlanWait:
+			if d.CardTags != nil {
+				d.CardTags(g.out) // before the player's own Dolphin reads the card
+			}
 			g.out.Log(log.Info, "Start Dolphin with your patched disc: the session plays as soon as it runs ("+plan.Why+").")
 		}
 	}

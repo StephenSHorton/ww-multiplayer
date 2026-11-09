@@ -19,6 +19,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
@@ -76,6 +77,10 @@ type appCoopDeps struct {
 	// Dolphin on user folder userDir, for its memory card
 	// (cardtag.Store.Record); nil records none.
 	record func(userDir string, w bind.Written, rep log.Reporter)
+	// dolphinDir is the user folder of Dolphin pid, the one co-op plays
+	// on: its card is the one a tag write goes to. ok is false when it
+	// can't be told (a process whose command line can't be read).
+	dolphinDir func(pid uint32) (dir string, ok bool)
 }
 
 // whyNoGame is the founding's Why while no Dolphin runs the game.
@@ -134,30 +139,59 @@ func realAppCoopDeps(env Env) *appCoopDeps {
 		wait: time.Second,
 	}
 	if env.Tags != nil {
-		d.record = env.Tags.Record
+		d.record, d.dolphinDir = env.Tags.Record, processUserDir
 	}
 	return d
+}
+
+// processUserDir is the user folder of Dolphin pid: its -u argument, or
+// the folder its executable uses without one (launch.ProcessUserDir).
+func processUserDir(pid uint32) (string, bool) {
+	for _, p := range launch.Processes() {
+		if p.PID == pid {
+			return launch.ProcessUserDir(launch.Host(), p)
+		}
+	}
+	return "", false
 }
 
 // coopEnv is deps' co-op environment for this player, with its tag
 // writes recorded for its memory card.
 func (ac *appCoop) coopEnv() coopEnv {
-	ud := ac.userDir()
-	env := ac.deps.env(ud)
-	if rec := ac.deps.record; rec != nil && ud != "" {
-		env.tags = func(w bind.Written, rep log.Reporter) { rec(ud, w, rep) }
+	env := ac.deps.env(ac.userDir())
+	if ac.deps.record != nil {
+		env.tags = ac.recordTag
 	}
 	return env
 }
 
-// tagRecorder records a tag write for this player's memory card; nil
-// when deps records none.
-func (ac *appCoop) tagRecorder() func(bind.Written) {
-	ud, rec := ac.userDir(), ac.deps.record
-	if rec == nil || ud == "" {
+// recordTag records tag write w, made in the game memory of Dolphin pid,
+// for the memory card of that Dolphin's own user folder: the one it
+// plays on, which may not be the one the app launches (a Dolphin the
+// player started, WW_DOLPHIN_PID). A Dolphin whose folder can't be told
+// gets no record, and the log says to save in game.
+func (ac *appCoop) recordTag(pid uint32, w bind.Written, rep log.Reporter) {
+	if ac.deps.record == nil {
+		return
+	}
+	dir, ok := "", false
+	if pid != 0 && ac.deps.dolphinDir != nil {
+		dir, ok = ac.deps.dolphinDir(pid)
+	}
+	if !ok || dir == "" {
+		rep.Log(log.Info, "co-op: the app can't tell which user folder your Dolphin plays from, so the tag reaches your memory card only at your next in-game save.")
+		return
+	}
+	ac.deps.record(dir, w, rep)
+}
+
+// tagRecorder records a tag write made in Dolphin pid's memory for its
+// memory card; nil when deps records none.
+func (ac *appCoop) tagRecorder(pid uint32) func(bind.Written) {
+	if ac.deps.record == nil {
 		return nil
 	}
-	return func(w bind.Written) { rec(ud, w, ac.out) }
+	return func(w bind.Written) { ac.recordTag(pid, w, ac.out) }
 }
 
 // appCoopEnv is the co-op environment of an app player: the cards of its
@@ -682,7 +716,7 @@ func (ac *appCoop) foundLoop(ctx context.Context, pol *world.Policy, auto bool) 
 		}
 		select {
 		case req := <-unbind:
-			req.reply <- clearLoadedTag(ac.out, m, ac.deps.tick, req.want, "", ac.tagRecorder())
+			req.reply <- clearLoadedTag(ac.out, m, ac.deps.tick, req.want, "", ac.tagRecorder(memPID))
 			unblock()
 			continue
 		default:
@@ -789,11 +823,11 @@ func (ac *appCoop) UnbindFile(want string) error {
 	if cs == nil {
 		return errors.New("co-op has not started yet")
 	}
-	m := cs.console.firstMem()
-	if m == nil {
+	s := cs.console.first()
+	if s == nil {
 		return errors.New("co-op isn't looking at your game yet: try again once Dolphin runs it")
 	}
-	return clearLoadedTag(ac.out, m, ac.deps.tick, want, own, ac.tagRecorder())
+	return clearLoadedTag(ac.out, s.m, ac.deps.tick, want, own, ac.tagRecorder(s.pid.Load()))
 }
 
 // SetShares changes what the host's hub allows while it runs (the app's
@@ -909,6 +943,7 @@ func appCoopSync(ctx context.Context, env Env, name, addr string, pid uint32, re
 	}
 	defer d.Close()
 	return appSyncOnClaimed(ctx, cs, name, d, rep, claimed, func(ctx context.Context, s *coopSync) error {
+		s.pid.Store(pid)
 		s.publishPartner(pid)
 		return s.run(ctx, addr)
 	})
@@ -935,12 +970,20 @@ func appSyncOnClaimed(ctx context.Context, cs *Session, name string, m mem.Mem, 
 // firstMem is the memory of the console's first pipeline, nil before
 // one runs.
 func (c *coopConsole) firstMem() mem.Mem {
+	if s := c.first(); s != nil {
+		return s.m
+	}
+	return nil
+}
+
+// first is the console's first pipeline, nil before one runs.
+func (c *coopConsole) first() *coopSync {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.syncs) == 0 {
 		return nil
 	}
-	return c.syncs[0].m
+	return c.syncs[0]
 }
 
 // reportCoop tells the window the co-op options the session runs with.

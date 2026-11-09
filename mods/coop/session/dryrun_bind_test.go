@@ -58,7 +58,7 @@ func TestCoopDryRunBindsStoryFile(t *testing.T) {
 		userDirs: []string{coUserDir(t)},
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
-		tags: func(w bind.Written, _ log.Reporter) {
+		tags: func(_ uint32, w bind.Written, _ log.Reporter) {
 			recMu.Lock()
 			recorded = append(recorded, w)
 			recMu.Unlock()

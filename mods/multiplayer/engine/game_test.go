@@ -342,6 +342,24 @@ func TestGameRunnerCardTags(t *testing.T) {
 	}
 }
 
+// TestGameRunnerCardTagsManual: a player who starts Dolphin themselves
+// gets the waiting card tags written before the runner waits for it.
+func TestGameRunnerCardTagsManual(t *testing.T) {
+	f := newFakeGame()
+	deps := fakeDeps(f)
+	deps.CardTags = func(log.Reporter) { f.Event("card tags") }
+	o := optsA
+	o.Manual = true
+	out := &gameOut{}
+	g := NewGameRunner(deps, func() session.LaunchOptions { return o }, "Link", "127.0.0.1:1", out, func(string) {}, func(error) {})
+	g.Start(context.Background())
+	waitFor(t, "the wait", func() bool { return out.Logged("Start Dolphin with your patched disc") })
+	g.Stop()
+	if ev := f.Events(); len(ev) == 0 || ev[0] != "card tags" || len(f.Launches()) != 0 {
+		t.Fatalf("events %q, launches %d", ev, len(f.Launches()))
+	}
+}
+
 // TestGameRunnerLaunchFails: a launch that fails (or no Dolphin set up)
 // is reported with its reason, and nothing plays.
 func TestGameRunnerLaunchFails(t *testing.T) {

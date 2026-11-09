@@ -188,6 +188,9 @@ func NewBridge(o Options) *Bridge {
 	}
 	b.updSeam.init(o, b.getenv)
 	b.bug.init()
+	if b.cardTags != nil {
+		b.cardTags(nil) // co-op tags a quit left waiting for Dolphin to close
+	}
 	b.afterUpdate()
 	return b
 }

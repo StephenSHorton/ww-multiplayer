@@ -788,3 +788,48 @@ func TestRetryBindsAfterMerge(t *testing.T) {
 	<-frames
 	<-gaFrames
 }
+
+// TestRecordTagPlayedFolder: a tag write is recorded for the card of the
+// user folder of the Dolphin co-op played on (not the folder the app
+// launches: a Dolphin the player started, WW_DOLPHIN_PID); a Dolphin
+// whose folder can't be told, or none, records nothing and says why.
+func TestRecordTagPlayedFolder(t *testing.T) {
+	type rec struct {
+		dir string
+		w   bind.Written
+	}
+	var got []rec
+	ac := &appCoop{
+		launch: func() session.LaunchOptions { return session.LaunchOptions{UserDir: "/configured"} },
+		deps: &appCoopDeps{
+			env:    func(string) coopEnv { return coopEnv{} },
+			record: func(dir string, w bind.Written, _ log.Reporter) { got = append(got, rec{dir, w}) },
+			dolphinDir: func(pid uint32) (string, bool) {
+				if pid == 7 {
+					return "/played", true
+				}
+				return "", false
+			},
+		},
+	}
+	w := bind.Written{Kind: bind.KindBind}
+	env := ac.coopEnv()
+	if env.tags == nil {
+		t.Fatal("the app's co-op env records no tags")
+	}
+	l := &coLog{}
+	env.tags(7, w, l)
+	if len(got) != 1 || got[0].dir != "/played" {
+		t.Fatalf("recorded %+v, want one for the played folder", got)
+	}
+	for _, pid := range []uint32{0, 9} {
+		env.tags(pid, w, l)
+	}
+	if len(got) != 1 || !l.has("can't tell which user folder") {
+		t.Fatalf("recorded %+v for an unknown folder; log:\n%s", got, l)
+	}
+	ac.deps.record = nil
+	if ac.coopEnv().tags != nil || ac.tagRecorder(7) != nil {
+		t.Fatal("records with no store")
+	}
+}

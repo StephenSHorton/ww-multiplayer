@@ -81,6 +81,6 @@ type Options struct {
 	Args []string
 	// CardTags writes the co-op tags waiting for the memory card, if no
 	// Dolphin runs (co-op's cardtag.Store.Flush); the app calls it as it
-	// quits, after the session ended. Nil writes none.
+	// opens and as it quits, after the session ended. Nil writes none.
 	CardTags func(rep log.Reporter)
 }

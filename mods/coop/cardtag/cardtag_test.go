@@ -286,18 +286,30 @@ func TestChangedSlotNeverWritten(t *testing.T) {
 		{"saved in game with another tag", func(img *save.Image) {
 			copy(img[addr.OffReserve:], other.Bytes[:])
 			binary.BigEndian.PutUint64(img[addr.OffDateIPL:], day+100)
-		}, "tag on the card changed since"},
+		}, "changed since"},
+		{"saved in game again, still untagged", func(img *save.Image) {
+			binary.BigEndian.PutUint64(img[addr.OffDateIPL:], day+100)
+			img[addr.OffPlayerName+12] ^= 0x5A // more progress
+		}, "changed since"},
 		{"copied over by another file", func(img *save.Image) {
 			*img = image(5, "Medli", day+50, nil)
-		}, `file 1 on the card is now "Medli"`},
-		{"second quest", func(img *save.Image) { img[addr.OffClearCount] = 1 }, "clear count 1"},
+		}, "changed since"},
+		// "Link" is the default name: another untagged "Link" (a copy, or a
+		// new game saved in the slot) must never get the bind.
+		{"another file of the same name, newer", func(img *save.Image) {
+			*img = image(30, "Link", day+50, nil)
+		}, "changed since"},
+		{"another file of the same name and date", func(img *save.Image) {
+			*img = image(31, "Link", day, nil)
+		}, "changed since"},
+		{"second quest", func(img *save.Image) { img[addr.OffClearCount] = 1 }, "changed since"},
 		{"an older save", func(img *save.Image) {
 			binary.BigEndian.PutUint64(img[addr.OffDateIPL:], day-1)
-		}, "older save"},
+		}, "changed since"},
 		{"no save date", func(img *save.Image) {
 			binary.BigEndian.PutUint64(img[addr.OffDateIPL:], 0)
-		}, "no save date"},
-		{"deleted (new game)", func(img *save.Image) { *img = save.Image{} }, "is new game"},
+		}, "changed since"},
+		{"deleted (new game)", func(img *save.Image) { *img = save.Image{} }, "changed since"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			img := image(6, "Link", day, nil)
@@ -379,18 +391,30 @@ func TestSavedBeforeBind(t *testing.T) {
 	}
 }
 
-// A file bound before it was ever loaded from the card (mDateIPL 0 in
-// memory) is written when the card holds it, saved, with the tag it had.
-func TestFreshBindWithSavedSlot(t *testing.T) {
+// A file the game did not load from the card (mDateIPL 0 in memory: a
+// new game, or a save state) is not recorded, even when the card holds a
+// file of its name in its slot: which copy it is can't be told.
+func TestNeverLoadedNotRecorded(t *testing.T) {
 	img := image(10, "Link", day, nil)
 	r := newRig(t, img)
 	f := fileOf(0, &img)
 	f.DateIPL = 0
-	w := bound(f, world1, 6)
-	r.store.Record(r.ud, w, nil)
-	r.store.Flush(&r.log)
-	if !bytes.Equal(tagOf(t, r.readCard(), 0), w.Bytes[:]) {
-		t.Fatalf("not written: %v", r.log)
+	r.store.Record(r.ud, bound(f, world1, 6), &r.log)
+	r.log.has(t, "not on your memory card")
+	if len(r.pending()) != 0 {
+		t.Fatal("recorded a file the game never loaded from the card")
+	}
+}
+
+// A card copy older than the one the game loaded is not the file.
+func TestOlderCardCopyNotRecorded(t *testing.T) {
+	img := image(32, "Link", day, nil)
+	r := newRig(t, img)
+	f := fileOf(0, &img)
+	f.DateIPL = day + 1
+	r.store.Record(r.ud, bound(f, world1, 6), &r.log)
+	if len(r.pending()) != 0 {
+		t.Fatal("recorded onto an older card copy")
 	}
 }
 
@@ -398,8 +422,10 @@ func TestFreshBindWithSavedSlot(t *testing.T) {
 func TestNotOnCard(t *testing.T) {
 	r := newRig(t, image(11, "Link", day, nil))
 	img := image(12, "Komali", 0, nil)
-	r.store.Record(r.ud, bound(fileOf(1, &img), world1, 1), &r.log)
-	r.log.has(t, "not on your memory card yet")
+	img2 := img
+	binary.BigEndian.PutUint64(img2[addr.OffDateIPL:], day)
+	r.store.Record(r.ud, bound(fileOf(1, &img2), world1, 1), &r.log)
+	r.log.has(t, "not on your memory card")
 	if len(r.pending()) != 0 {
 		t.Fatal("recorded a file that is not on the card")
 	}
@@ -501,8 +527,9 @@ func TestClearReachesCard(t *testing.T) {
 }
 
 // The newest write to a file decides: a bind then a clear leaves one
-// pending clear, which still finds the card's original tag acceptable,
-// and so does a card an in-game save gave the bind's tag.
+// pending clear, which zeroes the card's (leaked) tag. An in-game save
+// between the two (the card then holds the bind's tag) is pinned by the
+// clear's record, so the clear zeroes that too.
 func TestNewestWriteWins(t *testing.T) {
 	leaked := bound(fileOf(0, ptr(image(19, "Link", day, nil))), world2, 8)
 	for _, savedBind := range []bool{false, true} {
@@ -511,12 +538,6 @@ func TestNewestWriteWins(t *testing.T) {
 		f := fileOf(0, &img)
 		b := bound(f, world1, 9)
 		r.store.Record(r.ud, b, nil)
-		f.Tag = b.Bytes
-		r.store.Record(r.ud, cleared(f), nil)
-		ps := r.pending()
-		if len(ps) != 1 || ps[0].Kind != KindClear || len(ps[0].Before) != 2 {
-			t.Fatalf("pending = %+v", ps)
-		}
 		if savedBind {
 			s := img
 			copy(s[addr.OffReserve:], b.Bytes[:])
@@ -524,10 +545,68 @@ func TestNewestWriteWins(t *testing.T) {
 			nf, _ := r.readCard().WithSlot(0, &s)
 			r.writeCard(nf)
 		}
+		f.Tag = b.Bytes
+		r.store.Record(r.ud, cleared(f), nil)
+		ps := r.pending()
+		if len(ps) != 1 || ps[0].Kind != KindClear {
+			t.Fatalf("pending = %+v", ps)
+		}
 		r.store.Flush(&r.log)
 		if got := tagOf(t, r.readCard(), 0); !bytes.Equal(got, make([]byte, bind.TagSize)) {
 			t.Fatalf("saved bind %v: tag = % X\n%v", savedBind, got, r.log)
 		}
+	}
+}
+
+// A write that fails every time is dropped after maxAttempts flushes, so
+// its backups (one per try) can't rotate the older ones away.
+func TestAttemptsCap(t *testing.T) {
+	img := image(33, "Link", day, nil)
+	r := newRig(t, img)
+	r.store.Record(r.ud, bound(fileOf(0, &img), world1, 1), nil)
+	replaceCard = func(string, []byte, fs.FileMode) error { return errors.New("read-only card") }
+	t.Cleanup(func() { replaceCard = backup.Replace })
+	for i := 1; i <= maxAttempts+2; i++ {
+		r.store.Flush(&r.log)
+		if want := max(0, min(1, maxAttempts-i)); len(r.pending()) != want {
+			t.Fatalf("after flush %d: %d pending, want %d", i, len(r.pending()), want)
+		}
+	}
+	r.log.has(t, "dropped after")
+	if n := len(r.backupsMade()); n != maxAttempts {
+		t.Fatalf("%d backups, want %d", n, maxAttempts)
+	}
+}
+
+// A relative user folder (a typed setting, USER_DIR_1=./u) is made
+// absolute, so it matches the backup's paths and the tag is written.
+func TestRelativeUserDir(t *testing.T) {
+	img := image(34, "Link", day, nil)
+	r := newRig(t, img)
+	t.Chdir(filepath.Dir(r.ud))
+	w := bound(fileOf(0, &img), world1, 1)
+	r.store.Record(filepath.Base(r.ud), w, nil)
+	r.store.Flush(&r.log)
+	if !bytes.Equal(tagOf(t, r.readCard(), 0), w.Bytes[:]) {
+		t.Fatalf("not written: %v", r.log)
+	}
+}
+
+// A lock file left by a process that died is taken over; a live one
+// makes Record wait (here: give up and say so).
+func TestLockFile(t *testing.T) {
+	img := image(35, "Link", day, nil)
+	r := newRig(t, img)
+	lock := filepath.Join(r.store.Dir, lockName)
+	writeFile(t, lock, []byte("1\n"))
+	old := time.Now().Add(-2 * lockStale)
+	os.Chtimes(lock, old, old)
+	r.store.Record(r.ud, bound(fileOf(0, &img), world1, 1), nil)
+	if len(r.pending()) != 1 {
+		t.Fatal("a stale lock stopped Record")
+	}
+	if _, err := os.Stat(lock); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("the lock was not released")
 	}
 }
 
