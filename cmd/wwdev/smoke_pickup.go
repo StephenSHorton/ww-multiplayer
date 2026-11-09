@@ -1180,6 +1180,12 @@ func (r *smokeRun) pickupKill(rec pickupRecipe, w io.Writer) (s, why string) {
 		return out, nil
 	}
 	ts, err := targets()
+	// A room's enemies can be created a beat after the hop is idle (Angular
+	// Isles' ChuChu came after its chest, #1188): look again for up to 5 s.
+	for t0 := time.Now(); err == nil && len(ts) == 0 && time.Since(t0) < 5*time.Second && r.ctx.Err() == nil; {
+		sleepCtx(r.ctx, 500*time.Millisecond)
+		ts, err = targets()
+	}
 	if err != nil {
 		return "", "the actor walk: " + err.Error()
 	}
