@@ -53,7 +53,8 @@ PC 2609a, assumed to behave the same):
 **Main already reads these settings.** `launch.ReadGFXAspect(userDir, args)` and
 `GFXAspect.XScale(renderW, renderH)` (`wwapi/emu/launch/widescreen.go`, added for the name tags
 in #1157) resolve GFX.ini, `-C` overrides and the GameSettings `[Video_Settings]` layers in
-Dolphin's order, and return how much the hack narrows the 3D picture's x. **The culling factor
+Dolphin's order (but see `native-widescreen.md` section 7: today it matches `-C GFX.Settings.*`,
+which Dolphin drops; the real system name is `Graphics`, fixed in #1186's stage 1), and return how much the hack narrows the 3D picture's x. **The culling factor
 this mod needs is exactly `1 / XScale`** (XScale 0.75 → factor 4/3; XScale 1 → no widening).
 
 For other settings the factor is `draw_ar / source_ar`: Custom gives `custom / (4/3)`. Stretch
@@ -244,7 +245,8 @@ flags byte, and in mode 2 the handler also writes the 3D knob (`native-widescree
 
 - The mod's `ws_init` (its `WwModuleDesc` init, which main01_init runs after `ops_init` on every
   boot) writes the block: magic, version 1, **mode 1, factor 4/3**. That covers the person's setup
-  with no Go process at all, and it survives a soft reset (main01_init runs again). The slack is
+  with no Go process at all, and it survives a soft reset (the usual reset to the title keeps RAM as it is and runs no init; a
+  reboot reset re-runs main01_init, which writes the block again). The slack is
   orphan memory nothing else zeroes (hooks.c's main01_init comments explain why each block must be
   set at boot).
 - `ws_init` also registers one op, `WWAP_OP_WS_SET` = 16 (the first mod op, `WWAP_OP_MOD_FIRST`;
@@ -276,7 +278,8 @@ NPC behaviour visibly changes, make mode 0 the C default and let Go turn it on (
 Go changes the setting through main's command queue (`wwapi/ops`: `ops.New(mem).Ready()`, then
 `Submit(op, mode, factorBits, 0)` and `Wait`), never by writing the block. The queue has **one
 writer per game** (its package doc). A one-shot CLI submit while a session's pipelines also
-submit to the same Dolphin could collide. So the CLI command below says so in its help, and the
+submit to the same Dolphin could collide. So the CLI command below refuses while a session holds the mailbox (`shadow_mode` set,
+as `engine.mailboxClaimed` reads it), and the
 later in-process writer must share the session's Queue. The app's mod runtime still has
 `Game = nil`, and only the multiplayer pipelines attach to Dolphin, during a session
 (docs/api/03-writing-a-mod.md; `app_face.go`). So the Go side starts small:
@@ -297,10 +300,12 @@ later in-process writer must share the session's Queue. The app's mod runtime st
    every 2 s during a session (`feed/widescreen.go`'s `xscaleSampler`, feeding the name tags). The
    natural follow-up is to move that sampler somewhere both can use (e.g. next to
    `launch.ReadGFXAspect`), and have the widescreen mod write `1 / XScale` whenever a Dolphin is
-   attached. A user override (`config.Mods["widescreen"].Settings`, e.g. `{"aspect":"auto"}`, read
-   through `Context.Config().Decode`) can come with it. Both need the app to give the mod runtime
-   a `Game` once a Dolphin is attached, which #1186's toggle needs too. Don't special-case it
-   inside the multiplayer pipelines. Make it its own card when #1186 lands, or earlier if a player
+   attached. A user override can come with it (#1186 defines the app setting:
+   `config.Mods["widescreen"].Settings.aspect` = `16:9` / `W:H` / `off`, parsed by its own
+   `ParseAppSetting`, not this command's `ParseSetting`). Both need the app to give the mod runtime
+   a `Game` once a Dolphin is attached, which #1186's toggle needs too. #1186 starts the app's writer in the engine's Dolphin runner
+   (`mods/multiplayer/engine/game.go`) until the mod runtime has a Game, a deliberate exception;
+   see `native-widescreen.md` section 7. Make it its own card when #1186 lands, or earlier if a player
    not on 16:9 asks.
 
 ## 7. Blob budget and what a C change costs
@@ -339,7 +344,7 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
    0x57575753`, `WWWS_VERSION 1`, `WWWS_MODE_OFF/CLIP/NATIVE` (0/1/2), the field offsets above, and
    a `_Static_assert` that `WWWS_OFF + WWWS_SIZE <= MP_EYE_PACKETS_OFF` and `WWWS_OFF >= WWBOAT_OFF +
    WWBOAT_SIZE` (copy minilink.c's assert for the boats block). Add a feature bit in
-   `mailbox_core.h`: `WW_FEAT_WIDESCREEN 0x40`, `WW_FEATURES 0x7F`.
+   `mailbox_core.h`: `WW_FEAT_WIDESCREEN 0x80`, `WW_FEATURES 0xFF` (0x40 is `WW_FEAT_OPS` since wind#90).
 2. **C mod.** Add `inject/src/ws/widescreen.c` (a unique basename) with `void ws_init(void)`
    (writes the default block and registers the op), the op handler, and
    `f32 ws_clip_aspect(f32 aspect)` (the rules in 6.1). Add `WWAP_OP_WS_SET 16` to `wwops.h`'s op
@@ -352,7 +357,7 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
    `view_setup` and this doc.
 3. **Rebuild (devkitPPC machine):** `cd inject && python build.py && cd .. && python
    scripts/extract_blob.py`. Check that blob.go's `DOLPatches` gained a `bl` at file offset
-   `0x178ED0`, that `T2End` stays below `MailboxAddr`, and that `Features` is `0x7F`.
+   `0x178ED0`, that `T2End` stays below `MailboxAddr`, and that `Features` is `0xFF`.
 4. **Go mirror and pins.** `go generate ./wwapi/mailbox` (the feature constant). Add
    `wwapi/mailbox/widescreen.go` (the offsets, `WidescreenAddr`, `Decode` of the block for status),
    with `widescreen_test.go` pinning them to `wwws.h` the way `boat_test.go` pins `wwboat.h`. Move
@@ -431,7 +436,7 @@ the short version:
   exactly 16:9, and only after its transition count (frames can pop); at any other factor the hack
   and the mode widen twice.
 - **Prior art:** Dolphin ships a "$16:9 Widescreen" Gecko code for GZLE01
-  (`Data/Sys/GameSettings/GZLE01.ini:347-452`, disabled by default). It is native widescreen in
+  (`Data/Sys/GameSettings/GZLE01.ini:348-452`, disabled by default). It is native widescreen in
   Gecko form: its line `043FA998 3FE38E39` (`:450`; the last line is `043FB78C C2F60000`) rewrites
   `preparation`'s 4/3 to 16/9, and the rest patches HUD and menu functions. Its code caves at
   `0x800037E0` and `0x80004038..0x800040F7` sit in zeroed padding in `gTRKInterruptVectorTable`,
