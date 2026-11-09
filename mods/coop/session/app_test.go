@@ -799,11 +799,13 @@ func TestRecordTagPlayedFolder(t *testing.T) {
 		w   bind.Written
 	}
 	var got []rec
+	var forgot int
 	ac := &appCoop{
 		launch: func() session.LaunchOptions { return session.LaunchOptions{UserDir: "/configured"} },
 		deps: &appCoopDeps{
 			env:    func(string) coopEnv { return coopEnv{} },
 			record: func(dir string, w bind.Written, _ log.Reporter) { got = append(got, rec{dir, w}) },
+			forget: func(bind.Written, log.Reporter) { forgot++ },
 			dolphinDir: func(pid uint32) (string, bool) {
 				if pid == 7 {
 					return "/played", true
@@ -825,7 +827,7 @@ func TestRecordTagPlayedFolder(t *testing.T) {
 	for _, pid := range []uint32{0, 9} {
 		env.tags(pid, w, l)
 	}
-	if len(got) != 1 || !l.has("can't tell which user folder") {
+	if len(got) != 1 || forgot != 2 || !l.has("can't tell which user folder") {
 		t.Fatalf("recorded %+v for an unknown folder; log:\n%s", got, l)
 	}
 	ac.deps.record = nil

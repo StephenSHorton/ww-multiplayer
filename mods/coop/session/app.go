@@ -81,6 +81,9 @@ type appCoopDeps struct {
 	// on: its card is the one a tag write goes to. ok is false when it
 	// can't be told (a process whose command line can't be read).
 	dolphinDir func(pid uint32) (dir string, ok bool)
+	// forget drops the pending tags of the file w wrote to
+	// (cardtag.Store.Forget): a newer write to it that can't be recorded.
+	forget func(w bind.Written, rep log.Reporter)
 }
 
 // whyNoGame is the founding's Why while no Dolphin runs the game.
@@ -139,7 +142,7 @@ func realAppCoopDeps(env Env) *appCoopDeps {
 		wait: time.Second,
 	}
 	if env.Tags != nil {
-		d.record, d.dolphinDir = env.Tags.Record, processUserDir
+		d.record, d.dolphinDir, d.forget = env.Tags.Record, processUserDir, env.Tags.Forget
 	}
 	return d
 }
@@ -179,6 +182,9 @@ func (ac *appCoop) recordTag(pid uint32, w bind.Written, rep log.Reporter) {
 		dir, ok = ac.deps.dolphinDir(pid)
 	}
 	if !ok || dir == "" {
+		if ac.deps.forget != nil {
+			ac.deps.forget(w, rep) // an older pending tag of this file must not reach the card over this write
+		}
 		rep.Log(log.Info, "co-op: the app can't tell which user folder your Dolphin plays from, so the tag reaches your memory card only at your next in-game save.")
 		return
 	}

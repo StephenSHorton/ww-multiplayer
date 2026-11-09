@@ -7,14 +7,17 @@
 // where the file the player loaded is known. Each write is recorded here
 // as a pending tag (Store.Record), pinned to the exact card copy of that
 // file as the card holds it then: the card file, the file slot, the
-// slot's save date and a hash of its whole save image. Only a file the
-// game loaded from the card (mDateIPL not 0) whose card copy has the same
-// name hash and clear count, a non-zero save date and a save no older than
-// the one loaded is recorded. The pending tags wait in a small file in the
-// app's config folder, since quitting the app leaves Dolphin running, and
-// are written into the card when no Dolphin runs (Store.Flush): when the
-// app starts, before it launches or waits for Dolphin, when the Dolphin it
-// plays on closes, and when the app quits.
+// slot's save date and a hash of its whole save image. Only the copy the
+// game loaded is recorded: a file loaded from the card (mDateIPL not 0)
+// whose card copy has the same name hash and clear count and the very save
+// date the game loaded. An in-game save stamps a new date into the card
+// copy only (d_save.cpp:1717), so a file saved since the load, or a save
+// state of another playthrough of a file of the same name, is left to the
+// in-game save. The pending tags wait in a small file in the app's config
+// folder, since quitting the app leaves Dolphin running, and are written
+// into the card when no Dolphin runs (Store.Flush): when the app starts,
+// before it launches or waits for Dolphin, when the Dolphin it plays on
+// closes, and when the app quits.
 //
 // A pending tag reaches the card only when all of these hold, else it is
 // dropped and the log says why:
@@ -153,6 +156,25 @@ type Store struct {
 	Now func() time.Time
 
 	mu sync.Mutex
+	// forget are files whose newest write could not be recorded or
+	// forgotten (the lock was held): the next Flush drops their pending
+	// tags before it writes anything.
+	forget []fileKey
+}
+
+// fileKey names a file the way a pending tag does, in any user folder.
+type fileKey struct {
+	slot       int
+	nameHash   uint32
+	clearCount uint8
+}
+
+func keyOf(w bind.Written) fileKey {
+	return fileKey{int(w.File.Slot), bind.NameHash(w.File.Name[:]), w.File.ClearCount}
+}
+
+func (k fileKey) matches(p Pending) bool {
+	return p.Slot == k.slot && p.NameHash == k.nameHash && p.ClearCount == k.clearCount
 }
 
 func (s *Store) dir() (string, error) {
@@ -235,16 +257,19 @@ func (s *Store) save(ps []Pending) error {
 }
 
 // The lock between app processes (two players on one computer share the
-// config folder): a lock file made with O_EXCL beside the pending tags,
-// held across each load and save.
+// config folder): an OS lock on a file beside the pending tags (flock, or
+// an open with no sharing on Windows), held across each load and save.
+// The OS lets go of it when its process ends, so a crash leaves none.
 const (
 	lockName    = "card-tags.lock"
-	lockWait    = 5 * time.Second  // how long a Record or Flush waits for it
-	lockStale   = 30 * time.Second // a lock file older than this was left by a process that died
 	lockRetries = 50 * time.Millisecond
 )
 
-// lock takes the lock file and returns how to release it.
+// lockWait is how long a Record or Flush waits for the lock; a variable
+// so a test can shorten it.
+var lockWait = 5 * time.Second
+
+// lock takes the lock and returns how to release it.
 func (s *Store) lock() (func(), error) {
 	dir, err := s.dir()
 	if err != nil {
@@ -256,20 +281,13 @@ func (s *Store) lock() (func(), error) {
 	p := filepath.Join(dir, lockName)
 	deadline := time.Now().Add(lockWait)
 	for {
-		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-		if err == nil {
-			fmt.Fprintf(f, "%d\n", os.Getpid())
-			f.Close()
-			return func() { os.Remove(p) }, nil
-		}
-		if !errors.Is(err, fs.ErrExist) {
+		unlock, busy, err := tryLock(p)
+		switch {
+		case err != nil:
 			return nil, fmt.Errorf("cardtag: %w", err)
-		}
-		if fi, err := os.Stat(p); err == nil && time.Since(fi.ModTime()) > lockStale {
-			os.Remove(p)
-			continue
-		}
-		if time.Now().After(deadline) {
+		case !busy:
+			return unlock, nil
+		case time.Now().After(deadline):
 			return nil, fmt.Errorf("cardtag: another ww-multiplayer holds %s", p)
 		}
 		time.Sleep(lockRetries)
@@ -419,8 +437,11 @@ func (s *Store) Record(userDir string, w bind.Written, rep log.Reporter) {
 		var sl *savefile.Slot
 		if p.Card, sl, cardErr = findCard(userDir, n, nameHash, w.File.ClearCount); cardErr == nil {
 			p.CardDate, p.CardSum = imgDate(&sl.Image), imgSum(&sl.Image)
-			if p.CardDate == 0 || p.CardDate < w.File.DateIPL {
-				cardErr = errNotOnCard // the card holds an older save than the one the game loaded
+			if p.CardDate != w.File.DateIPL {
+				// Not the copy the game loaded: saved in game since (the card
+				// copy is newer), or a save state of another playthrough of a
+				// file of this name. Save dates can't tell those apart.
+				cardErr = errNotOnCard
 			}
 		}
 	}
@@ -429,6 +450,7 @@ func (s *Store) Record(userDir string, w bind.Written, rep log.Reporter) {
 	defer s.mu.Unlock()
 	unlock, err := s.lock()
 	if err != nil {
+		s.forget = append(s.forget, keyOf(w))
 		s.logf(rep, log.Warn, "co-op: could not keep the pending co-op tag: %v. Save in game so your memory card keeps it.", err)
 		return
 	}
@@ -459,6 +481,34 @@ func (s *Store) Record(userDir string, w bind.Written, rep log.Reporter) {
 	}
 }
 
+// Forget drops the pending tags of the file w wrote to, in every user
+// folder: a newer write to it that can't be recorded (its Dolphin's user
+// folder can't be told) makes an older pending tag of it wrong for the
+// card.
+func (s *Store) Forget(w bind.Written, rep log.Reporter) {
+	k := keyOf(w)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := s.lock()
+	if err != nil {
+		s.forget = append(s.forget, k)
+		return
+	}
+	defer unlock()
+	ps, err := s.load()
+	if err != nil {
+		s.logf(rep, log.Warn, "co-op: %v", err)
+	}
+	n := len(ps)
+	if ps = slices.DeleteFunc(ps, k.matches); len(ps) != n {
+		if err := s.save(ps); err != nil {
+			s.forget = append(s.forget, k)
+			return
+		}
+		s.logf(rep, log.Info, "co-op: dropped the earlier pending co-op tag of file %d: a newer change to it can't reach the card.", k.slot+1)
+	}
+}
+
 // Flush writes the pending tags into their cards, if no Dolphin runs, and
 // keeps only the ones that must wait (a Dolphin started meanwhile, the
 // backup or the file write failed), each at most maxAttempts flushes.
@@ -475,6 +525,16 @@ func (s *Store) Flush(rep log.Reporter) {
 	ps, err := s.load()
 	if err != nil {
 		s.logf(rep, log.Warn, "co-op: %v", err)
+	}
+	if len(s.forget) > 0 {
+		for _, k := range s.forget {
+			ps = slices.DeleteFunc(ps, k.matches)
+		}
+		if err := s.save(ps); err != nil {
+			s.logf(rep, log.Warn, "co-op: could not update the pending co-op tags: %v", err)
+			return
+		}
+		s.forget = nil
 	}
 	if len(ps) == 0 {
 		return

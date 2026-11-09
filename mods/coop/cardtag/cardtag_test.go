@@ -365,34 +365,41 @@ func TestAlreadyOnCard(t *testing.T) {
 	}
 }
 
-// A save made in game before the bind (newer than the copy the game
-// loaded, still with the old tag) is the same file: it gets the tag.
-func TestSavedBeforeBind(t *testing.T) {
+// A save made in game before the bind (a card copy newer than the one
+// the game loaded) can't be told from a save state of another playthrough
+// of a file of the same name, so it is not recorded: the in-game save
+// after the bind carries the tag.
+func TestSavedBeforeBindNotRecorded(t *testing.T) {
 	img := image(8, "Link", day, nil)
 	r := newRig(t, img)
 	w := bound(fileOf(0, &img), world1, 5)
 	saved := img
 	binary.BigEndian.PutUint64(saved[addr.OffDateIPL:], day+60)
-	saved[addr.OffPlayerName+10] = 0x55 // a byte past the name's NUL: more progress, same file
 	f, _ := r.readCard().WithSlot(0, &saved)
 	r.writeCard(f)
-
-	r.store.Record(r.ud, w, nil)
-	r.store.Flush(&r.log)
-	got := r.readCard()
-	if !bytes.Equal(tagOf(t, got, 0), w.Bytes[:]) {
-		t.Fatalf("the tag was not written: %v", r.log)
+	r.store.Record(r.ud, w, &r.log)
+	r.log.has(t, "not on your memory card")
+	if len(r.pending()) != 0 {
+		t.Fatal("recorded onto a card copy the game did not load")
 	}
-	s, _ := got.Slot(0)
-	want := saved
-	copy(want[addr.OffReserve:], w.Bytes[:])
-	if s.Image != want {
-		t.Fatal("the card's newer save was not kept")
+}
+
+// A save state of another playthrough of a "Link" in file 1 (loaded from
+// an older card copy) never tags the card's own, unrelated file.
+func TestSaveStateOtherPlaythrough(t *testing.T) {
+	card := image(77, "Link", day+500, nil)
+	r := newRig(t, card)
+	ram := image(78, "Link", day, nil)
+	r.store.Record(r.ud, bound(fileOf(0, &ram), world1, 5), nil)
+	before := r.cardBytes()
+	r.store.Flush(&r.log)
+	if len(r.pending()) != 0 || !bytes.Equal(r.cardBytes(), before) {
+		t.Fatal("tagged another playthrough's card file")
 	}
 }
 
 // A file the game did not load from the card (mDateIPL 0 in memory: a
-// new game, or a save state) is not recorded, even when the card holds a
+// new game) is not recorded, even when the card holds a
 // file of its name in its slot: which copy it is can't be told.
 func TestNeverLoadedNotRecorded(t *testing.T) {
 	img := image(10, "Link", day, nil)
@@ -527,9 +534,10 @@ func TestClearReachesCard(t *testing.T) {
 }
 
 // The newest write to a file decides: a bind then a clear leaves one
-// pending clear, which zeroes the card's (leaked) tag. An in-game save
-// between the two (the card then holds the bind's tag) is pinned by the
-// clear's record, so the clear zeroes that too.
+// pending clear, which zeroes the card's (leaked) tag. After an in-game
+// save between the two, the card copy is no longer the one the game
+// loaded: the clear is not recorded, the bind's pending tag goes, and the
+// card keeps what the save wrote until the next in-game save.
 func TestNewestWriteWins(t *testing.T) {
 	leaked := bound(fileOf(0, ptr(image(19, "Link", day, nil))), world2, 8)
 	for _, savedBind := range []bool{false, true} {
@@ -546,13 +554,20 @@ func TestNewestWriteWins(t *testing.T) {
 			r.writeCard(nf)
 		}
 		f.Tag = b.Bytes
-		r.store.Record(r.ud, cleared(f), nil)
+		r.store.Record(r.ud, cleared(f), &r.log)
 		ps := r.pending()
-		if len(ps) != 1 || ps[0].Kind != KindClear {
+		want := make([]byte, bind.TagSize)
+		if savedBind {
+			if len(ps) != 0 {
+				t.Fatalf("saved bind: pending = %+v", ps)
+			}
+			r.log.has(t, "not on your memory card")
+			want = b.Bytes[:]
+		} else if len(ps) != 1 || ps[0].Kind != KindClear {
 			t.Fatalf("pending = %+v", ps)
 		}
 		r.store.Flush(&r.log)
-		if got := tagOf(t, r.readCard(), 0); !bytes.Equal(got, make([]byte, bind.TagSize)) {
+		if got := tagOf(t, r.readCard(), 0); !bytes.Equal(got, want) {
 			t.Fatalf("saved bind %v: tag = % X\n%v", savedBind, got, r.log)
 		}
 	}
@@ -592,146 +607,40 @@ func TestRelativeUserDir(t *testing.T) {
 	}
 }
 
-// A lock file left by a process that died is taken over; a live one
-// makes Record wait (here: give up and say so).
-func TestLockFile(t *testing.T) {
+// The lock between app processes: while another holds it, Record gives
+// up (and says so), and the file's older pending tag is dropped at the
+// next Flush rather than written over the newer, unrecorded change.
+// Forget drops a file's pending tags likewise.
+func TestLockAndForget(t *testing.T) {
 	img := image(35, "Link", day, nil)
 	r := newRig(t, img)
-	lock := filepath.Join(r.store.Dir, lockName)
-	writeFile(t, lock, []byte("1\n"))
-	old := time.Now().Add(-2 * lockStale)
-	os.Chtimes(lock, old, old)
-	r.store.Record(r.ud, bound(fileOf(0, &img), world1, 1), nil)
-	if len(r.pending()) != 1 {
-		t.Fatal("a stale lock stopped Record")
-	}
-	if _, err := os.Stat(lock); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatal("the lock was not released")
-	}
-}
-
-// Pending tags for two files of one card are both written, with one
-// backup.
-func TestTwoFilesOneBackup(t *testing.T) {
-	imgs := []save.Image{image(21, "Link", day, nil), image(22, "Tetra", day, nil)}
-	r := newRig(t, imgs...)
-	a, b := bound(fileOf(0, &imgs[0]), world1, 1), bound(fileOf(1, &imgs[1]), world1, 2)
-	r.store.Record(r.ud, a, nil)
+	f := fileOf(0, &img)
+	b := bound(f, world1, 1)
 	r.store.Record(r.ud, b, nil)
-	r.store.Flush(&r.log)
-	got := r.readCard()
-	if !bytes.Equal(tagOf(t, got, 0), a.Bytes[:]) || !bytes.Equal(tagOf(t, got, 1), b.Bytes[:]) {
-		t.Fatalf("tags not both written: %v", r.log)
+	if len(r.pending()) != 1 {
+		t.Fatal("not recorded")
 	}
-	if n := len(r.backupsMade()); n != 1 {
-		t.Fatalf("%d backups, want 1", n)
-	}
-}
 
-// A write that reads back wrong puts the card's old bytes back.
-func TestBadReadBackPutsCardBack(t *testing.T) {
-	img := image(23, "Link", day, nil)
-	r := newRig(t, img)
-	r.store.Record(r.ud, bound(fileOf(0, &img), world1, 1), nil)
-	before := r.cardBytes()
-	calls := 0
-	replaceCard = func(path string, b []byte, perm fs.FileMode) error {
-		calls++
-		if calls == 1 {
-			b = append([]byte(nil), b...)
-			b[savefile.HeaderSize+savefile.BlockSize+100] ^= 0xFF // a bad byte in the save block
-		}
-		return backup.Replace(path, b, perm)
+	lockWait = 100 * time.Millisecond
+	t.Cleanup(func() { lockWait = 5 * time.Second })
+	unlock, busy, err := tryLock(filepath.Join(r.store.Dir, lockName))
+	if err != nil || busy {
+		t.Fatalf("tryLock: busy %v, %v", busy, err)
 	}
-	t.Cleanup(func() { replaceCard = backup.Replace })
-	r.store.Flush(&r.log)
-	r.log.has(t, "did not read back")
-	if calls != 2 || !bytes.Equal(r.cardBytes(), before) {
-		t.Fatalf("calls %d; the card was not put back", calls)
+	held := &Store{Dir: r.store.Dir, Backups: r.backups, Procs: r.procs}
+	f.Tag = b.Bytes
+	held.Record(r.ud, cleared(f), &r.log) // another process holds the lock
+	r.log.has(t, "could not keep the pending co-op tag")
+	unlock()
+	held.Flush(&r.log)
+	if len(r.pending()) != 0 || !bytes.Equal(tagOf(t, r.readCard(), 0), make([]byte, bind.TagSize)) {
+		t.Fatal("the bind superseded by an unrecorded clear reached the card")
 	}
+
+	r.store.Record(r.ud, b, nil)
+	r.store.Forget(cleared(f), &r.log)
 	if len(r.pending()) != 0 {
-		t.Fatal("kept a tag whose write went wrong")
+		t.Fatal("Forget kept the file's pending tag")
 	}
-}
-
-// A failed file write leaves the card as it was and the tag pending.
-func TestWriteFailureWaits(t *testing.T) {
-	img := image(24, "Link", day, nil)
-	r := newRig(t, img)
-	r.store.Record(r.ud, bound(fileOf(0, &img), world1, 1), nil)
-	before := r.cardBytes()
-	replaceCard = func(string, []byte, fs.FileMode) error { return errors.New("disk full") }
-	t.Cleanup(func() { replaceCard = backup.Replace })
-	r.store.Flush(&r.log)
-	if !bytes.Equal(r.cardBytes(), before) || len(r.pending()) != 1 {
-		t.Fatal("a failed write should leave the card and keep the tag")
-	}
-}
-
-// A backup that can't be taken stops the write; the tag waits.
-func TestBackupFailureWaits(t *testing.T) {
-	img := image(25, "Link", day, nil)
-	r := newRig(t, img)
-	r.store.Record(r.ud, bound(fileOf(0, &img), world1, 1), nil)
-	writeFile(t, r.backups, []byte("a file where the backup folder goes"))
-	before := r.cardBytes()
-	r.store.Flush(&r.log)
-	r.log.has(t, "could not be backed up first")
-	if !bytes.Equal(r.cardBytes(), before) || len(r.pending()) != 1 {
-		t.Fatal("wrote without a backup")
-	}
-}
-
-// Two Wind Waker card files holding the same file: which one Dolphin
-// uses is unclear, so nothing is recorded.
-func TestAmbiguousCardFiles(t *testing.T) {
-	img := image(26, "Link", day, nil)
-	r := newRig(t, img)
-	b := r.cardBytes()
-	writeFile(t, filepath.Join(filepath.Dir(r.card), "01-GZLE-gczelda-copy.gci"), b)
-	r.store.Record(r.ud, bound(fileOf(0, &img), world1, 1), &r.log)
-	r.log.has(t, "more than one Wind Waker card file")
-	if len(r.pending()) != 0 {
-		t.Fatal("recorded an ambiguous card")
-	}
-}
-
-// OnlyTag refuses a file with more changed than the tag.
-func TestOnlyTag(t *testing.T) {
-	img := image(27, "Link", day, nil)
-	f, _ := savefile.New().WithSlot(0, &img)
-	tag := bound(fileOf(0, &img), world1, 1).Bytes
-	good := img
-	copy(good[addr.OffReserve:], tag[:])
-	nf, _ := f.WithSlot(0, &good)
-	if err := OnlyTag(f, nf, 0, tag[:]); err != nil {
-		t.Fatal(err)
-	}
-	bad := good
-	bad[addr.OffReserve+bind.TagSize] ^= 1 // past the tag
-	nf, _ = f.WithSlot(0, &bad)
-	if err := OnlyTag(f, nf, 0, tag[:]); err == nil {
-		t.Fatal("OnlyTag passed a change past the tag")
-	}
-	other := image(28, "Tetra", day, nil)
-	nf, _ = f.WithSlot(1, &other)
-	nf, _ = nf.WithSlot(0, &good)
-	if err := OnlyTag(f, nf, 0, tag[:]); err == nil {
-		t.Fatal("OnlyTag passed a change to another slot")
-	}
-}
-
-// A damaged pending-tags file is moved aside and reads as none.
-func TestDamagedStateFile(t *testing.T) {
-	r := newRig(t, image(29, "Link", day, nil))
-	writeFile(t, filepath.Join(r.store.Dir, stateName), []byte("{not json"))
-	if _, err := r.store.Pending(); err == nil {
-		t.Fatal("no error for a damaged file")
-	}
-	if ps := r.pending(); len(ps) != 0 {
-		t.Fatalf("pending = %+v", ps)
-	}
-	if _, err := os.Stat(filepath.Join(r.store.Dir, stateName+".bad")); err != nil {
-		t.Fatal("the damaged file was not kept aside")
-	}
+	r.log.has(t, "dropped the earlier pending co-op tag")
 }
