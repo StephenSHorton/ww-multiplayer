@@ -113,13 +113,16 @@ type Coop struct {
 	Disabled  bool   `json:"disabled,omitempty"`
 	LastWorld string `json:"lastWorld"`
 	DryRun    bool   `json:"dryRun"`
-	// Merge, LiveSwitchesOff and ISO are the panel's Advanced choices:
-	// --coop-merge, --coop-live-switches=off and --coop-iso ("" for the
+	// MergeOff, LiveSwitchesOff and ISO are the panel's Advanced choices:
+	// merging off (it is on by default for the app's hosts, so a joiner
+	// with progress the world lacks, or a new game against a progressed
+	// world, binds: docs/coop-just-works.md §5; an older config's "merge"
+	// is ignored), --coop-live-switches=off and --coop-iso ("" for the
 	// disc patch last wrote). Live switches are on by default since
 	// v0.6.1, so the saved choice is the off one: a config from before,
 	// whose "liveSwitches" was saved only when on (omitempty), reads as
 	// on either way, and no old setting turns them off.
-	Merge           bool   `json:"merge,omitempty"`
+	MergeOff        bool   `json:"mergeOff,omitempty"`
 	LiveSwitchesOff bool   `json:"liveSwitchesOff,omitempty"`
 	ISO             string `json:"iso,omitempty"`
 	// BossKill and Refresh are the save-file panel's relay choices, each
