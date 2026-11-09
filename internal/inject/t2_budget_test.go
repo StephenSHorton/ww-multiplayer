@@ -368,3 +368,46 @@ func TestSeachartShimLoadsVisWord(t *testing.T) {
 		t.Error("blob.go T2Bytes has no seachart_shim run (J2DScreen::draw, lis/lwz of the sea chart word, cmpwi, beq, r30/r31, bctrl): the blob is stale against hooks.c")
 	}
 }
+
+// TestClipSetupHookSite: the widescreen clipper hook (docs/design/
+// widescreen-culling.md section 5). build.py hooks clip_setup_hook at
+// 0x8017BF90 (view_setup's `bl mDoLib_clipper::setup`, DOL file offset
+// 0x178ED0), and the committed blob's DOLPatches turn that vanilla bl
+// (0x4BE9B72D) into a bl (opcode 18, LK = 1) whose target lies in T2.
+// Bytes the diff leaves out are the vanilla ones.
+func TestClipSetupHookSite(t *testing.T) {
+	const (
+		site    = 0x8017BF90
+		fileOff = 0x178ED0
+		vanilla = 0x4BE9B72D
+	)
+	py, err := os.ReadFile(buildPy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^\s*proj\.hook_branchlink\("clip_setup_hook",\s*0x8017BF90\)`).Match(py) {
+		t.Fatal(`build.py does not hook clip_setup_hook at 0x8017BF90 (view_setup's bl mDoLib_clipper::setup)`)
+	}
+	word := [4]byte{vanilla >> 24, vanilla >> 16 & 0xFF, vanilla >> 8 & 0xFF, vanilla & 0xFF}
+	patched := false
+	for _, p := range DOLPatches {
+		for i, b := range p.Bytes {
+			if off := p.FileOff + uint32(i); off >= fileOff && off < fileOff+4 {
+				word[off-fileOff] = b
+				patched = true
+			}
+		}
+	}
+	if !patched {
+		t.Fatal("DOLPatches holds no change at file offset 0x178ED0: the blob was built without the clipper hook; rebuild it (cd inject && python build.py, scripts/extract_blob.py)")
+	}
+	w := binary.BigEndian.Uint32(word[:])
+	if w>>26 != 18 || w&1 != 1 || w&2 != 0 {
+		t.Fatalf("0x%08X at 0x%08X is not a bl", w, site)
+	}
+	li := int32(w&0x03FFFFFC) << 6 >> 6 // sign-extended LI field
+	target := uint32(int64(site) + int64(li))
+	if target < T2Address || target >= T2End {
+		t.Errorf("clip hook bl lands at 0x%08X, outside T2 0x%08X..0x%08X", target, T2Address, T2End)
+	}
+}
