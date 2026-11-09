@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/placename"
 	"github.com/StephenSHorton/ww-multiplayer/internal/seachart"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
@@ -287,6 +288,9 @@ func (b *Bridge) Start(anyway bool) (err error) {
 	if o := b.launchOptions(); !o.Manual && (o.Exe == "" || o.ISO == "") && b.wouldLaunch(o) {
 		return errors.New("choose your Dolphin and your patched disc in Setup first, or tick \"I'll start Dolphin myself\"")
 	}
+	if err := b.checkDiscVersion(); err != nil {
+		return err
+	}
 	if anyway {
 		return b.ctrl.StartAnyway()
 	}
@@ -301,6 +305,30 @@ func (b *Bridge) Start(anyway bool) (err error) {
 		}
 	}
 	return err
+}
+
+// ErrStaleDisc is the error of Start and LaunchDolphin when the patched
+// disc Setup saved was patched by another version of this app: its mod
+// would not match this build's, and Dolphin would boot without it. The
+// frontend recognises the text (staleDiscPrefix) and offers "Re-patch your
+// disc".
+var ErrStaleDisc = errors.New(staleDiscPrefix + " was patched by another version of this app, so its mod doesn't match this one and the game would run without it. Re-patch your disc, then Start")
+
+const staleDiscPrefix = "Your patched disc"
+
+// checkDiscVersion refuses a Start that would launch this player's Dolphin
+// on a disc another version patched (an update just installed and its
+// re-patch not done or interrupted). A player who starts Dolphin
+// themselves, a missing or unreadable disc (Setup's business) pass.
+func (b *Bridge) checkDiscVersion() error {
+	c, _ := b.effective()
+	if !c.Dolphin.LaunchOnStart || c.ISO.Patched == "" || !isFile(c.ISO.Patched) {
+		return nil
+	}
+	if st, err := b.inspect(c.ISO.Patched); err == nil && st == patch.OtherVersion {
+		return ErrStaleDisc
+	}
+	return nil
 }
 
 // wouldLaunch says Start would launch this player's Dolphin (no
@@ -334,6 +362,9 @@ func (b *Bridge) SetStartDolphinMyself(on bool) (err error) {
 // "Dolphin closed" banner's Launch, the launch dialog's Try again).
 func (b *Bridge) LaunchDolphin() (err error) {
 	defer b.maskErr(&err)
+	if err := b.checkDiscVersion(); err != nil {
+		return err
+	}
 	return b.ctrl.LaunchDolphin()
 }
 
