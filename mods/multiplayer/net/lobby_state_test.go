@@ -805,3 +805,73 @@ func TestLobbyMachineCoopStatusFits(t *testing.T) {
 		t.Fatalf("%d rows carry a co-op status, want the host's alone", n)
 	}
 }
+
+// TestLobbyMachineLateWorld: GO goes out at Start with no world and the
+// co-op world follows in a second GO. The lobby is in game after the
+// first; the second reaches everyone, replaces what a rejoin or a late
+// joiner is told, and a repeat (a retried send) changes nothing.
+func TestLobbyMachineLateWorld(t *testing.T) {
+	m := testMachine(time.Minute)
+	t0 := time.Unix(0, 0)
+	const w1, w2 = "0123456789abcdef", "fedcba9876543210"
+	mustJoin(t, m, 1, "Host", true, LobbyHelloBody{})
+	jo := mustJoin(t, m, 2, "Jo", false, LobbyHelloBody{})
+	m.message(1, LobbySettings, []byte(`{"coop":"new"}`))
+	m.message(1, LobbyStart, nil)
+
+	outs := m.message(1, LobbyGo, []byte(`{}`))
+	if m.phase != PhaseInGame {
+		t.Fatalf("phase %q after the empty GO", m.phase)
+	}
+	if o, ok := findOut(outs, lobbyAll, LobbyGo); !ok || o.body.(LobbyGoBody).World != "" {
+		t.Fatalf("empty GO outs %+v", outs)
+	}
+	// A repeat of the empty GO (a retry) is quiet.
+	if outs := m.message(1, LobbyGo, []byte(`{}`)); len(outs) != 0 {
+		t.Fatalf("repeated empty GO: %+v", outs)
+	}
+	// A joiner is only a joiner: it can't announce a world.
+	if outs := m.message(2, LobbyGo, []byte(`{"world":"`+w1+`"}`)); outs[0].body.(LobbyNoticeBody).Code != NoticeNotHost {
+		t.Fatalf("joiner GO: %+v", outs)
+	}
+	if outs := m.message(1, LobbyGo, []byte(`{"world":"../x"}`)); outs[0].body.(LobbyNoticeBody).Code != NoticeBadMessage {
+		t.Fatalf("bad world: %+v", outs)
+	}
+
+	// A rejoin and a late joiner before the world get the empty GO.
+	m.drop(2, t0)
+	_, outs = m.hello(3, "Jo", false, LobbyHelloBody{Token: jo.token}, t0)
+	if o, ok := findOut(outs, 3, LobbyGo); !ok || o.body.(LobbyGoBody).World != "" {
+		t.Fatalf("reclaim before the world: %+v", outs)
+	}
+
+	// The world follows: everyone is told, the phase stays.
+	outs = m.message(1, LobbyGo, []byte(`{"world":"`+w1+`"}`))
+	if o, ok := findOut(outs, lobbyAll, LobbyGo); !ok || o.body.(LobbyGoBody).World != w1 || m.phase != PhaseInGame {
+		t.Fatalf("late world outs %+v, phase %q", outs, m.phase)
+	}
+	// Repeats of it, and a stale empty GO, change nothing; another world is refused.
+	if outs := m.message(1, LobbyGo, []byte(`{"world":"`+w1+`"}`)); len(outs) != 0 {
+		t.Fatalf("repeated world: %+v", outs)
+	}
+	if outs := m.message(1, LobbyGo, []byte(`{}`)); len(outs) != 0 || m.goBody.World != w1 {
+		t.Fatalf("empty GO after the world: %+v, goBody %+v", outs, m.goBody)
+	}
+	if outs := m.message(1, LobbyGo, []byte(`{"world":"`+w2+`"}`)); outs[0].body.(LobbyNoticeBody).Code != NoticeWrongPhase || m.goBody.World != w1 {
+		t.Fatalf("a second world: %+v", outs)
+	}
+
+	// A rejoin after the announcement, and a late joiner, get the world.
+	m.drop(3, t0)
+	_, outs = m.hello(4, "Jo", false, LobbyHelloBody{Token: jo.token}, t0)
+	if !subsInOrder(outs, 4, LobbyWelcome, LobbyStart, LobbyGo) {
+		t.Fatalf("reclaim after the world: %+v", outs)
+	}
+	if o, _ := findOut(outs, 4, LobbyGo); o.body.(LobbyGoBody).World != w1 {
+		t.Fatalf("replayed GO %+v", o.body)
+	}
+	_, outs = m.hello(5, "Late", false, LobbyHelloBody{}, t0)
+	if o, ok := findOut(outs, 5, LobbyGo); !ok || o.body.(LobbyGoBody).World != w1 {
+		t.Fatalf("late joiner after the world: %+v", outs)
+	}
+}
