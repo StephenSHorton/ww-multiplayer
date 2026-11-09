@@ -63,7 +63,7 @@ func (e *Engine) HostLobby(ctx context.Context, cancel context.CancelFunc, o ses
 	for _, ip := range ips {
 		log.Logf(out, log.Info, "  %s", ip)
 	}
-	return e.runLobby(ctx, cancel, hostDialAddr(o.ListenHost, port), name, o.Color, "", o.LaunchOptions, out, ac, func() {
+	return e.runLobby(ctx, cancel, hostDialAddr(o.ListenHost, port), name, o.Color, "", o.LaunchOptions, o.PrepareFn, out, ac, func() {
 		if e.ls != nil {
 			e.ls.Begin(string(session.RoleHost), name, ips)
 			e.ls.SetServer(srv)
@@ -95,7 +95,7 @@ func (e *Engine) JoinLobby(ctx context.Context, cancel context.CancelFunc, o ses
 	log.Logf(out, log.OK, "Joining the lobby at %s as %q.", addr, name)
 	ac, _ := e.lobbyCoop(ctx, e.LobbyEnv(out, name, o.CoopFn, o.LaunchOptions))
 	defer ac.Stop()
-	err := e.runLobby(ctx, cancel, addr, name, o.Color, o.OwnerKey, o.LaunchOptions, out, ac, func() {
+	err := e.runLobby(ctx, cancel, addr, name, o.Color, o.OwnerKey, o.LaunchOptions, o.PrepareFn, out, ac, func() {
 		if e.ls != nil {
 			e.ls.Begin(string(session.RoleJoin), name, nil)
 		}
@@ -113,7 +113,7 @@ func (e *Engine) JoinLobby(ctx context.Context, cancel context.CancelFunc, o ses
 // server too; it is stopped, its pipelines ended and the mailbox reset,
 // before runLobby returns, so a host's server stops after it. A fatal
 // pipelines error (a version mismatch) ends the session through cancel.
-func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, name string, color *playercolor.Color, ownerKey string, launch func() session.LaunchOptions, out session.LobbyOutput, ac LobbyCoop, beginGame func()) (err error) {
+func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, name string, color *playercolor.Color, ownerKey string, launch func() session.LaunchOptions, prepare func(context.Context) error, out session.LobbyOutput, ac LobbyCoop, beginGame func()) (err error) {
 	_, noCoop := ac.(noLobbyCoop)
 	hasCoop := !noCoop
 	hello := network.LobbyHelloBody{App: e.version, OS: runtime.GOOS, Dolphin: network.DolphinNone, OwnerKey: ownerKey}
@@ -124,9 +124,20 @@ func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, 
 	lc.SetMods(e.mods)
 	lc.Client().OnLog = func(s string) { out.Log(log.Net, s) }
 	lc.Client().OnChat = out.Chat
+	hostCoop := "" // the host's co-op status line last logged
 	lc.OnState = func(st network.LobbyStateBody) {
 		w, _ := lc.Welcome()
 		out.LobbyState(lobbyView(st, w))
+		// Another player's host says why co-op waits or is off: the
+		// session log keeps it too (the host logs its own reasons).
+		for _, m := range st.Members {
+			if m.Host && m.ID != w.Member && m.CoopStatus != hostCoop {
+				hostCoop = m.CoopStatus
+				if hostCoop != "" {
+					out.Log(log.Info, "co-op: "+hostCoop)
+				}
+			}
+		}
 		if st.Phase != network.PhaseLobby {
 			ac.OnSettings(st.Settings)
 		}
@@ -149,6 +160,7 @@ func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, 
 		game = NewGameRunner(e.game, launch, name, addr, out,
 			func(state string) { _ = lc.SetDolphin(state) },
 			func(error) { cancel() })
+		game.SetPrepare(prepare)
 		var once sync.Once
 		startGame := func() {
 			once.Do(func() {
@@ -177,11 +189,10 @@ func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, 
 		lc.OnStart = func(b network.LobbyStartBody) {
 			out.LobbyStart(lobbySettings(b.Settings))
 			startGame()
+			goIfHost(gctx, lc, b.Settings, hasCoop, out)
 			if CoopOn(b.Settings) && hasCoop && isHost(lc) {
-				ac.OnStart(b.Settings) // GO once the world is open
-				return
+				ac.OnStart(b.Settings) // the world is announced (a second GO) once it is open
 			}
-			goIfHost(lc, b.Settings, out)
 		}
 	} else {
 		lc.OnStart = func(b network.LobbyStartBody) { out.LobbyStart(lobbySettings(b.Settings)) }
@@ -238,19 +249,50 @@ func linkTracker(report func(session.LobbyLink), now func() time.Time) func(up b
 	}
 }
 
-// goIfHost sends GO for the host once its START came back, while co-op
-// is off (no world to open first: design §2.6 step 4). A START replayed
-// after the lobby is in game sends nothing.
-func goIfHost(lc *network.LobbyClient, s network.LobbySettingsBody, out session.LobbyOutput) {
+// goIfHost sends GO for the host once its START came back: at once, with
+// no world, even when co-op is on (the world is announced with a second
+// GO once it is founded: the app's co-op side, appCoop.sendGo). A START
+// replayed after the lobby is in game sends nothing. The send runs beside
+// the lobby connection's reads and is retried (SendGo).
+func goIfHost(ctx context.Context, lc *network.LobbyClient, s network.LobbySettingsBody, hasCoop bool, out session.LobbyOutput) {
 	st, ok := lc.State()
 	if !ok || st.Phase != network.PhaseStarting || !isHost(lc) {
 		return
 	}
-	if CoopOn(s) {
+	if CoopOn(s) && !hasCoop {
 		log.Logf(out, log.Warn, "co-op: this build has no co-op side here; the session goes on without co-op.")
 	}
-	if err := lc.Go(""); err != nil {
-		log.Logf(out, log.Warn, "Couldn't tell the players to go: %v", err)
+	go SendGo(ctx, lc, "", out, nil)
+}
+
+// goRetryMax is the longest SendGo waits between two tries.
+const goRetryMax = 4 * time.Second
+
+// SendGo sends the host's GO (world "" for none) and tries again until
+// the lobby connection took it or ctx ends: a send fails while the
+// connection is down (a reconnect is on its way), and a lost GO would
+// leave every window on "Starting". The server accepts a repeat. sleep
+// waits between tries (nil: a real wait that ctx ends).
+func SendGo(ctx context.Context, lc *network.LobbyClient, world string, out log.Reporter, sleep func(context.Context, time.Duration) error) {
+	if sleep == nil {
+		sleep = network.SleepCtx
+	}
+	wait := 250 * time.Millisecond
+	for tries := 0; ; tries++ {
+		if ctx.Err() != nil {
+			return
+		}
+		err := lc.Go(world)
+		if err == nil {
+			return
+		}
+		if tries == 0 {
+			log.Logf(out, log.Warn, "Couldn't tell the players to go: %v (trying again)", err)
+		}
+		sleep(ctx, wait)
+		if wait *= 2; wait > goRetryMax {
+			wait = goRetryMax
+		}
 	}
 }
 
@@ -306,7 +348,7 @@ func lobbyView(st network.LobbyStateBody, w network.LobbyWelcomeBody) session.Lo
 	for _, m := range st.Members {
 		c, _ := playercolor.Parse(m.Color)
 		l.Members = append(l.Members, session.LobbyMember{ID: m.ID, Name: m.Name, Color: c, Ready: m.Ready, Host: m.Host,
-			Dolphin: m.Dolphin, File: m.File, RTT: time.Duration(m.RTTMs) * time.Millisecond, Via: m.Via, Away: m.Away})
+			Dolphin: m.Dolphin, File: m.File, CoopStatus: m.CoopStatus, RTT: time.Duration(m.RTTMs) * time.Millisecond, Via: m.Via, Away: m.Away, App: m.App})
 	}
 	// Our row says whether we are host now: the host's slot can pass to
 	// us after WELCOME (docs/10 §3).

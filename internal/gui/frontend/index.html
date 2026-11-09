@@ -77,6 +77,23 @@
 		<p class="error" id="upd-error" role="alert"></p>
 	</div>
 
+	<!-- the disc update's line (disc.js), on Home and the Session screen -->
+	<div class="card updbar discbar" id="discbar" role="status" hidden>
+		<div class="updrow">
+			<span class="spin" id="disc-spin" hidden></span>
+			<p class="updtext"><b id="disc-title"></b> <span id="disc-text"></span></p>
+			<div class="updbtns">
+				<button class="btn primary" type="button" id="disc-pick" hidden>Choose your disc</button>
+				<button class="btn primary" type="button" id="disc-retry" hidden>Try again</button>
+			</div>
+		</div>
+		<div class="meterrow" id="disc-progress" hidden>
+			<div class="meter" role="progressbar" aria-label="Updating your disc"><i id="disc-meter" class="busy"></i></div>
+			<span class="pct" id="disc-pct"></span>
+		</div>
+		<p class="error" id="disc-error" role="alert"></p>
+	</div>
+
 	<!-- Home: who you are, then Host or Join -->
 	<section id="home" class="screen" hidden>
 		<header class="pagehead">
@@ -391,6 +408,7 @@
 				<div class="card lobby">
 					<div class="cardhead"><h2 id="members-title">Players</h2><span class="count" id="members-count"></span></div>
 					<ul class="members" id="members"></ul>
+					<small class="hint" id="skew-note" role="status" hidden></small>
 					<div class="mine" id="mine" hidden>
 						<div class="field">
 							<span>Your tunic</span>
@@ -477,9 +495,10 @@
 					<div class="coopbox" id="coop-host">
 						<span class="label">Co-op world</span>
 						<div class="seg" role="radiogroup" aria-label="Co-op world" id="coop-seg">
-							<button type="button" role="radio" data-mode="off" aria-checked="true" title="Play together without a shared world">Off</button>
-							<button type="button" role="radio" data-mode="new" aria-checked="false" title="Found a new world from the file you load after Start">New world</button>
-							<button type="button" role="radio" data-mode="continue" aria-checked="false" title="Go on with a world on this computer">Continue</button>
+							<button type="button" role="radio" data-mode="auto" aria-checked="true" title="The world follows the save you load: its world is continued, or started here from your save">Automatic</button>
+							<button type="button" role="radio" data-mode="off" aria-checked="false" title="Play together without a shared world">Off</button>
+							<button type="button" role="radio" data-mode="new" aria-checked="false" title="Advanced: found a new world from the file you load after Start">New world</button>
+							<button type="button" role="radio" data-mode="continue" aria-checked="false" title="Advanced: go on with a specific world on this computer">Continue</button>
 						</div>
 						<small class="hint" id="coop-mode-hint"></small>
 						<ul class="worlds" id="coop-worlds" role="radiogroup" aria-label="Worlds on this computer" hidden></ul>

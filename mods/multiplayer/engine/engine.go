@@ -8,7 +8,10 @@
 // server argument parsers) and hands the parsed values in.
 package engine
 
-import "github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+import (
+	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
+)
 
 // Config is what an Engine is built from. Package main fills Env,
 // Version, CheatsIni, Coop and Mods; NewTUIEngine adds the status bridge
@@ -31,6 +34,11 @@ type Config struct {
 	// Coop is co-op (package main's until D2 makes it its own mod); nil
 	// runs every session without co-op.
 	Coop CoopApp
+	// CardTags writes the co-op tags waiting for the memory card, if no
+	// Dolphin runs (co-op's cardtag.Store.Flush); a lobby session's game
+	// side calls it before it launches Dolphin and when its Dolphin
+	// closed. Nil writes none.
+	CardTags func(rep log.Reporter)
 	// Mods is this build's client_required mods (wwapi.ModsID): the
 	// sessions' player and lobby connections send their hash, and a
 	// host refuses a joiner with another. The zero Mods sends and checks

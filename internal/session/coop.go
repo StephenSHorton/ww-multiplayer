@@ -16,6 +16,12 @@ import (
 // host's loaded file (--coop=new).
 const CoopWorldNew = "new"
 
+// CoopWorldAuto is CoopOptions.World for the app host's default: the
+// world follows the save the host loads (continue the world it is tied
+// to, adopt one that isn't on this computer, or found one from an untied
+// save).
+const CoopWorldAuto = "auto"
+
 // CoopOptions are a session's co-op choices, the CLI's --coop flags. The
 // zero value is co-op off. A joiner leaves World, Merge and
 // LiveSwitchesOff unset: they are the host's to choose.

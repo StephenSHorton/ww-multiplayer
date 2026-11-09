@@ -126,10 +126,13 @@ const (
 const (
 	CoopOff = "off"
 	CoopNew = "new"
+	// CoopAuto is the app host's default: the world follows the save the
+	// host loads (continue it, adopt its world, or found one from it).
+	CoopAuto = "auto"
 )
 
 // LobbySettingsBody is the host's co-op settings (SETTINGS, and inside
-// STATE and START). Coop is CoopOff, CoopNew or a world ID.
+// STATE and START). Coop is CoopOff, CoopNew, CoopAuto or a world ID.
 type LobbySettingsBody struct {
 	Coop         string `json:"coop"`
 	DryRun       bool   `json:"dryRun"`
@@ -186,8 +189,15 @@ type LobbyMember struct {
 	Host    bool   `json:"host,omitempty"`
 	Dolphin string `json:"dolphin,omitempty"`
 	File    string `json:"file,omitempty"`
-	RTTMs   int    `json:"rttMs,omitempty"`
-	Via     string `json:"via"`
+	// CoopStatus is the member's co-op status line for everyone's window
+	// (the host's: why the founding waits, or why co-op is off this
+	// session); "" for nothing to say.
+	CoopStatus string `json:"coopStatus,omitempty"`
+	RTTMs      int    `json:"rttMs,omitempty"`
+	Via        string `json:"via"`
+	// App is the member's app version, as its HELLO said ("" from a
+	// build before it, and for a CLI row); the lobby compares them.
+	App string `json:"app,omitempty"`
 	// Away: the member's lobby connection dropped and the server holds
 	// its slot for its token (LobbyHoldTimeout).
 	Away bool `json:"away,omitempty"`
@@ -209,6 +219,8 @@ type LobbySetBody struct {
 	Ready   *bool   `json:"ready,omitempty"`
 	Dolphin *string `json:"dolphin,omitempty"`
 	File    *string `json:"file,omitempty"`
+	// CoopStatus sets the member's co-op status line (LobbyMember).
+	CoopStatus *string `json:"coopStatus,omitempty"`
 }
 
 // LobbyStartBody is START.

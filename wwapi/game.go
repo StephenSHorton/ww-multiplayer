@@ -16,6 +16,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/ops"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/player"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/stage"
@@ -31,9 +32,11 @@ const (
 	FastInterval    = time.Second / 30
 )
 
-// The core commands a Game registers. actor.kill and actor.spawn return
-// commands.ErrUnsupported until the C op ring exists (design §5.4).
-// player.warp is player.Warp over the Game's memory (WarpArgs).
+// The core commands a Game registers. actor.kill runs the C runtime's KILL
+// op through the command queue (wwapi/ops, KillArgs) on a blob with the
+// "ops" feature, and returns commands.ErrUnsupported on one without it;
+// actor.spawn returns ErrUnsupported until a SPAWN op exists (design
+// §5.4). player.warp is player.Warp over the Game's memory (WarpArgs).
 const (
 	CmdActorKill  = "core.actor.kill"
 	CmdActorSpawn = "core.actor.spawn"
@@ -50,6 +53,22 @@ const DefaultWarpTimeout = time.Second
 type WarpArgs struct {
 	Pos       [3]float32 `json:"pos"`
 	TimeoutMS int        `json:"timeout_ms,omitempty"`
+}
+
+// DefaultKillTimeout is how long core.actor.kill waits for the C side to
+// run the command when KillArgs.TimeoutMS is 0.
+const DefaultKillTimeout = time.Second
+
+// KillArgs are core.actor.kill's arguments: the actor's process ID, its
+// proc name and, unless nil, its setID. C reads the actor back and refuses
+// (code "mismatch") when the ID now names another actor, "not_found" when
+// it is gone, "refused" for a player or while Link does not exist. Only the
+// actor goes: no save bit is set.
+type KillArgs struct {
+	PID       uint32  `json:"pid"`
+	Proc      int16   `json:"proc"`
+	SetID     *uint16 `json:"set_id,omitempty"`
+	TimeoutMS int     `json:"timeout_ms,omitempty"`
 }
 
 // warpRange is what core.player.warp writes: warp_seq, warp_ack and
@@ -104,6 +123,7 @@ type Game struct {
 	bus   *events.Bus
 	ownsB bool
 	cmds  *commands.Registry
+	ops   *ops.Queue
 	link  *player.Link
 	close func()
 
@@ -168,10 +188,17 @@ func NewGame(m mem.Mem, o GameOptions) (*Game, error) {
 	}
 	g.contract = c
 	g.cmds.SetWriteGate(func() error { return g.Contract().Err() })
-	for _, name := range []string{CmdActorKill, CmdActorSpawn} {
-		if err := g.cmds.Register(name, commands.Spec{Scope: commands.Authority}, commands.Unsupported(name)); err != nil {
-			return nil, err
-		}
+	g.ops = ops.New(m)
+	kill := commands.Unsupported(CmdActorKill)
+	var killWrites []write.Range
+	if c.Features.Has("ops") {
+		kill, killWrites = g.kill, []write.Range{opsRange}
+	}
+	if err := g.cmds.Register(CmdActorKill, commands.Spec{Scope: commands.Authority, Writes: killWrites}, kill); err != nil {
+		return nil, err
+	}
+	if err := g.cmds.Register(CmdActorSpawn, commands.Spec{Scope: commands.Authority}, commands.Unsupported(CmdActorSpawn)); err != nil {
+		return nil, err
 	}
 	if err := g.cmds.Register(CmdPlayerWarp, commands.Spec{Scope: commands.Local, Writes: []write.Range{warpRange}}, g.warp); err != nil {
 		return nil, err
@@ -199,6 +226,49 @@ func (g *Game) warp(_ context.Context, raw json.RawMessage) (commands.Result, er
 	if err := player.Warp(g.m, a.Pos, timeout); err != nil {
 		err = fmt.Errorf("%s: %w", CmdPlayerWarp, err)
 		return commands.Result{Code: "warp_failed", Err: err}, err
+	}
+	return commands.Result{OK: true}, nil
+}
+
+// opsRange is what core.actor.kill writes: the API region's header and
+// rings (the command entry and head; the event read word stays the
+// reader's).
+var opsRange = write.Range{Addr: mailbox.OpsAddr, Len: mailbox.OpsRingEnd}
+
+// Ops is the Game's command queue and event ring (wwapi/ops). It is the
+// one writer of the queue for this game: a mod that runs its own ops
+// submits through it.
+func (g *Game) Ops() *ops.Queue { return g.ops }
+
+// kill is core.actor.kill: the KILL op through the command queue.
+func (g *Game) kill(ctx context.Context, raw json.RawMessage) (commands.Result, error) {
+	var a KillArgs
+	if err := json.Unmarshal(raw, &a); err != nil {
+		err = fmt.Errorf("%s: args: %w", CmdActorKill, err)
+		return commands.Result{Code: "bad_args", Err: err}, err
+	}
+	if a.TimeoutMS < 0 || a.PID == 0xFFFFFFFF {
+		err := fmt.Errorf("%s: bad timeout_ms %d or pid 0x%08X", CmdActorKill, a.TimeoutMS, a.PID)
+		return commands.Result{Code: "bad_args", Err: err}, err
+	}
+	timeout := DefaultKillTimeout
+	if a.TimeoutMS > 0 {
+		timeout = time.Duration(a.TimeoutMS) * time.Millisecond
+	}
+	setID := uint32(0xFFFFFFFF)
+	if a.SetID != nil {
+		setID = uint32(*a.SetID)
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	r, err := g.ops.Run(ctx, ops.OpKill, a.PID, uint32(uint16(a.Proc)), setID)
+	if err != nil {
+		err = fmt.Errorf("%s: %w", CmdActorKill, err)
+		return commands.Result{Code: "kill_failed", Err: err}, err
+	}
+	if r != ops.ROK {
+		err := fmt.Errorf("%s: pid %d: %s", CmdActorKill, a.PID, r)
+		return commands.Result{Code: r.String(), Err: err}, err
 	}
 	return commands.Result{OK: true}, nil
 }
@@ -292,7 +362,25 @@ func (g *Game) Tick() error {
 	for _, e := range evs {
 		_ = g.bus.Emit(e) // only ErrClosed, after Close
 	}
+	g.drainRuntime()
 	return err
+}
+
+// drainRuntime emits the C runtime's events (wwapi/ops) as
+// events.RuntimeEvent, on a blob with the "ops" feature while the
+// contract allows writes (taking them moves the ring's read word).
+func (g *Game) drainRuntime() {
+	c := g.Contract()
+	if !c.WritesAllowed || !c.Features.Has("ops") {
+		return
+	}
+	evs, _, err := g.ops.Events()
+	if err != nil {
+		return
+	}
+	for _, e := range evs {
+		_ = g.bus.Emit(events.RuntimeEvent{N: e.N, Kind: e.Kind, A: e.A, B: e.B, C: e.C})
+	}
 }
 
 // Close stops the watcher, closes the bus if NewGame made it, and releases

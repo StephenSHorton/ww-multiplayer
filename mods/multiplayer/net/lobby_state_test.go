@@ -546,7 +546,7 @@ func FuzzLobbyMachine(f *testing.F) {
 	names := []string{"Ann", "ann", "Bo", "Cy", "Di", strings.Repeat("Z", MaxNameLen)}
 	colors := []string{"", "red", "#D83030", "green", "blue", "#000000", "nonsense", "pink"}
 	bodies := [][]byte{
-		[]byte(`{"color":"red"}`), []byte(`{"color":"#2C5CE1","ready":true}`), []byte(`{"ready":false,"dolphin":"in_game","file":"File 2"}`),
+		[]byte(`{"color":"red"}`), []byte(`{"color":"#2C5CE1","ready":true}`), []byte(`{"ready":false,"dolphin":"in_game","file":"File 2"}`), []byte(`{"coopStatus":"the host is founding the world\u2028"}`),
 		[]byte(`{"coop":"new","dryRun":true}`), []byte(`{"coop":"off","merge":true}`), []byte(`{}`), []byte(`{"world":"0123456789abcdef"}`),
 		[]byte(`{"member":1}`), []byte(`{"member":2}`), []byte(`{"kind":"merge"}`), []byte(`[`), []byte(`{"color":"green"}`),
 		[]byte(`{"file":"` + strings.Repeat("é\"\\", 60) + `"}`),
@@ -724,4 +724,169 @@ func FuzzLobbyMachine(f *testing.F) {
 			check(desc, outs, before)
 		}
 	})
+}
+
+// TestLobbyMachineCoopStatus: a member's co-op status line goes into
+// STATE in every phase (the host's founding speaks while the lobby is
+// starting, and after GO), is clamped and stripped of control
+// characters, an unchanged line sends nothing, and a member who joins
+// late or reclaims its slot sees it in its first STATE.
+func TestLobbyMachineCoopStatus(t *testing.T) {
+	m := testMachine(time.Minute)
+	t0 := time.Unix(0, 0)
+	host := mustJoin(t, m, 1, "Host", true, LobbyHelloBody{})
+	jo := mustJoin(t, m, 2, "Jo", false, LobbyHelloBody{})
+	m.message(1, LobbySettings, []byte(`{"coop":"new"}`))
+	m.message(1, LobbyStart, nil)
+
+	statusOf := func(st LobbyStateBody, id int) string {
+		for _, mb := range st.Members {
+			if mb.ID == id {
+				return mb.CoopStatus
+			}
+		}
+		t.Fatalf("no member %d in %+v", id, st)
+		return ""
+	}
+	outs := m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("The host is founding\x07 the world.")}))
+	o, ok := findOut(outs, lobbyAll, LobbyState)
+	if !ok || statusOf(o.body.(LobbyStateBody), host.id) != "The host is founding the world." {
+		t.Fatalf("SET coopStatus while starting: %+v", outs)
+	}
+	if outs := m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("The host is founding the world.")})); len(outs) != 0 {
+		t.Fatalf("an unchanged status sent %+v", outs)
+	}
+	long := strings.Repeat("é", maxLobbyCoopStatus)
+	m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: &long}))
+	if len(host.coop) > maxLobbyCoopStatus || !strings.HasPrefix(long, host.coop) {
+		t.Fatalf("status not clamped on a rune: %d bytes", len(host.coop))
+	}
+
+	m.message(1, LobbyGo, nil)
+	outs = m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("Co-op is off this session.")}))
+	if o, ok := findOut(outs, lobbyAll, LobbyState); !ok || statusOf(o.body.(LobbyStateBody), host.id) != "Co-op is off this session." {
+		t.Fatalf("SET coopStatus in game: %+v", outs)
+	}
+	m.drop(2, t0)
+	_, outs = m.hello(3, "Jo", false, LobbyHelloBody{Token: jo.token}, t0)
+	if o, ok := findOut(outs, lobbyAll, LobbyState); !ok || statusOf(o.body.(LobbyStateBody), host.id) != "Co-op is off this session." {
+		t.Fatalf("reclaim's STATE: %+v", outs)
+	}
+	if st := m.snapshot(); statusOf(st, jo.id) != "" {
+		t.Fatalf("the joiner has a status it never set: %+v", st)
+	}
+	// Only the host's line is taken: a member's is ignored.
+	if outs := m.message(3, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("mine")})); len(outs) != 0 || jo.coop != "" {
+		t.Fatalf("a member's coopStatus taken: %+v %q", outs, jo.coop)
+	}
+}
+
+// TestLobbyMachineCoopStatusFits: a full lobby whose members all send the
+// longest co-op status that escapes worst (U+2028 is 3 bytes, 6 in JSON)
+// still has a STATE within MaxLobbyBody: only the host's line is kept.
+func TestLobbyMachineCoopStatusFits(t *testing.T) {
+	m := testMachine(time.Minute)
+	worst := strings.Repeat("\u2028", maxLobbyCoopStatus/3)
+	file := strings.Repeat("\"", maxLobbyFile)
+	for i := 1; i <= MaxLobbyMembers; i++ {
+		mustJoin(t, m, i, fmt.Sprintf("Player%02dxxxxxxx", i), i == 1, LobbyHelloBody{})
+		m.message(i, LobbySet, setBody(t, LobbySetBody{CoopStatus: &worst, File: &file, Dolphin: strp(DolphinInGame)}))
+	}
+	if _, err := EncodeLobby(LobbyState, m.snapshot()); err != nil {
+		t.Fatalf("STATE with every member's status: %v", err)
+	}
+	n := 0
+	for _, mb := range m.snapshot().Members {
+		if mb.CoopStatus != "" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d rows carry a co-op status, want the host's alone", n)
+	}
+}
+
+// TestLobbyMachineAppVersions: STATE carries each member's HELLO app
+// version, so every window can compare them (version-skew line).
+func TestLobbyMachineAppVersions(t *testing.T) {
+	m := testMachine(time.Minute)
+	mustJoin(t, m, 1, "Link", true, LobbyHelloBody{App: "0.6.1"})
+	mustJoin(t, m, 2, "Whitney", false, LobbyHelloBody{App: "0.6.0"})
+	got := map[string]string{}
+	for _, r := range m.snapshot().Members {
+		got[r.Name] = r.App
+	}
+	if got["Link"] != "0.6.1" || got["Whitney"] != "0.6.0" {
+		t.Errorf("apps %v", got)
+	}
+}
+
+// TestLobbyMachineLateWorld: GO goes out at Start with no world and the
+// co-op world follows in a second GO. The lobby is in game after the
+// first; the second reaches everyone, replaces what a rejoin or a late
+// joiner is told, and a repeat (a retried send) changes nothing.
+func TestLobbyMachineLateWorld(t *testing.T) {
+	m := testMachine(time.Minute)
+	t0 := time.Unix(0, 0)
+	const w1, w2 = "0123456789abcdef", "fedcba9876543210"
+	mustJoin(t, m, 1, "Host", true, LobbyHelloBody{})
+	jo := mustJoin(t, m, 2, "Jo", false, LobbyHelloBody{})
+	m.message(1, LobbySettings, []byte(`{"coop":"new"}`))
+	m.message(1, LobbyStart, nil)
+
+	outs := m.message(1, LobbyGo, []byte(`{}`))
+	if m.phase != PhaseInGame {
+		t.Fatalf("phase %q after the empty GO", m.phase)
+	}
+	if o, ok := findOut(outs, lobbyAll, LobbyGo); !ok || o.body.(LobbyGoBody).World != "" {
+		t.Fatalf("empty GO outs %+v", outs)
+	}
+	// A repeat of the empty GO (a retry) is quiet.
+	if outs := m.message(1, LobbyGo, []byte(`{}`)); len(outs) != 0 {
+		t.Fatalf("repeated empty GO: %+v", outs)
+	}
+	// A joiner is only a joiner: it can't announce a world.
+	if outs := m.message(2, LobbyGo, []byte(`{"world":"`+w1+`"}`)); outs[0].body.(LobbyNoticeBody).Code != NoticeNotHost {
+		t.Fatalf("joiner GO: %+v", outs)
+	}
+	if outs := m.message(1, LobbyGo, []byte(`{"world":"../x"}`)); outs[0].body.(LobbyNoticeBody).Code != NoticeBadMessage {
+		t.Fatalf("bad world: %+v", outs)
+	}
+
+	// A rejoin and a late joiner before the world get the empty GO.
+	m.drop(2, t0)
+	_, outs = m.hello(3, "Jo", false, LobbyHelloBody{Token: jo.token}, t0)
+	if o, ok := findOut(outs, 3, LobbyGo); !ok || o.body.(LobbyGoBody).World != "" {
+		t.Fatalf("reclaim before the world: %+v", outs)
+	}
+
+	// The world follows: everyone is told, the phase stays.
+	outs = m.message(1, LobbyGo, []byte(`{"world":"`+w1+`"}`))
+	if o, ok := findOut(outs, lobbyAll, LobbyGo); !ok || o.body.(LobbyGoBody).World != w1 || m.phase != PhaseInGame {
+		t.Fatalf("late world outs %+v, phase %q", outs, m.phase)
+	}
+	// Repeats of it, and a stale empty GO, change nothing; another world is refused.
+	if outs := m.message(1, LobbyGo, []byte(`{"world":"`+w1+`"}`)); len(outs) != 0 {
+		t.Fatalf("repeated world: %+v", outs)
+	}
+	if outs := m.message(1, LobbyGo, []byte(`{}`)); len(outs) != 0 || m.goBody.World != w1 {
+		t.Fatalf("empty GO after the world: %+v, goBody %+v", outs, m.goBody)
+	}
+	if outs := m.message(1, LobbyGo, []byte(`{"world":"`+w2+`"}`)); outs[0].body.(LobbyNoticeBody).Code != NoticeWrongPhase || m.goBody.World != w1 {
+		t.Fatalf("a second world: %+v", outs)
+	}
+
+	// A rejoin after the announcement, and a late joiner, get the world.
+	m.drop(3, t0)
+	_, outs = m.hello(4, "Jo", false, LobbyHelloBody{Token: jo.token}, t0)
+	if !subsInOrder(outs, 4, LobbyWelcome, LobbyStart, LobbyGo) {
+		t.Fatalf("reclaim after the world: %+v", outs)
+	}
+	if o, _ := findOut(outs, 4, LobbyGo); o.body.(LobbyGoBody).World != w1 {
+		t.Fatalf("replayed GO %+v", o.body)
+	}
+	_, outs = m.hello(5, "Late", false, LobbyHelloBody{}, t0)
+	if o, ok := findOut(outs, 5, LobbyGo); !ok || o.body.(LobbyGoBody).World != w1 {
+		t.Fatalf("late joiner after the world: %+v", outs)
+	}
 }

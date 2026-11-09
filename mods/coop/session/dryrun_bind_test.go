@@ -3,11 +3,14 @@ package coopsession
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/bind"
 	"github.com/StephenSHorton/ww-multiplayer/mods/coop/replica"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
@@ -47,12 +50,19 @@ func TestCoopDryRunBindsStoryFile(t *testing.T) {
 	ga.setEvents(dryRunMilestones...)
 	gb := newCoGame(t, "Tetra", coMine{life: 0x0062, rupee: 0x0456, magic: 0x22})
 
+	var recMu sync.Mutex
+	var recorded []bind.Written
 	h := &coHost{t: t, ctx: ctx, rep: &coLog{}, env: coopEnv{
 		worlds:   t.TempDir(),
 		backups:  t.TempDir(),
 		userDirs: []string{coUserDir(t)},
 		openMem:  func() (mem.Mem, func(), error) { return ga.m, func() {}, nil },
 		tick:     func() { ga.g.Frames(3) },
+		tags: func(_ uint32, w bind.Written, _ log.Reporter) {
+			recMu.Lock()
+			recorded = append(recorded, w)
+			recMu.Unlock()
+		},
 	}}
 	h.start(Flags{on: true, world: coopWorldNew, yes: true, dryRun: true})
 	defer h.stop()
@@ -87,5 +97,10 @@ func TestCoopDryRunBindsStoryFile(t *testing.T) {
 	}
 	if b.s.r.Status().State == replica.StateArmed {
 		t.Error("B's file, behind the world, bound")
+	}
+	recMu.Lock()
+	defer recMu.Unlock()
+	if len(recorded) != 1 || recorded[0].Kind != bind.KindBind || recorded[0].Tag.World != h.cs.world || recorded[0].File.PlayerName() != "Link" {
+		t.Errorf("recorded %+v, want A's bind to world %s", recorded, h.cs.world)
 	}
 }

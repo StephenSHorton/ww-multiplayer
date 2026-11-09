@@ -223,12 +223,14 @@ stale-actor refresh (as `--coop-boss-kill` and `--coop-refresh`; empty is
 the default: Gohma and Kalle Demos, no refresh). After Start a guided dialog walks the host
 through founding a new world; every co-op question is a dialog (Bind / Not
 now to bind a file, Remove the tag / Leave it for a stale tag), and a file
-bound to another world can have its tag removed from the app (in game
-memory only: save in game to keep it off the card); a file far behind the world
+bound to another world can have its tag removed from the app; a file far behind the world
 or needing a merge gets advice cards, including "Ask the host to allow
 merging". In game the co-op panel shows where co-op is, with Refresh area,
 Warp to partner, Pause co-op writes and Copy status, and the log has a
-Co-op sync tab. Save in game after a bind so your card keeps the tag. On Windows the window
+Co-op sync tab. A bind, or a removed tag, reaches your memory card without an
+in-game save: once Dolphin is closed the app writes the tag into the card's GCI
+file, after a backup and a read-back check (a raw `.raw` card still needs an
+in-game save). On Windows the window
 needs Microsoft's WebView2 runtime (Windows 11 and current Windows 10
 have it); without it the app offers to install it, and opens the terminal
 menu if you decline. Each player's Link is drawn in their chosen tunic

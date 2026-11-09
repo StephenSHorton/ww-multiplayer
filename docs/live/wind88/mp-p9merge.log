@@ -1,0 +1,216 @@
+Run logs in ~/ww-shared/rigs/wind88/logs/latest (WW_DEV_LOGS); the run before is in ~/ww-shared/rigs/wind88/logs/sessions/20261103-084954
+Found Dolphin A (pid 22949) and B (pid 23396).
+Waiting for both Dolphins to load to an in-game save state...
+Both Dolphins in-game — proceeding.
+Dolphin logs: no dolphin2 record for pids 22949 and 23396, following USER_DIR_1 and USER_DIR_2's logs as dolphin-1 and dolphin-2.
+Face-state sync armed on the Dolphins that run this version's patch.
+Not moving Dolphin B's Link at start under --coop: the move writes Link's position outside co-op's gates and WriteGuard. If the two Links overlap, walk one a few steps away.
+co-op: backed up 2 memory-card file(s) to ~/Library/Application Support/ww-multiplayer/backups/20261103T155012Z (`coop-world restore 20261103T155012Z --yes`, with Dolphin closed, puts them back). Check that these are your cards:
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind88/u1/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind88/u1/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op:   slot A GCI folder ~/ww-shared/rigs/wind88/u2/GC/USA/Card A (default, in use):
+co-op:     ~/ww-shared/rigs/wind88/u2/GC/USA/Card A/01-GZLE-gczelda.gci, 98368 bytes
+co-op: stage tables 07fce914c47490e7, ~/ww-shared/rigs/wind88/WW-mp.iso from the cache: 360 latching memory switch(es) in 13 save table(s) sync (76 of them, shared with Tingle Tuner switches, only while no Game Boy Advance is linked).
+co-op: shared progression this session: story bits and event registers (written at stage changes), items, songs and capacities (when idle) and max magic; derived from the stage tables: the small keys of DRC, FW, TotG, ET, WT and max hearts.
+co-op: room puzzles this session: a partner's latching dan switches (103 in 6 save table(s)) sync while both are in the same stage, its zone switches (13) while both are in the same room, and its room switches (410) as it sets them, in 115 room(s); timed and other switches that clear never travel.
+co-op: combat this session: a partner's kills of keyed enemies (333 in 14 stage(s), K1 classes, no bosses) are recorded in this game and light-shrink the live enemy while both are in the same stage; 1070 unkeyed enemies (the sea, Savage Labyrinth, KATA_RM, caves, Hyrule and the rest) are not shared yet: each player fights their own.
+Co-op world 07bbbc6bce94f7cd at seq 13: the world's chests, pickups, rooms, dungeon items, latching switches, ocean, charts, story bits and items are written into each bound game, and its small keys, max hearts and max magic derived (--coop-dry-run only logs them; --coop-merge: files with progress the world lacks may bind; live switches: the current table's switches apply when idle, once every shown room's actors have run 2 s (--coop-live-switches=off waits for the next room change); placed kills: a partner's kill of an unkeyed placed enemy light-shrinks one live instance in the other game while both are in the room (§7.2a, unverified signatures held; --coop-placed-kill=off turns it off)).
+co-op: commands (type one and press Enter): /refresh reloads this area, /warp takes you to your partner, /coop off|on stops or resumes co-op writes, /status, /help. With two Dolphins, add the player's name: /warp <name>. With two or more partners, name the one: /warp to <partner>.
+[server] Server listening on port 0
+Server listening on localhost:57116
+[server] PlayerA (ID:1) connected
+[net] [bcast-A] Connected as player 1
+[server] PlayerA (ID:2) connected
+[net] [bcast-A] Player PlayerA (ID:2) in game
+[net] [puppet-A] Connected as player 2
+[net] [puppet-A] Player PlayerA (ID:1) in game
+[server] PlayerB (ID:3) connected
+[net] [puppet-A] Player PlayerA (ID:1) in game
+[net] [puppet-A] Player PlayerB (ID:3) in game
+[net] [bcast-A] Player PlayerA (ID:2) in game
+[net] [bcast-A] Player PlayerB (ID:3) in game
+[net] [bcast-B] Connected as player 3
+[net] [bcast-B] Player PlayerA (ID:1) in game
+[net] [bcast-B] Player PlayerA (ID:2) in game
+[server] PlayerB (ID:4) connected
+[net] [bcast-B] Player PlayerB (ID:4) in game
+[net] [bcast-B] Player PlayerA (ID:1) in game
+[net] [bcast-B] Player PlayerA (ID:2) in game
+[net] [puppet-A] Player PlayerB (ID:3) in game
+[net] [puppet-A] Player PlayerB (ID:4) in game
+[net] [puppet-A] Player PlayerA (ID:1) in game
+[net] [bcast-A] Player PlayerB (ID:3) in game
+[net] [bcast-A] Player PlayerB (ID:4) in game
+[net] [bcast-A] Player PlayerA (ID:2) in game
+[net] [puppet-B] Connected as player 4
+[net] [puppet-B] Player PlayerB (ID:3) in game
+[net] [puppet-B] Player PlayerA (ID:1) in game
+[net] [puppet-B] Player PlayerA (ID:2) in game
+[server] PlayerA (enemy host 1) connected
+[net] [enemy-A] Connected for enemy sync (enemy ID 1)
+WARN: [enemy-A] enemy host: no loaded Mo2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: [enemy-A] enemy host: no loaded Bk entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: [enemy-A] enemy host: no loaded CC entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: [enemy-A] enemy host: no loaded Ki entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: [enemy-A] enemy host: no loaded AM2 entry in mObjectInfo: that kind's animation stream is off until it resolves
+WARN: [enemy-A] enemy host: no loaded Tn entry in mObjectInfo: that kind's animation stream is off until it resolves
+[server] PlayerB (enemy client 2) connected
+[net] [enemy-B] Connected for enemy sync (enemy ID 2)
+[coop-A] co-op: max life: keeping 2 quarter heart(s) beyond the 19 its flags give: rewards no save bit records, or duplicates
+[server] PlayerA (co-op 1) connected
+[net] [coop-A] Connected for co-op (co-op ID 1)
+[server] co-op: PlayerA (co-op 1) joined world 07bbbc6bce94f7cd (seq 13; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|placed-kill|chest-claim|merge)
+[coop-A] co-op: welcome to world 07bbbc6bce94f7cd (seq 13; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|placed-kill|chest-claim|merge)
+[coop-A] co-op: armed in world 07bbbc6bce94f7cd: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (live: in the room you stand in, once idle); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give
+Local multiplayer running. Walk in either Dolphin — the other should render Link #2 at your real coords.
+Ctrl+C to stop.
+[coop-A] co-op: room puzzles: written to this game when idle: the partner's latching dan switches (same stage and save table) and zone switches (same room), and its room switches as it sets them, while both are in the room
+[coop-A] co-op: combat: written to this game when idle: the partner's kills of keyed enemies (into each loaded room's zone, so they stay dead), and a live one of them light-shrinks; unkeyed enemies stay each player's own
+[server] PlayerB (co-op 2) connected
+[net] [coop-B] Connected for co-op (co-op ID 2)
+[server] co-op: PlayerB (co-op 2) joined with an unbound file (unbound)
+[coop-B] co-op: the host says (NOT_BOUND): your file is not bound to co-op world 07bbbc6bce94f7cd; nothing is synced until you bind it
+[coop-B] co-op: the host serves world 07bbbc6bce94f7cd; this file is not bound to it (NOT_BOUND)
+[coop-B] co-op: preflight: far behind: the world is past 0x0F80, 0x0801, which this file is not: copying the host's save in (all three files) is better than a union (which needs --coop-merge)
+  the file adds: nothing
+  the world adds: stage progress 36, memory switches 27, ocean and charts 17, story events 54, event registers 4, inventory 17, capacities 2
+  held until this file catches up: 3
+    event 0x0F80 (held: MET_KORL moves the resume stage to Windfall)
+    event 0x0801 (held: 0x0801 moves the resume stage to MajyuE)
+    event 0x0520 (held: 0x0520 moves Outset to layer 4/5, with no Tetra and no ship, until MET_KORL)
+[coop-B] Bind this save file to co-op world 07bbbc6bce94f7cd?
+[coop-B]   file slot 0, "Trog", clear count 0, saved and loaded
+[coop-B]   ww-multiplayer writes a 0x30-byte tag at 0x803C532C (dSv_reserve_c, which the game
+[coop-B]   saves with the file and never reads). It lands on the memory card at your next
+[coop-B]   in-game save. Nothing else in the file is written.
+[coop-B] Bind it?
+[coop-B]   yes (--yes)
+[server] co-op: PlayerB (co-op 2) may bind its file to world 07bbbc6bce94f7cd (nonce c62d78264aa192a0; far behind, merged under --coop-merge, 3 holds)
+[coop-B] co-op: the host says (DIVERGENT): the world is far ahead of your file (story milestones 0x0F80, 0x0801); copying the host's save in (all three files) is better than a union, and the host's --coop-merge allows a union; held until your file catches up: MET_KORL, UNK_0801, UNK_0520
+[coop-B] co-op: bound the file to world 07bbbc6bce94f7cd (nonce c62d78264aa192a0): save in-game so the card keeps it
+[server] co-op: PlayerB (co-op 2) joined world 07bbbc6bce94f7cd (seq 13; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|placed-kill|chest-claim|merge)
+[coop-B] co-op: welcome to world 07bbbc6bce94f7cd (seq 13; image|puzzle|combat|live-switches|switches|story|inventory|keys|life|magic|placed-kill|chest-claim|merge)
+[coop-B] co-op: armed in world 07bbbc6bce94f7cd: written to this game: the world's chests, pickups, rooms, dungeon items, ocean and charts; its latching switches (live: in the room you stand in, once idle); its story bits and event registers (at stage changes); its items, songs and capacities (when idle); the small keys, max hearts and max magic this game's own flags give
+[coop-B] co-op: holding event 0x0F80 back: MET_KORL moves the resume stage to Windfall
+[coop-B] co-op: holding event 0x0801 back: 0x0801 moves the resume stage to MajyuE
+[coop-B] co-op: holding event 0x0520 back: 0x0520 moves Outset to layer 4/5, with no Tetra and no ship, until MET_KORL
+[coop-B] co-op: chart 18 owned waits for the next room or stage change
+[coop-B] co-op: chart 23 owned waits for the next room or stage change
+[coop-B] co-op: chart 8 owned waits for the next room or stage change
+[coop-B] co-op: chart 13 owned waits for the next room or stage change
+[coop-B] co-op: chart 50 owned waits for the next room or stage change
+[coop-B] co-op: chart 34 owned waits for the next room or stage change
+[coop-B] co-op: chart 64 owned waits for the next room or stage change
+[coop-B] co-op: sea map 9 bit 1 waits for the next room or stage change
+[coop-B] co-op: sea map 11 bit 1 waits for the next room or stage change
+[coop-B] co-op: sea map 12 bit 0 waits for the next room or stage change
+[coop-B] co-op: sea map 12 bit 1 waits for the next room or stage change
+[coop-B] co-op: sea map 15 bit 1 waits for the next room or stage change
+[coop-B] co-op: sea map 16 bit 1 waits for the next room or stage change
+[coop-B] co-op: sea map 17 bit 1 waits for the next room or stage change
+[coop-B] co-op: sea map 18 bit 1 waits for the next room or stage change
+[coop-B] co-op: sea map 22 bit 1 waits for the next room or stage change
+[coop-B] co-op: sea map 23 bit 1 waits for the next room or stage change
+[coop-B] co-op: t02 FF switch 0x1B waits for the room hold: every shown room's actors get 2 s of idle frames first, as a new shutter ignores a switch set in its first 30 (§6.1)
+[coop-B] co-op: t02 FF switch 0x15 waits for the room hold: every shown room's actors get 2 s of idle frames first, as a new shutter ignores a switch set in its first 30 (§6.1)
+[coop-B] co-op: t02 FF switch 0x17 waits for the room hold: every shown room's actors get 2 s of idle frames first, as a new shutter ignores a switch set in its first 30 (§6.1)
+[coop-B] co-op: t02 FF switch 0x04 waits for the room hold: every shown room's actors get 2 s of idle frames first, as a new shutter ignores a switch set in its first 30 (§6.1)
+[coop-B] co-op: t02 FF switch 0x05 waits for the room hold: every shown room's actors get 2 s of idle frames first, as a new shutter ignores a switch set in its first 30 (§6.1)
+[coop-B] co-op: not written: ammo 0x803CA789 set 0x00 -> 0x1E (live): item_func_bow sets arrows and their capacity to 30 (d_item.cpp:733-738): 0 -> 30 ammo through the HUD's pending count (the HUD's ammo counters are no WriteGuard target before M7)
+[coop-B] co-op: not written: ammo 0x803CA78D set 0x00 -> 0x1E (live): item_func_bomb_bag sets bombs and their capacity to 30 (d_item.cpp:792-797): 0 -> 30 ammo through the HUD's pending count (the HUD's ammo counters are no WriteGuard target before M7)
+[coop-B] co-op: room puzzles: written to this game when idle: the partner's latching dan switches (same stage and save table) and zone switches (same room), and its room switches as it sets them, while both are in the room
+[coop-B] co-op: combat: written to this game when idle: the partner's kills of keyed enemies (into each loaded room's zone, so they stay dead), and a live one of them light-shrinks; unkeyed enemies stay each player's own
+[coop-B] co-op: wrote 45 bytes of the world after heartbeat 3019
+[coop-B] co-op: set t00 sea item 9 (0x803C4F9E |= 0x02)
+[coop-B] co-op: set t02 FF chest 3 (0x803C4FD3, and its live copy |= 0x08)
+[coop-B] co-op: set t02 FF item 0 (0x803C4FE7, and its live copy |= 0x01)
+[coop-B] co-op: set t02 FF item 1 (0x803C4FE7, and its live copy |= 0x02)
+[coop-B] co-op: set t02 FF visited room 0 (or item 32) (0x803C4FEB, and its live copy |= 0x01)
+[coop-B] co-op: set t02 FF visited room 3 (or item 35) (0x803C4FEB, and its live copy |= 0x08)
+[coop-B] co-op: set t02 FF visited room 4 (or item 36) (0x803C4FEB, and its live copy |= 0x10)
+[coop-B] co-op: set t03 DRC chest 11 (0x803C4FF6 |= 0x08)
+[coop-B] co-op: set t03 DRC chest 13 (0x803C4FF6 |= 0x20)
+[coop-B] co-op: set t03 DRC chest 0 (0x803C4FF7 |= 0x01)
+[coop-B] co-op: set t03 DRC chest 1 (0x803C4FF7 |= 0x02)
+[coop-B] co-op: set t03 DRC chest 6 (0x803C4FF7 |= 0x40)
+[coop-B] co-op: set t03 DRC switch 0x12 (0x803C4FF9 |= 0x04)
+[coop-B] co-op: set t03 DRC switch 0x15 (0x803C4FF9 |= 0x20)
+[coop-B] co-op: set t03 DRC switch 0x17 (0x803C4FF9 |= 0x80)
+[coop-B] co-op: set t03 DRC switch 0x0E (0x803C4FFA |= 0x40)
+[coop-B] co-op: set t03 DRC switch 0x00 (0x803C4FFB |= 0x01)
+[coop-B] co-op: set t03 DRC switch 0x03 (0x803C4FFB |= 0x08)
+[coop-B] co-op: set t03 DRC switch 0x05 (0x803C4FFB |= 0x20)
+[coop-B] co-op: set t03 DRC switch 0x07 (0x803C4FFB |= 0x80)
+[coop-B] co-op: set t03 DRC switch 0x3C (0x803C4FFC |= 0x10)
+[coop-B] co-op: set t03 DRC switch 0x3D (0x803C4FFC |= 0x20)
+[coop-B] co-op: set t03 DRC switch 0x3F (0x803C4FFC |= 0x80)
+[coop-B] co-op: set t03 DRC switch 0x31 (0x803C4FFD |= 0x02)
+[coop-B] co-op: set t03 DRC switch 0x34 (0x803C4FFD |= 0x10)
+[coop-B] co-op: set t03 DRC switch 0x35 (0x803C4FFD |= 0x20)
+[coop-B] co-op: set t03 DRC switch 0x2B (0x803C4FFE |= 0x08)
+[coop-B] co-op: set t03 DRC switch 0x2E (0x803C4FFE |= 0x40)
+[coop-B] co-op: set t03 DRC switch 0x25 (0x803C4FFF |= 0x20)
+[coop-B] co-op: set t03 DRC switch 0x26 (0x803C4FFF |= 0x40)
+[coop-B] co-op: set t03 DRC item 6 (0x803C500B |= 0x40)
+[coop-B] co-op: set t03 DRC visited room 8 (or item 40) (0x803C500E |= 0x01)
+[coop-B] co-op: set t03 DRC visited room 9 (or item 41) (0x803C500E |= 0x02)
+[coop-B] co-op: set t03 DRC visited room 10 (or item 42) (0x803C500E |= 0x04)
+[coop-B] co-op: set t03 DRC visited room 11 (or item 43) (0x803C500E |= 0x08)
+[coop-B] co-op: set t03 DRC visited room 13 (or item 45) (0x803C500E |= 0x20)
+[coop-B] co-op: set t03 DRC visited room 0 (or item 32) (0x803C500F |= 0x01)
+[coop-B] co-op: set t03 DRC visited room 1 (or item 33) (0x803C500F |= 0x02)
+[coop-B] co-op: set t03 DRC visited room 2 (or item 34) (0x803C500F |= 0x04)
+[coop-B] co-op: set t03 DRC visited room 6 (or item 38) (0x803C500F |= 0x40)
+[coop-B] co-op: ... and 43 more
+[coop-B] co-op: the derive path wrote 9 of 9 writes after heartbeat 3020
+[coop-B] co-op: wrote item slot 0x803C4C45 FF -> 78: sail slot: nothing -> the sail, from mGetItem[1] (d_s_play.cpp:1385-1392; item_func_normal_sail, d_item.cpp:1120-1123)
+[coop-B] co-op: wrote item slot 0x803C4C46 FF -> 22: Wind Waker slot: nothing -> the Wind Waker, from mGetItem[2] (d_s_play.cpp:1385-1392; item_func_wind_tact, d_item.cpp:703-707)
+[coop-B] co-op: wrote item slot 0x803C4C47 FF -> 25: grappling hook slot: nothing -> the grappling hook, from mGetItem[3] (d_s_play.cpp:1385-1392; item_func_rope, d_item.cpp:721-725)
+[coop-B] co-op: wrote item slot 0x803C4C4A FF -> 34: Deku Leaf slot: nothing -> the Deku Leaf, from mGetItem[6] (d_s_play.cpp:1385-1392; item_func_deku_leaf, d_item.cpp:810-815)
+[coop-B] co-op: wrote item slot 0x803C4C4B FF -> 21: Tingle Tuner slot: nothing -> the Tingle Tuner, from mGetItem[7] (d_s_play.cpp:1385-1392; item_func_tncl_whitsl, d_item.cpp:697-701)
+[coop-B] co-op: wrote item slot 0x803C4C4C FF -> 23: picto box slot: nothing -> the picto box, from mGetItem[8] (d_s_play.cpp:1385-1392; item_func_camera, d_item.cpp:709-713; item_func_camera2, :727-731)
+[coop-B] co-op: wrote item slot 0x803C4C50 FF -> 27: bow slot: nothing -> the bow, from mGetItem[12] (d_s_play.cpp:1385-1392; item_func_bow, d_item.cpp:733-738; item_func_magic_arrow, :818-830; item_func_light_arrow, :833-845)
+[coop-B] co-op: wrote item slot 0x803C4C51 FF -> 31: bombs slot: nothing -> bombs, from mGetItem[13] (d_s_play.cpp:1385-1392; item_func_bomb_bag, d_item.cpp:792-797; item_func_bomb_10..30, :624-643)
+[coop-B] co-op: wrote item slot 0x803C4C56 FF -> 30: delivery bag slot: nothing -> the delivery bag, from mGetItem[18] (d_s_play.cpp:1385-1392; item_func_warasibe_bag, d_item.cpp:786-790)
+[coop-B] co-op: the derive path wrote 2 of 2 writes after heartbeat 3052
+[coop-B] co-op: wrote max-life counter +6 at 0x803CA77E: max life: 12 -> 18 quarter hearts: 2 of 28 piece(s), 0 of 10 reward(s), 1 of 6 container(s) taken
+[coop-B] co-op: wrote max-magic counter +16 at 0x803CA784: max magic: 0 -> 16: Deku Leaf true, magic upgrade (event 0x3180) false; the meter is not filled
+[coop-B] co-op: wrote 6 bytes of the world after heartbeat 3058
+[coop-B] co-op: set t02 FF switch 0x1B (0x803C4FD4, and its live copy |= 0x08)
+[coop-B] co-op: set t02 FF switch 0x15 (0x803C4FD5, and its live copy |= 0x20)
+[coop-B] co-op: set t02 FF switch 0x17 (0x803C4FD5, and its live copy |= 0x80)
+[coop-B] co-op: set t02 FF switch 0x04 (0x803C4FD7, and its live copy |= 0x10)
+[coop-B] co-op: set t02 FF switch 0x05 (0x803C4FD7, and its live copy |= 0x20)
+[coop-B] co-op: PlayerB: armed; world 07bbbc6bce94f7cd at seq 13; writing; 64 bytes written, 0 escapes, 0 verify failures
+[coop-B] co-op: PlayerB:   progression granted: story|inventory|keys|life|magic
+[coop-B] co-op: PlayerB:   story bits held back until this game catches up: event 0x0F80 (MET_KORL moves the resume stage to Windfall), event 0x0801 (0x0801 moves the resume stage to MajyuE), event 0x0520 (0x0520 moves Outset to layer 4/5, with no Tetra and no ship, until MET_KORL)
+[coop-B] co-op: PlayerB:   small keys of table 3 (DRC): 0 key(s), 2 of 4 source(s) taken, 2 of 4 door(s) open
+[coop-B] co-op: PlayerB:   small keys of table 4 (FW): 0 key(s), 0 of 1 source(s) taken, 0 of 1 door(s) open
+[coop-B] co-op: PlayerB:   small keys of table 5 (TotG): 0 key(s), 0 of 2 source(s) taken, 0 of 2 door(s) open
+[coop-B] co-op: PlayerB:   small keys of table 6 (ET): 0 key(s), 0 of 3 source(s) taken, 0 of 3 door(s) open
+[coop-B] co-op: PlayerB:   small keys of table 7 (WT): 0 key(s), 0 of 2 source(s) taken, 0 of 2 door(s) open
+[coop-B] co-op: PlayerB:   max hearts: derived
+[coop-B] co-op: PlayerB:   room puzzles: on; Link is in MajyuE (table 2, room 0), zone slot 0; 0 partner switch(es) set, 0 refused as not latching here, 0 room edge(s) dropped
+[coop-B] co-op: PlayerB:   combat: on; 0 partner kill bit(s) held for MajyuE (table 2); 0 written to zones, 0 light-shrunk, 0 held, 0 refused, 0 verify failures
+[coop-B] co-op: PlayerB:   placed kills: on; 0 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   refresh: 8 landed bit(s) this visit (5 switch, 1 tbox, 2 item); 0 lock(s) cleared, 0 held; 0 death-switch light-shrink(s), 0 held; actor_refresh (tbox,leaves,saku,kokiie,stone2,item): 0 candidate(s), 0 request(s), 0 applied, 2 held (a boss stage (bossStage))
+[coop-B] co-op: PlayerB:   Tingle Tuner: no Game Boy Advance linked; the 85 switch(es) shared with Tingle Tuner switches sync
+co-op: host: room puzzles allowed; scoped stores held: 0 dan, 0 zone, 0 kill
+co-op: host:   PlayerA (bound): in sea (table 0, room 11); puzzles granted; 0 scoped bit(s) refused by the host's tables
+co-op: host:   PlayerB (bound): in MajyuE (table 2, room 0); puzzles granted; 0 scoped bit(s) refused by the host's tables
+co-op: host: combat allowed; 0 kill store(s) held
+co-op: host:   PlayerA (bound): combat granted
+co-op: host:   PlayerB (bound): combat granted
+Stop file ~/ww-shared/rigs/wind88/stop is there: shutting down...
+Tearing down...
+[coop-B] co-op: disconnected: armed offline, queueing gains until the host is back
+[coop-A] co-op: disconnected: armed offline, queueing gains until the host is back
+[server] PlayerA disconnected
+[server] PlayerB disconnected
+[server] PlayerB (co-op 2) disconnected
+[server] PlayerB (enemy client 2) disconnected
+[server] PlayerA (enemy host 1) disconnected
+[server] PlayerA (co-op 1) disconnected
+[server] PlayerB disconnected
+[server] PlayerA disconnected
+Done.

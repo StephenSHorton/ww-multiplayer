@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/placename"
 	"github.com/StephenSHorton/ww-multiplayer/internal/seachart"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
@@ -88,6 +89,7 @@ var dolphinLabels = map[string]string{
 	string(session.DolphinNoGame):    "No game loaded",
 	string(session.DolphinWrongGame): "Wrong game",
 	string(session.DolphinUnpatched): "Not patched",
+	string(session.DolphinUpdating):  "Updating disc…",
 }
 
 // dolphinLabel is the chip's text for a Dolphin state, the state itself
@@ -131,7 +133,7 @@ func gameDialog(st session.State, running bool, mk masker) *DialogView {
 		}
 		return &DialogView{Key: key(dlgDolphin), Kind: dlgDolphin, Live: true, Title: "Wrong disc in Dolphin",
 			Text:    fmt.Sprintf("Dolphin is running %s. Close that game and boot %s: the session starts playing as soon as Dolphin runs it.", what, iso),
-			Detail:  "If the patched disc was made by another version of this app, patch your disc again in Setup. If you loaded a save state, it may have been taken on another version: boot the disc from Dolphin's game list instead, and capture a new save state once you are in the game.",
+			Detail:  "If the patched disc was made by another version of this app, close Dolphin: the app updates your disc by itself (the Play page shows it), then Launch Dolphin. If you loaded a save state, it may have been taken on another version: boot the disc from Dolphin's game list instead, and capture a new save state once you are in the game.",
 			Actions: []DialogAction{{ID: actOK, Label: "OK", Primary: true}, {ID: actSetup, Label: "Open Setup"}}}
 	}
 	if d.Err != "" && d.PID == 0 {
@@ -149,7 +151,20 @@ func gameDialog(st session.State, running bool, mk masker) *DialogView {
 // leaves the player a way to retry.
 func dolphinBanner(st session.State, running bool) *BannerView {
 	d := st.Dolphin
-	if !running || st.Lobby == nil || st.Lobby.Legacy || d.State != session.DolphinNone || d.PID != 0 {
+	if !running || st.Lobby == nil || st.Lobby.Legacy {
+		return nil
+	}
+	// The wrong-disc dialog's banner, which stays after the dialog is
+	// closed (#1164): the session can't play until Dolphin runs the disc.
+	switch d.State {
+	case session.DolphinWrongGame:
+		return &BannerView{Kind: "dolphin", Title: "Wrong disc in Dolphin.", Action: actSetup, ActionLabel: "Open Setup",
+			Text: "Dolphin is running a different game. Close it and boot your patched Wind Waker disc."}
+	case session.DolphinUnpatched:
+		return &BannerView{Kind: "dolphin", Title: "Wrong disc in Dolphin.", Action: actSetup, ActionLabel: "Open Setup",
+			Text: "Dolphin is running Wind Waker without this version's mod: an old patched disc or a save state from another version. Close Dolphin and boot your patched disc."}
+	}
+	if d.State != session.DolphinNone || d.PID != 0 {
 		return nil
 	}
 	if d.Err != "" && !d.Manual {
@@ -276,16 +291,30 @@ func (b *Bridge) launchOptions() session.LaunchOptions {
 // that). It is refused, too, when the app would have to launch this
 // player's Dolphin and it isn't set up: not when one already runs on the
 // player's folder (or WW_DOLPHIN_PID names one), which Start plays on.
+// It first checks the disc and waits for its update (discReady): a disc
+// another version patched is patched again, then Start goes on. A second
+// Start while one waits does nothing.
 func (b *Bridge) Start(anyway bool) (err error) {
 	defer b.maskErr(&err)
 	if b.updating() {
 		return errUpdating
 	}
-	if b.patching() {
-		return errPatching
-	}
 	if o := b.launchOptions(); !o.Manual && (o.Exe == "" || o.ISO == "") && b.wouldLaunch(o) {
 		return errors.New("choose your Dolphin and your patched disc in Setup first, or tick \"I'll start Dolphin myself\"")
+	}
+	if !b.disc.starting.CompareAndSwap(false, true) {
+		return nil // a Start already waits for the disc
+	}
+	b.emitState() // Start's button is off while it waits
+	sess := b.ctrl.Snapshot().Session
+	waited, err := b.discReady("start")
+	b.disc.starting.Store(false)
+	b.emitState()
+	if err != nil {
+		return err
+	}
+	if st := b.ctrl.Snapshot(); waited && (st.Session != sess || !canStart(st.Lobby, st.Session != 0 && st.Phase != session.Ended && st.Phase != session.Idle)) {
+		return nil // left (or started, or hosted anew) while the disc was updated
 	}
 	if anyway {
 		return b.ctrl.StartAnyway()
@@ -301,6 +330,30 @@ func (b *Bridge) Start(anyway bool) (err error) {
 		}
 	}
 	return err
+}
+
+// ErrStaleDisc is the error of Start and LaunchDolphin when the patched
+// disc Setup saved was patched by another version of this app: its mod
+// would not match this build's, and Dolphin would boot without it. The
+// frontend recognises the text (staleDiscPrefix) and offers "Re-patch your
+// disc".
+var ErrStaleDisc = errors.New(staleDiscPrefix + " was patched by another version of this app, so its mod doesn't match this one and the game would run without it. Re-patch your disc, then Start")
+
+const staleDiscPrefix = "Your patched disc"
+
+// checkDiscVersion refuses a Start that would launch this player's Dolphin
+// on a disc another version patched (an update just installed and its
+// re-patch not done or interrupted). A player who starts Dolphin
+// themselves, a missing or unreadable disc (Setup's business) pass.
+func (b *Bridge) checkDiscVersion() error {
+	c, _ := b.effective()
+	if !c.Dolphin.LaunchOnStart || c.ISO.Patched == "" || !isFile(c.ISO.Patched) {
+		return nil
+	}
+	if st, err := b.inspect(c.ISO.Patched); err == nil && st == patch.OtherVersion {
+		return ErrStaleDisc
+	}
+	return nil
 }
 
 // wouldLaunch says Start would launch this player's Dolphin (no
@@ -334,6 +387,14 @@ func (b *Bridge) SetStartDolphinMyself(on bool) (err error) {
 // "Dolphin closed" banner's Launch, the launch dialog's Try again).
 func (b *Bridge) LaunchDolphin() (err error) {
 	defer b.maskErr(&err)
+	if !b.disc.starting.CompareAndSwap(false, true) {
+		return nil // a launch already waits for the disc
+	}
+	_, err = b.discReady("launch")
+	b.disc.starting.Store(false)
+	if err != nil {
+		return err
+	}
 	return b.ctrl.LaunchDolphin()
 }
 

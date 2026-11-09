@@ -120,6 +120,9 @@ type LobbyView struct {
 	// them, "Start anyway" doesn't.
 	CanStart bool     `json:"canStart"`
 	NotReady []string `json:"notReady"`
+	// Skew is the one status line when members run another app version
+	// than ours (session.Lobby.VersionSkew); "" when all agree.
+	Skew string `json:"skew,omitempty"`
 }
 
 // PlayerView is one other player of a running session (Live.Players).
@@ -169,6 +172,11 @@ type StateView struct {
 	// Coop is the session's co-op side (coop.go); nil outside a lobby
 	// session.
 	Coop *CoopView `json:"coop"`
+	// Disc is the disc update's line (disc.go): Start's note says it while
+	// it blocks Start.
+	Disc DiscView `json:"disc"`
+	// StartWaiting says the host's Start waits for the disc's update.
+	StartWaiting bool `json:"startWaiting"`
 }
 
 // EventView is one controller event. Kind is one of the eventKinds values.
@@ -202,6 +210,8 @@ type EventView struct {
 	Status string `json:"status,omitempty"`
 	// Update is an "update" event's banner state (update.go).
 	Update *UpdateView `json:"update,omitempty"`
+	// Disc is a "disc" event's line (disc.go).
+	Disc *DiscView `json:"disc,omitempty"`
 }
 
 // eventKinds names each controller event kind for the frontend.
@@ -282,6 +292,7 @@ func stateView(st session.State, running bool, version string, now time.Time, mk
 			lv.Coop = "off"
 		}
 		lv.CanStart = canStart(l, running)
+		lv.Skew = mk.text(l.VersionSkew())
 		lv.NotReady = []string{}
 		for _, m := range l.NotReady() {
 			lv.NotReady = append(lv.NotReady, mk.text(m.Name))

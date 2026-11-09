@@ -111,6 +111,8 @@ func updBridge(t *testing.T, version string, f *fakeLatest, pre func(path string
 	b.updSeam.alert = func(string, string) {} // no message box in a test
 	b.updSeam.restore = func(string) bool { return false }
 	b.procs = func() []launch.Process { return nil }
+	b.closeProc = func(pid uint32) error { return fmt.Errorf("a test closed real pid %d", pid) }
+	b.waitGone = func(uint32, time.Duration) bool { return false }
 	return b, e, path, fi
 }
 
@@ -412,12 +414,13 @@ func TestRepatchPlan(t *testing.T) {
 }
 
 // TestUpdateFirstStartRepatches: the first start after an update reads
-// and clears update.installed, decides the disc is from the old version
-// and Repatch patches the saved vanilla disc again.
+// and clears update.installed, and the window's disc check (CheckDisc)
+// finds the disc from the old version and patches the saved vanilla disc
+// again by itself, into the same file.
 func TestUpdateFirstStartRepatches(t *testing.T) {
 	dir := t.TempDir()
-	vanilla := touch(t, filepath.Join(dir, "Wind Waker.ciso"))
-	patched := touch(t, filepath.Join(dir, "Wind Waker-multiplayer.iso"))
+	vanilla := discFile(t, filepath.Join(dir, "Wind Waker.ciso"), "vanilla")
+	patched := discFile(t, filepath.Join(dir, "Wind Waker-multiplayer.iso"), "old")
 	b, _, path, _ := updBridge(t, "v0.5.0", nil, func(p string) {
 		c := config.Defaults()
 		c.ISO.Patched, c.ISO.Vanilla = patched, vanilla
@@ -429,21 +432,28 @@ func TestUpdateFirstStartRepatches(t *testing.T) {
 	if c := loadCfg(t, path); c.Update.Installed != "" {
 		t.Fatal("update.installed wasn't cleared at start")
 	}
-	b.inspect = func(string) (patch.DiscState, error) { return patch.OtherVersion, nil }
-	fp := &fakePatcher{}
+	b.inspect = contentInspect
+	fp := &fakePatcher{hold: make(chan struct{}), started: make(chan struct{})}
 	b.patchRun = fp.run
-	v := b.UpdateStatus()
-	if v.Installed != "v0.5.0" || v.Repatch != "repatch" || v.Available {
+	if v := b.UpdateStatus(); v.Installed != "v0.5.0" || v.Available {
 		t.Fatalf("first start: %+v", v)
 	}
-	if err := b.Repatch(); err != nil {
-		t.Fatal(err)
+	if d := b.CheckDisc(); d.State != "patching" || !d.Blocks || d.Version != "v0.5.0" {
+		t.Fatalf("the check didn't start the update: %+v", d)
 	}
+	<-fp.started
+	if v := b.UpdateStatus(); v.Repatch != "repatch" {
+		t.Fatalf("plan while patching: %+v", v)
+	}
+	close(fp.hold)
 	if pv := waitPatchDone(t, b); pv.Stage != "done" || pv.In != vanilla || pv.Out != patched {
 		t.Fatalf("re-patch: %+v", pv)
 	}
-	if v := b.UpdateStatus(); v.Repatch != "" {
-		t.Fatalf("the re-patch is offered again: %+v", v)
+	if d := b.CheckDisc(); d.State != "" || fp.calls != 1 {
+		t.Fatalf("after the re-patch: %+v, %d patches", d, fp.calls)
+	}
+	if v := b.UpdateStatus(); v.Repatch != "keep" {
+		t.Fatalf("the disc isn't this build's after the re-patch: %+v", v)
 	}
 	// The re-patch keeps an optional fix (`patch --fix-sea-heap`) on the
 	// disc it replaces or on the last patched one: the app has no switch
@@ -456,6 +466,10 @@ func TestUpdateFirstStartRepatches(t *testing.T) {
 		data, _ := os.ReadFile(path)
 		os.WriteFile(p, data, 0o644)
 	})
+	b2.inspect = contentInspect
+	if d := b2.CheckDisc(); d.State != "" {
+		t.Fatalf("second start's check: %+v", d)
+	}
 	if v := b2.UpdateStatus(); v.Installed != "" || v.Repatch != "" {
 		t.Fatalf("second start: %+v", v)
 	}
@@ -471,11 +485,14 @@ func TestUpdateFirstStartKeepsCurrentDisc(t *testing.T) {
 		_ = c.Save(p)
 	})
 	b.inspect = func(string) (patch.DiscState, error) { return patch.Patched, nil }
+	if d := b.CheckDisc(); d.State != "" {
+		t.Fatalf("%+v", d)
+	}
 	if v := b.UpdateStatus(); v.Repatch != "keep" {
 		t.Fatalf("%+v", v)
 	}
-	if err := b.Repatch(); err == nil {
-		t.Fatal("Repatch without a vanilla disc")
+	if err := b.Repatch(); err != nil || b.patching() {
+		t.Fatalf("Try again on a current disc: %v, patching %v", err, b.patching())
 	}
 }
 
@@ -702,7 +719,8 @@ func TestUpdateCheckDuringInstallKeepsStage(t *testing.T) {
 // TestUpdateRepatchSurvivesAnInterruption: the re-patch doesn't hang on a
 // one-time flag. A later start finds the disc still from the old version
 // and patches it again; an installed flag naming another version is only
-// cleared; a running Dolphin is asked to close first.
+// cleared; a Dolphin that may hold the disc (its command line unread) is
+// asked to close first, and the update starts once it has.
 func TestUpdateRepatchSurvivesAnInterruption(t *testing.T) {
 	dir := t.TempDir()
 	vanilla := touch(t, filepath.Join(dir, "Wind Waker.ciso"))
@@ -720,20 +738,19 @@ func TestUpdateRepatchSurvivesAnInterruption(t *testing.T) {
 	// A start after the update's first (the re-patch was cancelled).
 	b, _, _, _ := updBridge(t, "v0.5.0", nil, cfgWith(""))
 	b.inspect = func(string) (patch.DiscState, error) { return patch.OtherVersion, nil }
-	if v := b.UpdateStatus(); v.Installed != "" || v.Repatch != "repatch" {
-		t.Fatalf("later start: %+v", v)
-	}
-	b.procs = func() []launch.Process { return []launch.Process{{PID: 7}} }
+	var procs atomic.Pointer[[]launch.Process]
+	procs.Store(&[]launch.Process{{PID: 7}})
+	b.procs = func() []launch.Process { return *procs.Load() }
+	fp := &fakePatcher{}
+	b.patchRun = fp.run
 	if err := b.Repatch(); err == nil || !strings.Contains(err.Error(), "close Dolphin") {
 		t.Fatalf("Repatch with Dolphin running: %v", err)
 	}
-	b.procs = func() []launch.Process { return nil }
-	fp := &fakePatcher{}
-	b.patchRun = fp.run
-	if err := b.Repatch(); err != nil {
-		t.Fatal(err)
+	if v := b.UpdateStatus(); v.Installed != "" || v.Repatch != "repatch" {
+		t.Fatalf("later start: %+v", v)
 	}
-	waitPatchDone(t, b)
+	procs.Store(&[]launch.Process{})
+	waitUntil(t, "the update after Dolphin closed", func() bool { return b.PatchStatus().Stage == "done" })
 
 	// Another copy's flag: cleared, no "Updated to".
 	b2, _, path2, _ := updBridge(t, "v0.5.0", nil, cfgWith("v0.4.0"))

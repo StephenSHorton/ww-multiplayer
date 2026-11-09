@@ -15,6 +15,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // The setup's patch (design §2.1 step 2): patch.Run in a goroutine, its
@@ -199,6 +200,9 @@ func (w *lineWriter) flush() {
 type patchJob struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	// auto says it is the disc update's (disc.go), not one started in
+	// Setup: the Play page's line shows it, and its result is logged.
+	auto bool
 
 	mu   sync.Mutex
 	view PatchView
@@ -231,34 +235,80 @@ func (b *Bridge) PatchStatus() PatchView {
 // vanilla one) is saved.
 func (b *Bridge) StartPatch(r PatchRequest) (err error) {
 	defer b.maskErr(&err)
+	// The disc line's Choose (or a patch while it says the update failed)
+	// is the update: the line shows it.
+	// One disc update at a time: the line's state is read under its lock.
+	b.disc.ensure.Lock()
+	defer b.disc.ensure.Unlock()
+	b.disc.mu.Lock()
+	prev, busy := b.disc.view, b.disc.busy != nil
+	b.disc.mu.Unlock()
+	if busy {
+		return errors.New("your disc is being updated (the app is closing its Dolphin first): wait until the Play page says it's done")
+	}
+	if r.Patched || (prev.State != "pick" && prev.State != "failed") || b.runningJob() != nil {
+		_, err = b.startPatch(r, false)
+		return err
+	}
+	// The disc line's Choose (or a patch while it says the update failed)
+	// is the update: it takes the update's way, Dolphins holding the disc
+	// included (repatch), and the line shows it. The disc chosen is saved
+	// first (a compressed one too: it is converted when patched), so an
+	// update that waits for Dolphin to close patches it.
+	in := cleanPath(r.Path)
+	if !isFile(in) {
+		_, err = b.startPatch(r, false) // its own words for a bad path
+		return err
+	}
+	st, ierr := b.inspect(in)
+	var u *inject.UnsupportedFormatError
+	switch {
+	case ierr == nil && st == patch.OtherVersion:
+		return errors.New("that disc was patched by a different ww-multiplayer version: choose your vanilla (unmodified) Wind Waker disc")
+	case ierr == nil && st == patch.Vanilla, errors.As(ierr, &u) && u.Convertible():
+		b.mu.Lock()
+		b.cfg.ISO.Vanilla = in
+		b.mu.Unlock()
+		b.save()
+	}
+	b.logDisc(log.Info, "disc update: the player chose %s", in)
+	b.repatch(discInfo{Plan: "repatch", Vanilla: in})
+	if v := b.discStatus(); v.State == "failed" {
+		return errors.New(v.Error)
+	}
+	return nil
+}
+
+// startPatch is StartPatch; auto marks the disc update's patch (disc.go).
+func (b *Bridge) startPatch(r PatchRequest, auto bool) (*patchJob, error) {
 	if b.updating() {
-		return errUpdating
+		return nil, errUpdating
 	}
 	in := cleanPath(r.Path)
 	if in == "" {
-		return errors.New("choose your Wind Waker disc image first")
+		return nil, errors.New("choose your Wind Waker disc image first")
 	}
 	fi, err := os.Stat(in)
 	if err != nil {
-		return fmt.Errorf("can't open %s: %w", in, errors.Unwrap(err))
+		return nil, fmt.Errorf("can't open %s: %w", in, errors.Unwrap(err))
 	}
 	if fi.IsDir() {
-		return fmt.Errorf("%s is a folder; choose the disc image (.iso, .ciso or .rvz) in it", in)
+		return nil, fmt.Errorf("%s is a folder; choose the disc image (.iso, .ciso or .rvz) in it", in)
 	}
 	if r.Patched {
 		st, err := b.inspect(in)
 		var u *inject.UnsupportedFormatError
 		if errors.As(err, &u) && u.Convertible() {
-			return fmt.Errorf("that is a compressed %s image: choose it with “Choose your disc” and the app converts and patches it", u.Format)
+			return nil, fmt.Errorf("that is a compressed %s image: choose it with “Choose your disc” and the app converts and patches it", u.Format)
 		}
 		if err != nil {
-			return fmt.Errorf("that isn't a Wind Waker disc image this app can read (%v)", err)
+			return nil, fmt.Errorf("that isn't a Wind Waker disc image this app can read (%v)", err)
 		}
 		switch st {
 		case patch.Vanilla:
-			return errors.New("that disc isn't patched yet: choose it with “Choose your disc” and the app patches it")
+			return nil, errors.New("that disc isn't patched yet: choose it with “Choose your disc” and the app patches it")
 		case patch.OtherVersion:
-			return errors.New("that disc was patched by a different ww-multiplayer version: patch your vanilla disc with this one instead")
+			return nil, errors.New("that disc was patched by a different ww-multiplayer version: patch your vanilla disc with this one instead")
 		}
 	}
 	out := patch.DefaultOut(in)
@@ -268,17 +318,17 @@ func (b *Bridge) StartPatch(r PatchRequest) (err error) {
 	b.jobMu.Lock()
 	if b.job != nil && b.job.snapshot().Running {
 		b.jobMu.Unlock()
-		return errors.New("a disc is already being patched")
+		return nil, errors.New("a disc is already being patched")
 	}
 	b.jobSeq++
 	ctx, cancel := context.WithCancel(b.ctx)
-	j := &patchJob{cancel: cancel, done: make(chan struct{}),
+	j := &patchJob{cancel: cancel, done: make(chan struct{}), auto: auto,
 		view: PatchView{ID: b.jobSeq, Seq: 1, Stage: "start", Running: true, In: in, Out: out, Lines: []string{}}}
 	b.job = j
 	b.jobMu.Unlock()
 
 	go b.runPatch(ctx, j, in, out, existed)
-	return nil
+	return j, nil
 }
 
 // CancelPatch stops the running patch (see the file comment for what that
@@ -303,13 +353,9 @@ func (b *Bridge) CancelPatch() {
 	}
 }
 
-// patching says whether a patch is running (closing the window asks;
-// Host, Join and Start wait, see errPatching).
+// patching says whether a patch is running (closing the window asks; an
+// update waits; Join, Start and LaunchDolphin wait for it to end).
 func (b *Bridge) patching() bool { return b.PatchStatus().Running }
-
-// errPatching refuses a session while a disc is being patched: Start
-// would open Dolphin on a patched disc that isn't written yet.
-var errPatching = errors.New("your disc is still being patched: wait until Setup says it's done (or stop it there), then host or join")
 
 // waitPatch waits for a running patch to end. There is no time limit:
 // the patch is bounded (one disc read and written) and can't be
@@ -327,6 +373,9 @@ func (b *Bridge) waitPatch() {
 func (b *Bridge) emitPatch(j *patchJob) {
 	v := j.snapshot()
 	b.emit(EventView{Kind: "patch", Time: b.now().UTC().Format(time.RFC3339Nano), Patch: &v})
+	if j.auto && v.Running {
+		b.emitDisc() // the Play page's line follows the update's bar
+	}
 }
 
 func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, existed bool) {
@@ -457,6 +506,7 @@ func (b *Bridge) runPatch(ctx context.Context, j *patchJob, in, out string, exis
 			v.Image, v.AlreadyPatched = res.Image(), res.AlreadyPatched
 		}
 	})
+	b.discPatchEnded(j) // before done closes: a Start waiting on it sees the line
 }
 
 // patchConverter is the setup's DolphinTool (patch.Converter): beside the

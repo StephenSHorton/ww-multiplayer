@@ -42,3 +42,43 @@ func TestInspect(t *testing.T) {
 		t.Error("DiscState names")
 	}
 }
+
+// A disc whose DOL is this build's but whose RELS.arc is another
+// build's (a REL-only release) reads Patched by Inspect and
+// OtherVersion by InspectFull, and so through every caller.
+func TestInspectFullRELOnly(t *testing.T) {
+	dir := t.TempDir()
+	in := writeImage(t, dir, "ww.iso", tablestest.PatchableISO(tablestest.Vanilla()))
+	if s, err := InspectFull(in); err != nil || s != Vanilla {
+		t.Fatalf("vanilla: %v, %v", s, err)
+	}
+	res, err := Run(context.Background(), in, "", io.Discard, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, err := InspectFull(res.Out); err != nil || s != Patched {
+		t.Fatalf("patched: %v, %v", s, err)
+	}
+	img, _ := os.ReadFile(res.Out)
+	d, err := inject.OpenDisc(res.Out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arc, err := d.ReadFile("RELS.arc")
+	d.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := bytes.Index(img, arc)
+	if at < 0 {
+		t.Fatal("RELS.arc not found in the image")
+	}
+	img[at+len(arc)-1] ^= 1 // the last byte: inside the archive, DOL untouched
+	stale := writeImage(t, dir, "stale.iso", img)
+	if s, err := Inspect(stale); err != nil || s != Patched {
+		t.Fatalf("DOL-only check: %v, %v", s, err)
+	}
+	if s, err := InspectFull(stale); err != nil || s != OtherVersion {
+		t.Fatalf("full check: %v, %v", s, err)
+	}
+}

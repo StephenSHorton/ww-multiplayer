@@ -28,6 +28,7 @@ import zlib
 C_SOURCES = [
     "src/core/hooks.c",
     "src/core/services.c",
+    "src/core/ops.c",
     "src/mp/puppets.c",
     "src/mp/minilink.c",
     "src/mp/face.c",

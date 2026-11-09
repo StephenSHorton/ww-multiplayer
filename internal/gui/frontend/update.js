@@ -8,9 +8,9 @@
 // Settings only: never during a session (it is back after Leave) or the
 // Setup. A session
 // or patch that started meanwhile leaves the update "ready": the app
-// restarts after Leave (or Restart). Every start re-patches a disc that
-// another version patched, the new version's first start above all
-// (afterUpdate). The Settings page's Updates card (renderSettings; the
+// restarts after Leave (or Restart). The new version's first start says
+// "Updated to vX.Y.Z"; its disc is updated by itself, with its own line
+// on Play (disc.js), never Setup. The Settings page's Updates card (renderSettings; the
 // sidebar's version pill opens it) has the version, the "Check for
 // updates" switch, Check now and the release notes.
 
@@ -52,46 +52,19 @@ export function initUpdate(c) {
 	});
 }
 
-// startUpdate runs once the first screen shows: finish an update this
-// start follows, or a re-patch an earlier start didn't finish, then check
-// for a newer one.
+// startUpdate runs once the first screen shows: say which update this
+// start follows, then check for a newer one.
 export async function startUpdate() {
 	try {
 		onUpdate(await call("UpdateStatus"));
 	} catch {
 		return;
 	}
-	if (upd.installed || upd.repatch === "repatch" || upd.repatch === "pick") await afterUpdate(upd);
+	if (upd.installed) toast("Updated to " + upd.installed + ".");
 	try {
 		onUpdate(await call("CheckUpdate", false));
 	} catch {
 		// No network: no banner, nothing to say.
-	}
-}
-
-// afterUpdate is the first start of a version an update installed, or a
-// start whose disc another version patched (an interrupted re-patch).
-async function afterUpdate(u) {
-	const why = u.installed
-		? "Updated to " + u.installed + ". "
-		: "Your patched disc was made by another version of this app. ";
-	switch (u.repatch) {
-	case "repatch":
-		toast(why + "Patching your disc again with this version…");
-		await ctx.openSetup("game");
-		try {
-			await call("Repatch");
-			ctx.onPatch(await call("PatchStatus"));
-		} catch (e) {
-			toast(e.message, { bad: true });
-		}
-		break;
-	case "pick":
-		toast(why + "Choose your vanilla Wind Waker disc so the app can patch it with this version.", { bad: true });
-		await ctx.openSetup("game");
-		break;
-	default:
-		toast(why.trim());
 	}
 }
 

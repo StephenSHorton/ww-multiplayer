@@ -23,7 +23,7 @@ func TestVisHeaderPins(t *testing.T) {
 		"WWVIS_STAT_SEA_OFF": VisStatSeaOff, "WWVIS_STAT_ERR_OFF": VisStatErrOff, "WWVIS_MODELS2_OFF": VisModels2Off,
 		"WWVIS_MAGIC": uint64(VisMagic), "WWVIS_SLOTS": VisSlots, "WWVIS_NAME_BYTES": VisNameBytes,
 		"WWVIS_FLAG_NAMES": uint64(VisFlagNames), "WWVIS_FLAG_EQUIP": uint64(VisFlagEquip), "WWVIS_FLAG_SEACHART": uint64(VisFlagSea),
-		"WWVIS_FLAG_HAIR": uint64(VisFlagHair), "WWVIS_FLAG_LOBBY": uint64(VisFlagLobby), "WWVIS_EQF_CASUAL": VisEqfCasual,
+		"WWVIS_FLAG_HAIR": uint64(VisFlagHair), "WWVIS_FLAG_LOBBY": uint64(VisFlagLobby), "WWVIS_FLAGS_XSCALE_SHIFT": VisFlagsXScaleShift, "WWVIS_FLAGS_XSCALE_MASK": uint64(VisFlagsXScaleMask), "WWVIS_EQF_CASUAL": VisEqfCasual,
 		"WWVIS_EQ_SWORD": VisEqSword, "WWVIS_EQ_SHIELD": VisEqShield, "WWVIS_EQ_FLAGS": VisEqFlags,
 		"WWVIS_EQF_VALID": VisEqfValid, "WWVIS_EQF_SWORD_HAND": VisEqfSwordHand, "WWVIS_EQF_SHIELD_HAND": VisEqfShieldHand,
 		"WWVIS_SEA_MAX": VisSeaMax, "WWVIS_SEA_SIZE": VisSeaSize,
@@ -137,6 +137,21 @@ func TestVisSlackMapComments(t *testing.T) {
 		}
 		if !strings.Contains(string(b), c.want) {
 			t.Errorf("%s: slack map does not say %q", c.path, c.want)
+		}
+	}
+}
+
+// TestVisXScale: the Widescreen Hack's x scale rides in the flags' top
+// half as q16, and 1.0, 0 or out of range leave it 0 (the REL's 1.0).
+func TestVisXScale(t *testing.T) {
+	for _, c := range []struct {
+		x    float64
+		want uint32
+	}{{0, 0}, {1, 0}, {1.5, 0}, {-0.5, 0}, {0.75, 0xC000}, {0.5581, 0x8EE0}, {0.99999, 0xFFFF}} {
+		b := VisBlock{Flags: VisFlagNames | 0xABCD0000, XScale: c.x}.Bytes()
+		got := binary.BigEndian.Uint32(b[VisFlagsOff-VisGoStart:])
+		if got != VisFlagNames|c.want<<VisFlagsXScaleShift {
+			t.Errorf("XScale %v: flags 0x%08X, want 0x%08X", c.x, got, VisFlagNames|c.want<<VisFlagsXScaleShift)
 		}
 	}
 }

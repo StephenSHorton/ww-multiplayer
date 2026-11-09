@@ -343,6 +343,8 @@ type replicaRig struct {
 	log    *logBuf
 	offers []Offer
 	pfs    []PreflightReport
+	// written are the tag writes OnTagWritten heard.
+	written []bind.Written
 }
 
 func newReplicaRig(t *testing.T, cfg Config) *replicaRig {
@@ -352,6 +354,7 @@ func newReplicaRig(t *testing.T, cfg Config) *replicaRig {
 	cfg.Logf = rr.log.logf
 	cfg.OnOffer = func(o Offer) { rr.offers = append(rr.offers, o) }
 	cfg.OnPreflight = func(p PreflightReport) { rr.pfs = append(rr.pfs, p) }
+	cfg.OnTagWritten = func(w bind.Written) { rr.written = append(rr.written, w) }
 	r, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)

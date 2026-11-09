@@ -345,6 +345,12 @@ func (l *LobbyClient) SetFile(hint string) error {
 	return l.send(LobbySet, LobbySetBody{File: &hint})
 }
 
+// SetCoopStatus sets this player's co-op status line, which every
+// member's window shows ("" clears it).
+func (l *LobbyClient) SetCoopStatus(text string) error {
+	return l.send(LobbySet, LobbySetBody{CoopStatus: &text})
+}
+
 // SetSettings sets the co-op settings (host only).
 func (l *LobbyClient) SetSettings(s LobbySettingsBody) error { return l.send(LobbySettings, s) }
 

@@ -81,6 +81,7 @@ function renderHost(st) {
 		$("coop-live").checked = c.liveSwitches;
 	}
 	$("coop-mode-hint").textContent = {
+		auto: "Automatic: co-op follows the save you load. Its world is continued, or started on this computer from your save. Nothing to answer.",
 		off: "Off: you play together, each in your own world. Pick New world or Continue to share chests, keys, story and more.",
 		new: "New world: after Start, load the file you want to share and stand in game; the world is founded from it.",
 		continue: "Continue: everyone binds their file to this world, or plays a file already bound to it.",
@@ -113,7 +114,7 @@ const BIND_CHIPS = {
 function choiceText(st) {
 	const c = st.coop;
 	const who = st.lobby && st.lobby.host ? "You chose" : "The host chose";
-	const what = c.mode === "new" ? "a new world, founded from the host's file" : "to continue world " + c.world;
+	const what = c.mode === "auto" ? "co-op that follows the host's save" : c.mode === "new" ? "a new world, founded from the host's file" : "to continue world " + c.world;
 	const extra = [];
 	if (c.dryRun) extra.push("dry run");
 	if (c.merge) extra.push("merging allowed");
@@ -126,7 +127,7 @@ function choiceText(st) {
 function rules(c) {
 	const row = (label, value, on) => el("li", { class: on ? "on" : "" }, label, el("b", {}, value));
 	return [
-		row("World", c.mode === "new" ? "New, from the host's file" : (c.world || "").slice(0, 8), true),
+		row("World", c.mode === "auto" ? "Follows the host's save" : c.mode === "new" ? "New, from the host's file" : (c.world || "").slice(0, 8), true),
 		row("Dry run", c.dryRun ? "On" : "Off", c.dryRun),
 		row("Merging", c.merge ? "Allowed" : "Off", c.merge),
 		row("Live switches", c.liveSwitches ? "On" : "Off", c.liveSwitches),
@@ -621,7 +622,7 @@ export async function coopAction(id, arg, d) {
 	};
 	switch (id) {
 		case "answer-yes":
-			await run(() => call("Answer", arg, true), d && d.kind === "bind" ? "Bound. Save in game so your card keeps the tag." : "");
+			await run(() => call("Answer", arg, true), d && d.kind === "bind" ? "Bound. The tag reaches your memory card once Dolphin is closed." : "");
 			return true;
 		case "answer-no":
 			try {
@@ -654,7 +655,7 @@ export async function coopAction(id, arg, d) {
 			await run(() => call("SetMerge", true), "Merging is on for this session.");
 			return true;
 		case "unbind":
-			await run(() => call("UnbindFile", arg), "Removed the file's co-op tag (in your game's memory).");
+			await run(() => call("UnbindFile", arg), "Removed the file's co-op tag. It leaves your memory card once Dolphin is closed.");
 			return true;
 		case "open-backups":
 		case "open-userdir":

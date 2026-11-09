@@ -52,6 +52,7 @@ move-puppet
 mp-local
 mt2-probe
 netem
+ops
 peek
 peek-demo
 poke-u32

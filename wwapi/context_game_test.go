@@ -35,7 +35,7 @@ func TestContextGameAndCommands(t *testing.T) {
 	a.init = func(c *wwapi.Context) error {
 		seen = c.Game()
 		regErr = c.Commands().Register("core.a.cmd", commands.Spec{}, okCmd)
-		_, coreErr = c.Commands().Execute(context.Background(), wwapi.CmdActorKill, nil)
+		_, coreErr = c.Commands().Execute(context.Background(), wwapi.CmdActorSpawn, nil)
 		return c.Commands().Register("mod.a.cmd", commands.Spec{}, okCmd)
 	}
 	rt := wwapi.New([]wwapi.Mod{a}, wwapi.Options{Game: g})

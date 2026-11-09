@@ -138,7 +138,7 @@ func previewOf(s cardSave, coop string, host bool) CardsView {
 		}
 		v.Files = append(v.Files, fv)
 	}
-	v.Hint, v.Short = cardHint(v.Files, coop == "new", host)
+	v.Hint, v.Short = cardHint(v.Files, coop == "new" || coop == "auto", host)
 	return v
 }
 

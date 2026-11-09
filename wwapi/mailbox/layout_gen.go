@@ -16,7 +16,8 @@ const (
 	WwFeatInput               = 0x08       // WW_FEAT_INPUT
 	WwFeatTunic               = 0x10       // WW_FEAT_TUNIC
 	WwFeatWarp                = 0x20       // WW_FEAT_WARP
-	WwFeatures                = 0x3F       // WW_FEATURES
+	WwFeatOps                 = 0x40       // WW_FEAT_OPS
+	WwFeatures                = 0x7F       // WW_FEATURES
 	MaxPuppets                = 4          // MAX_PUPPETS
 	MaxRemoteLinks            = 3          // MAX_REMOTE_LINKS
 	MailboxPoseSlotCap        = 3          // MAILBOX_POSE_SLOT_CAP

@@ -8,7 +8,9 @@ package session
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
+	"time"
 )
 
 // FoundingPhase is where the host's founding of a new world is.
@@ -52,10 +54,32 @@ type Founding struct {
 	// open it.
 	Blocker, BlockText, BlockWhy, TagWorld string
 	TagWorldHere                           bool
+	// GiveUp is how long a Blocked founding waits for another file or
+	// the tag's removal before the session goes on without co-op.
+	GiveUp time.Duration
 	// World is the world founded (Founded).
 	World string
+	// Outcome, with Founded, is what the app's auto mode did: "continued"
+	// (the world the save is tied to), "adopted" (that world was not on
+	// this computer: founded here under its ID) or "founded" (a new world
+	// from an untied save). The window says it in one line, no dialog.
+	Outcome string
 	// Err is why the founding failed (Failed).
 	Err string
+}
+
+// AboutDuration is d in a sentence ("a minute", "2 minutes", "90
+// seconds"), as the founding's give-up is told.
+func AboutDuration(d time.Duration) string {
+	switch {
+	case d == time.Minute:
+		return "a minute"
+	case d >= time.Minute && d%time.Minute == 0:
+		return fmt.Sprintf("%d minutes", d/time.Minute)
+	case d >= time.Second:
+		return fmt.Sprintf("%d seconds", d/time.Second)
+	}
+	return "a moment"
 }
 
 // Request is a joiner's request to the host (State.Requests).
@@ -84,7 +108,8 @@ type CoopOutput interface {
 // the tag", as `coop-tag clear --yes` does).
 type CoopFileEngine interface {
 	// UnbindFile zeroes the co-op tag of the file loaded in this
-	// player's game (in its memory: the card keeps it until a save),
+	// player's game (in its memory, and on its memory card once no
+	// Dolphin runs),
 	// when that tag still names world, the one the window showed ("" for
 	// a file the window showed with no readable tag): a stale dialog
 	// unbinds nothing else.

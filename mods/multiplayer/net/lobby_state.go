@@ -32,9 +32,10 @@ const (
 	// maxLobbyWorlds caps the host's world list in STATE.
 	maxLobbyWorlds = 16
 	// maxLobbyFile caps a member's file hint, maxLobbyDolphin its Dolphin
-	// state, in bytes.
-	maxLobbyFile    = 80
-	maxLobbyDolphin = 16
+	// state, maxLobbyCoopStatus its co-op status line, in bytes.
+	maxLobbyFile       = 80
+	maxLobbyDolphin    = 16
+	maxLobbyCoopStatus = 300
 	// cliMemberBase + a player ID is a CLI row's member ID in STATE (KICK
 	// takes it); lobby members count up from 1 and never reach it.
 	cliMemberBase = 1 << 16
@@ -70,6 +71,7 @@ type lobbyMember struct {
 	owner   bool
 	dolphin string
 	file    string
+	coop    string // the co-op status line (LobbyMember.CoopStatus)
 	app, os string
 	rttMs   int
 
@@ -246,8 +248,11 @@ func (m *lobbyMachine) snapshot() LobbyStateBody {
 	for _, mb := range m.members {
 		st.Members = append(st.Members, LobbyMember{
 			ID: mb.id, Name: mb.name, Color: mb.color.Hex(), Ready: mb.ready, Host: mb.host,
-			Dolphin: mb.dolphin, File: mb.file, RTTMs: mb.rttMs, Via: ViaApp, Away: mb.conn == 0,
+			Dolphin: mb.dolphin, File: mb.file, RTTMs: mb.rttMs, Via: ViaApp, Away: mb.conn == 0, App: mb.app,
 		})
+		if mb.host {
+			st.Members[len(st.Members)-1].CoopStatus = mb.coop
+		}
 	}
 	st.Members = append(st.Members, m.cliRows()...)
 	return st
@@ -420,11 +425,26 @@ func (m *lobbyMachine) message(conn int, sub byte, body []byte) []lobbyOut {
 		if !mb.host {
 			return []lobbyOut{notice(conn, NoticeNotHost, "only the host can send GO")}
 		}
-		if m.phase != PhaseStarting {
+		if m.phase != PhaseStarting && m.phase != PhaseInGame {
 			return []lobbyOut{notice(conn, NoticeWrongPhase, "GO comes after START")}
 		}
 		if b.World != "" && !coopWorldIDRe.MatchString(b.World) {
 			return []lobbyOut{notice(conn, NoticeBadMessage, "GO: bad world ID")}
+		}
+		if m.phase == PhaseInGame {
+			// The host sends GO at Start with no world and announces the
+			// co-op world with a second GO once it is founded. A repeat
+			// (a retry after a drop, a reconnected host) changes nothing;
+			// only a world after an empty GO is news, and it replaces
+			// what late joiners and rejoins are told.
+			if m.goBody == nil || b.World == "" || m.goBody.World == b.World {
+				return nil
+			}
+			if m.goBody.World != "" {
+				return []lobbyOut{notice(conn, NoticeWrongPhase, "a co-op world was announced already")}
+			}
+			m.goBody = &b
+			return []lobbyOut{{to: lobbyAll, sub: LobbyGo, body: b}}
 		}
 		m.phase = PhaseInGame
 		m.goBody = &b
@@ -491,6 +511,15 @@ func (m *lobbyMachine) set(mb *lobbyMember, b LobbySetBody) []lobbyOut {
 			mb.file, dirty = f, true
 		}
 	}
+	// The co-op status goes on in any phase (the host's founding speaks
+	// while the lobby is starting, and after GO), from the host only: one
+	// line per lobby keeps STATE within MaxLobbyBody, and no member's
+	// line can follow the host role to it.
+	if b.CoopStatus != nil && mb.host {
+		if c := clampField(*b.CoopStatus, maxLobbyCoopStatus); c != mb.coop {
+			mb.coop, dirty = c, true
+		}
+	}
 	if dirty {
 		outs = append(outs, m.changed())
 	}
@@ -504,8 +533,8 @@ func (m *lobbyMachine) setSettings(mb *lobbyMember, b LobbySettingsBody) []lobby
 	if b.Coop == "" {
 		b.Coop = CoopOff
 	}
-	if b.Coop != CoopOff && b.Coop != CoopNew && !coopWorldIDRe.MatchString(b.Coop) {
-		return []lobbyOut{notice(mb.conn, NoticeBadMessage, fmt.Sprintf("SETTINGS: co-op %.20q is not off, new or a world ID", b.Coop))}
+	if b.Coop != CoopOff && b.Coop != CoopNew && b.Coop != CoopAuto && !coopWorldIDRe.MatchString(b.Coop) {
+		return []lobbyOut{notice(mb.conn, NoticeBadMessage, fmt.Sprintf("SETTINGS: co-op %.20q is not off, new, auto or a world ID", b.Coop))}
 	}
 	if b.Coop != CoopOff && m.noCoop != "" {
 		return []lobbyOut{notice(mb.conn, NoticeNoCoop, m.noCoop)}

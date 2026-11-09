@@ -75,6 +75,7 @@ func newCoopBridge(t *testing.T) (*Bridge, *coopEngine, string) {
 	b := NewBridge(Options{Version: "v9.9.9", Controller: session.New(e, session.Options{}), ConfigPath: path})
 	b.findSave = func(string) (cardSave, error) { return cardSave{}, errors.New("no card here") }
 	t.Cleanup(b.close)
+	b.cfg.Coop.Disabled = true // the tests choose co-op themselves (TestHostSendsCoopAuto)
 	return b, e, path
 }
 
@@ -457,7 +458,7 @@ func TestAdviceAndRequestDialogs(t *testing.T) {
 	// another file opens the dialog again (its own key).
 	st.Founding = &session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockBound, TagWorld: worldA, File: "file slot 0"}
 	d = coopDialog(st, true, masker{})
-	if d.Actions[0].ID != actUnbind || d.Actions[0].Arg != worldA || !strings.Contains(d.Text, worldA) || !strings.Contains(d.Text, "isn't on this computer") || strings.Contains(d.Text, "Continue that world") {
+	if d.Actions[0].ID != actUnbind || d.Actions[0].Arg != worldA || !strings.Contains(d.Text, worldA) || !strings.Contains(d.Text, "isn't in your worlds on this computer") || strings.Contains(d.Text, "Continue that world") {
 		t.Fatalf("blocked: %+v", d)
 	}
 	st.Founding.TagWorldHere = true
@@ -473,23 +474,24 @@ func TestAdviceAndRequestDialogs(t *testing.T) {
 		t.Fatalf("founded with a question open: %+v", d)
 	}
 	st.Questions, st.Requests, st.Advice = nil, nil, nil
-	if d := coopDialog(st, true, masker{}); d.Kind != dlgFounded || !strings.Contains(d.Text, "Save in game so your card keeps the tag") {
+	if d := coopDialog(st, true, masker{}); d.Kind != dlgFounded || !strings.Contains(d.Text, "puts the tag on your memory card once Dolphin is closed") {
 		t.Fatalf("founded: %+v", d)
 	}
 	if d := coopDialog(st, false, masker{}); d != nil {
 		t.Fatalf("a dialog after the session ended: %+v", d)
 	}
 
-	// A file bound to another world: Remove the tag.
+	// A file bound to another world: the session clears its tag itself
+	// (docs/coop-just-works.md §5), so no dialog asks.
 	st = session.State{Session: 1, Lobby: &session.Lobby{}, Live: session.Live{CoopStatus: []session.CoopStatus{{FileState: "foreign", TagWorld: "fedcba9876543210", World: worldA}}}}
-	if d := coopDialog(st, true, masker{}); d == nil || d.Kind != dlgForeign || d.Actions[0].ID != actUnbind || d.Actions[0].Arg != "fedcba9876543210" {
+	if d := coopDialog(st, true, masker{}); d != nil {
 		t.Fatalf("foreign file: %+v", d)
 	}
 	// Refused before a welcome: the replica judged the tag against no
 	// world (bound); the session's world comes from GO.
 	st = session.State{Session: 1, Lobby: &session.Lobby{}, Coop: session.CoopOptions{On: true, World: worldA},
 		Live: session.Live{CoopStatus: []session.CoopStatus{{StateCode: "refused", FileState: "bound", TagWorld: "fedcba9876543210"}}}}
-	if d := coopDialog(st, true, masker{}); d == nil || d.Kind != dlgForeign {
+	if d := coopDialog(st, true, masker{}); d != nil {
 		t.Fatalf("refused file bound elsewhere: %+v", d)
 	}
 	st.CoopStatus[0].TagWorld = worldA
@@ -592,7 +594,7 @@ func TestCoopPanelView(t *testing.T) {
 		want    string
 	}{
 		{session.BlockBound, true, "Continue that world"},
-		{session.BlockBound, false, "another player hosts it"},
+		{session.BlockBound, false, "isn't in your worlds"},
 		{session.BlockForeign, false, "can't use"},
 		{session.BlockGarbage, false, "can't use"},
 		{session.BlockSecondQuest, false, "second quest"},
@@ -762,5 +764,69 @@ func TestFileHintToLobby(t *testing.T) {
 		e.fakeEngine.cmds = nil
 		e.mu.Unlock()
 		b.Leave()
+	}
+}
+
+// TestHostCoopBanner: once the lobby has started, a player whose co-op
+// isn't on sees the host's co-op status line: a joiner waiting on the
+// host's founding, or anyone after co-op went off for the session. In
+// the lobby, with no line, or with co-op on, it says nothing. The host's
+// own blocked founding names its give-up.
+func TestHostCoopBanner(t *testing.T) {
+	const line = "the host's save file can't found a world, as it is a second quest."
+	st := session.State{Session: 1, Lobby: &session.Lobby{Member: 2, Phase: session.LobbyPhaseStarting, Members: []session.LobbyMember{
+		{ID: 1, Name: "Host", Host: true, Via: session.ViaApp, CoopStatus: line}, {ID: 2, Name: "Jo", Via: session.ViaApp}}}}
+	if b := coopBanner(st, true); b == nil || b.Kind != "coop" || b.Text != line || b.Action != "" {
+		t.Fatalf("joiner while starting: %+v", b)
+	}
+	st.Lobby.Phase = session.LobbyPhaseInGame
+	if b := coopBanner(st, true); b == nil || b.Text != line {
+		t.Fatalf("joiner in game: %+v", b)
+	}
+	if b := coopBanner(st, false); b != nil {
+		t.Fatalf("an ended session: %+v", b)
+	}
+	st.Lobby.Phase = session.LobbyPhaseLobby
+	if b := coopBanner(st, true); b != nil {
+		t.Fatalf("in the lobby: %+v", b)
+	}
+	st.Lobby.Phase = session.LobbyPhaseInGame
+	st.Lobby.Members[0].CoopStatus = ""
+	if b := coopBanner(st, true); b != nil {
+		t.Fatalf("no line: %+v", b)
+	}
+
+	// The host's own founding, co-op on: its founding banner, with the give-up.
+	st.Lobby.Members[0].CoopStatus = line
+	st.Coop.On = true
+	st.Founding = &session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockSecondQuest, GiveUp: time.Minute}
+	if b := coopBanner(st, true); b == nil || b.Title != "Founding the new world:" || !strings.Contains(b.Text, "goes on without co-op in a minute") {
+		t.Fatalf("host's blocked founding: %+v", b)
+	}
+}
+
+// TestCoopMergeOnByDefault: an app host's merge starts on (docs/
+// coop-just-works.md §5), the saved choice is the off one, and a joiner's
+// follow outcomes read as one banner line.
+func TestCoopMergeOnByDefault(t *testing.T) {
+	if r := choiceOf(config.Coop{}); !r.Merge {
+		t.Fatalf("a fresh config's choice: %+v, want merging on", r)
+	}
+	if r := choiceOf(config.Coop{MergeOff: true}); r.Merge {
+		t.Fatalf("merging off saved: %+v", r)
+	}
+	st := session.State{Session: 1, Lobby: &session.Lobby{}, Coop: session.CoopOptions{On: true},
+		Live: session.Live{}}
+	for outcome, want := range map[string]string{
+		"joined":   "joined the host's world",
+		"followed": "untied and joined the host's world",
+		"cleared":  "untied to follow the host's world",
+		"scrubbed": "stale co-op tag was removed",
+	} {
+		st.Founding = &session.Founding{Phase: session.FoundingFounded, World: "0123456789abcdef", Outcome: outcome}
+		b := coopBanner(st, true)
+		if b == nil || !strings.Contains(b.Text, want) {
+			t.Errorf("%s: banner %+v, want %q", outcome, b, want)
+		}
 	}
 }

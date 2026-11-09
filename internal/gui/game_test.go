@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
+	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
@@ -139,8 +140,9 @@ func TestGameDialogs(t *testing.T) {
 		dialog string
 		banner string
 	}{
-		{session.DolphinInfo{State: session.DolphinWrongGame, PID: 4, ISO: iso}, dlgDolphin, ""},
-		{session.DolphinInfo{State: session.DolphinUnpatched, PID: 4, ISO: iso}, dlgDolphin, ""},
+		// The wrong-disc dialog's banner stays after the dialog is closed.
+		{session.DolphinInfo{State: session.DolphinWrongGame, PID: 4, ISO: iso}, dlgDolphin, "Wrong disc in Dolphin."},
+		{session.DolphinInfo{State: session.DolphinUnpatched, PID: 4, ISO: iso}, dlgDolphin, "Wrong disc in Dolphin."},
 		// After a failed launch the banner offers Try again too: closing
 		// the dialog leaves a way to retry.
 		{session.DolphinInfo{State: session.DolphinNone, Err: "exec: not found 10.0.0.5", LaunchAttempt: 1}, dlgLaunchFail, "Couldn't start Dolphin."},
@@ -383,5 +385,47 @@ func TestStateViewPlaces(t *testing.T) {
 	st.LocalPlace.InPlay = false
 	if v := stateView(st, true, "v1", time.Now(), hideIPs); v.Where != "" {
 		t.Fatalf("loading header %q", v.Where)
+	}
+}
+
+// TestStartRefusesDiscPatchedByAnotherVersion: an ISO another version
+// patched can't be started from the app: Start and LaunchDolphin refuse with
+// ErrStaleDisc before any Dolphin launches. A disc this build patched, or
+// "I'll start Dolphin myself", passes.
+func TestStartRefusesDiscPatchedByAnotherVersion(t *testing.T) {
+	b, e, _ := newTestBridge(t)
+	if err := b.Host(HostRequest{Name: "Link"}); err != nil {
+		t.Fatal(err)
+	}
+	iso := filepath.Join(t.TempDir(), "ww.iso")
+	os.WriteFile(iso, nil, 0o644)
+	exe := filepath.Join(t.TempDir(), "Dolphin.exe")
+	os.WriteFile(exe, nil, 0o644)
+	b.mu.Lock()
+	b.cfg.Dolphin.Exe, b.cfg.ISO.Patched, b.cfg.Dolphin.LaunchOnStart = exe, iso, true
+	b.mu.Unlock()
+	state := patch.OtherVersion
+	b.inspect = func(string) (patch.DiscState, error) { return state, nil }
+	if err := b.Start(true); !errors.Is(err, ErrStaleDisc) {
+		t.Fatalf("Start on a stale disc = %v", err)
+	}
+	if err := b.LaunchDolphin(); !errors.Is(err, ErrStaleDisc) {
+		t.Fatalf("LaunchDolphin on a stale disc = %v", err)
+	}
+	if len(e.cmds) != 0 {
+		t.Fatalf("commands %+v", e.cmds)
+	}
+	b.mu.Lock()
+	b.cfg.Dolphin.LaunchOnStart = false
+	b.mu.Unlock()
+	if err := b.Start(true); errors.Is(err, ErrStaleDisc) {
+		t.Fatalf("Start myself = %v", err)
+	}
+	b.mu.Lock()
+	b.cfg.Dolphin.LaunchOnStart = true
+	b.mu.Unlock()
+	state = patch.Patched
+	if err := b.Start(true); errors.Is(err, ErrStaleDisc) {
+		t.Fatalf("Start on a current disc = %v", err)
 	}
 }

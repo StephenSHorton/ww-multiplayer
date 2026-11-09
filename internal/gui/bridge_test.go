@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
@@ -130,8 +132,67 @@ func newTestBridge(t *testing.T) (*Bridge, *fakeEngine, string) {
 	e := newFakeEngine()
 	path := filepath.Join(t.TempDir(), "config.json")
 	b := NewBridge(Options{Version: "v9.9.9", Controller: session.New(e, session.Options{}), ConfigPath: path})
+	// No real Dolphin is ever seen or closed by a test: a test that needs
+	// one fakes these.
+	b.procs = func() []launch.Process { return nil }
+	b.closeProc = func(pid uint32) error { return fmt.Errorf("a test closed real pid %d", pid) }
+	b.waitGone = func(uint32, time.Duration) bool { return false }
 	t.Cleanup(b.close)
+	// Co-op is on by default (a host's lobby gets "auto" sent once it is
+	// up, TestHostSendsCoopAuto); the other tests count the lobby commands.
+	b.cfg.Coop.Disabled = true
 	return b, e, path
+}
+
+// commands is a copy of the lobby commands so far.
+func (e *fakeEngine) commands() []session.LobbyCommand {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]session.LobbyCommand(nil), e.cmds...)
+}
+
+// TestHostSendsCoopAuto: a host's lobby gets co-op "auto" as soon as it
+// is up, with no click, unless Settings turned co-op off.
+func TestHostSendsCoopAuto(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		disabled bool
+		mode     string
+	}{{"default", false, "auto"}, {"an old saved off", false, "off"}, {"settings off", true, "auto"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, e, _ := newTestBridge(t)
+			b.cfg.Coop.Disabled = tc.disabled
+			if tc.mode == "off" {
+				b.cfg.Coop.LastMode = "off"
+			}
+			if err := b.Host(HostRequest{Name: "Link"}); err != nil {
+				t.Fatal(err)
+			}
+			e.out(t)
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				e.mu.Lock()
+				n := len(e.cmds)
+				e.mu.Unlock()
+				if n > 0 || tc.disabled {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			time.Sleep(100 * time.Millisecond)
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			if tc.disabled {
+				if len(e.cmds) != 0 {
+					t.Fatalf("co-op off in Settings, yet commands %+v", e.cmds)
+				}
+				return
+			}
+			if len(e.cmds) != 1 || e.cmds[0].Kind != session.LobbySetSettings || e.cmds[0].Settings.Coop != "auto" {
+				t.Fatalf("commands %+v, want one settings command, co-op auto", e.cmds)
+			}
+		})
+	}
 }
 
 func TestBridgeInfo(t *testing.T) {
@@ -332,5 +393,24 @@ func TestEventKindsCoverController(t *testing.T) {
 		if eventKinds[k] == "" {
 			t.Errorf("EventKind %d has no frontend name", k)
 		}
+	}
+}
+
+// TestCloseWritesCardTags: opening and quitting the app write the co-op
+// tags waiting for the memory card (Options.CardTags), at quit after the
+// session ended; a second close (OnShutdown, then Run's defer) just asks
+// again.
+func TestCloseWritesCardTags(t *testing.T) {
+	e := newFakeEngine()
+	var calls int
+	b := NewBridge(Options{Version: "v9.9.9", Controller: session.New(e, session.Options{}), ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		CardTags: func(log.Reporter) { calls++ }})
+	if calls != 1 {
+		t.Fatalf("CardTags ran %d times as the app opened, want once", calls)
+	}
+	b.close()
+	b.close()
+	if calls != 3 {
+		t.Fatalf("CardTags ran %d times, want once more per close", calls)
 	}
 }

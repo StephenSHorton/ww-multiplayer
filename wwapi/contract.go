@@ -75,6 +75,7 @@ var featureBits = []struct {
 	{mailbox.WwFeatInput, "input"},
 	{mailbox.WwFeatTunic, "tunic"},
 	{mailbox.WwFeatWarp, "warp"},
+	{mailbox.WwFeatOps, "ops"},
 }
 
 // FeaturesOf decodes a WWMB features word into a known set. A bit this

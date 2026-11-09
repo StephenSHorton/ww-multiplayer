@@ -14,6 +14,7 @@ package session
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gfx/texture"
@@ -61,8 +62,13 @@ type LobbyMember struct {
 	Host    bool
 	Dolphin string // "none", "launching", "title", "in_game" or ""
 	File    string // the member's save-file hint
-	RTT     time.Duration
-	Via     string
+	// CoopStatus is the member's co-op status line (the host's: why its
+	// founding waits, or why co-op is off this session); "" for none.
+	CoopStatus string
+	RTT        time.Duration
+	Via        string
+	// App is the member's app version ("" unknown).
+	App string
 	// Away: the member's lobby connection dropped; the host holds its
 	// slot for a while.
 	Away bool
@@ -121,6 +127,56 @@ func (l Lobby) Self() (LobbyMember, bool) {
 		}
 	}
 	return LobbyMember{}, false
+}
+
+// VersionSkew is the lobby's one line about members on another app
+// version than this player's ("" when all agree, or when our own version
+// is unknown): "Whitney is on 0.6.0, you're on 0.6.1: ask them to update".
+// Status text, not a refusal. Several members are named together; a
+// member whose version is unknown is left out.
+func (l Lobby) VersionSkew() string {
+	self, ok := l.Self()
+	if !ok || self.App == "" {
+		return ""
+	}
+	mine := versionOnly(self.App)
+	byVer := map[string][]string{}
+	var order []string
+	for _, m := range l.Members {
+		if m.Via != ViaApp || m.ID == self.ID || m.App == "" || versionOnly(m.App) == mine {
+			continue
+		}
+		v := versionOnly(m.App)
+		if _, seen := byVer[v]; !seen {
+			order = append(order, v)
+		}
+		byVer[v] = append(byVer[v], m.Name)
+	}
+	if len(order) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, v := range order {
+		parts = append(parts, strings.Join(byVer[v], " and ")+" "+isAre(len(byVer[v]))+" on "+v)
+	}
+	return strings.Join(parts, ", ") + ", you're on " + mine + ": ask them to update"
+}
+
+// versionOnly trims a HELLO's app field to the bare version: the app sends
+// "ww-multiplayer 0.6.1" or "0.6.1" and a leading "v" is dropped.
+func versionOnly(app string) string {
+	app = strings.TrimSpace(app)
+	if i := strings.LastIndex(app, " "); i >= 0 {
+		app = app[i+1:]
+	}
+	return strings.TrimPrefix(app, "v")
+}
+
+func isAre(n int) string {
+	if n == 1 {
+		return "is"
+	}
+	return "are"
 }
 
 func (l Lobby) clone() *Lobby {

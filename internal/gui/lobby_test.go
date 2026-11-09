@@ -326,6 +326,7 @@ func TestBridgeHostListenHost(t *testing.T) {
 			return ""
 		}})
 	defer b.close()
+	b.cfg.Coop.Disabled = true // no late co-op settings save into the temp dir
 	if err := b.Host(HostRequest{Name: "Link"}); err != nil {
 		t.Fatal(err)
 	}

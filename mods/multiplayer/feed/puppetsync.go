@@ -123,6 +123,9 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 	// WW_EQUIP / WW_SEACHART / WW_HAIR=off turn each off. Session over: the block goes off.
 	visSettings := vissync.SettingsFromEnv()
 	var vis vissync.Sync
+	// Dolphin's Widescreen Hack moves the 3D picture but not the tags'
+	// 2D layer: the REL scales the tags' x by what this measures (#1157).
+	xscale := newXScaleSampler(d.PID()) // the opened Dolphin: dolphinPID 0 means "the one the env picks"
 	defer func() {
 		if gate.ok {
 			_ = vis.Off(d)
@@ -226,7 +229,9 @@ func PuppetSync(ctx context.Context, env Env, name, addr, selfFilter string, dol
 				tunicsync.SyncTunics(tunics, mine, haveMine, remotes, feeder.LinkSlots(), now)
 			}
 
-			_ = vis.Write(d, vissync.Build(visSettings, remotes, feeder.LinkSlots(), selfFilter))
+			visBlock := vissync.Build(visSettings, remotes, feeder.LinkSlots(), selfFilter)
+			visBlock.XScale = xscale.Scale(now, rep)
+			_ = vis.Write(d, visBlock)
 			if boatSettings.On {
 				_ = boats.Write(d, boatTracker.Build(boatSettings, boatsync.ReadHere(d), remotes, BoatAnchors(views), selfFilter, now))
 			}

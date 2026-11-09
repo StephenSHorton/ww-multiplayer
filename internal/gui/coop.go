@@ -30,7 +30,7 @@ import (
 
 // CoopRequest is the host's co-op choice.
 type CoopRequest struct {
-	Mode         string `json:"mode"` // "off", "new" or "continue"
+	Mode         string `json:"mode"` // "off", "auto", "new" or "continue"
 	World        string `json:"world"`
 	DryRun       bool   `json:"dryRun"`
 	Merge        bool   `json:"merge"`
@@ -241,6 +241,8 @@ func coopModeOf(setting string) (mode, world string) {
 		return "off", ""
 	case session.CoopWorldNew:
 		return "new", ""
+	case session.CoopWorldAuto:
+		return "auto", ""
 	}
 	return "continue", setting
 }
@@ -255,6 +257,8 @@ func settingsOf(r CoopRequest) (session.LobbySettings, error) {
 		s.Coop = "off"
 	case "new":
 		s.Coop = session.CoopWorldNew
+	case "auto":
+		s.Coop = session.CoopWorldAuto
 	case "continue":
 		w := strings.ToLower(strings.TrimSpace(r.World))
 		if !worldIDRe.MatchString(w) {
@@ -262,7 +266,7 @@ func settingsOf(r CoopRequest) (session.LobbySettings, error) {
 		}
 		s.Coop = w
 	default:
-		return s, fmt.Errorf("co-op mode %q is not off, new or continue", r.Mode)
+		return s, fmt.Errorf("co-op mode %q is not off, auto, new or continue", r.Mode)
 	}
 	return s, nil
 }
@@ -275,7 +279,14 @@ func requestOf(s session.LobbySettings, iso string) CoopRequest {
 
 // choiceOf is the host's saved choice.
 func choiceOf(c config.Coop) CoopRequest {
-	return CoopRequest{Mode: c.LastMode, World: c.LastWorld, DryRun: c.DryRun, Merge: c.Merge, LiveSwitches: !c.LiveSwitchesOff, ISO: c.ISO}
+	mode := c.LastMode
+	switch {
+	case c.Disabled:
+		mode = "off"
+	case mode == "off" || mode == "":
+		mode = "auto" // saved when Off was the default: co-op is on now
+	}
+	return CoopRequest{Mode: mode, World: c.LastWorld, DryRun: c.DryRun, Merge: !c.MergeOff, LiveSwitches: !c.LiveSwitchesOff, ISO: c.ISO}
 }
 
 // SetCoop sets the host's co-op choice: saved for next time, and sent to
@@ -292,14 +303,16 @@ func (b *Bridge) SetCoop(r CoopRequest) (err error) {
 		return errNoCoopMod
 	}
 	b.mu.Lock()
-	b.cfg.Coop.LastMode = r.Mode
-	if r.Mode == "" {
-		b.cfg.Coop.LastMode = "off"
+	// Off is Settings' switch and leaves the mode alone, so turning co-op
+	// back on returns to what was chosen.
+	b.cfg.Coop.Disabled = r.Mode == "" || r.Mode == "off"
+	if !b.cfg.Coop.Disabled {
+		b.cfg.Coop.LastMode = r.Mode
 	}
 	if r.Mode == "continue" {
 		b.cfg.Coop.LastWorld = s.Coop
 	}
-	b.cfg.Coop.DryRun, b.cfg.Coop.Merge, b.cfg.Coop.LiveSwitchesOff = r.DryRun, r.Merge, !r.LiveSwitches
+	b.cfg.Coop.DryRun, b.cfg.Coop.MergeOff, b.cfg.Coop.LiveSwitchesOff = r.DryRun, !r.Merge, !r.LiveSwitches
 	b.cfg.Coop.ISO = strings.TrimSpace(r.ISO)
 	b.mu.Unlock()
 	b.save()
@@ -437,7 +450,8 @@ func (b *Bridge) SetMerge(on bool) (err error) {
 }
 
 // UnbindFile removes the co-op tag of the file loaded in this player's
-// game (in memory: the card keeps it until a save), so a file bound to
+// game (in game memory, and on the memory card once no Dolphin runs:
+// mods/coop/cardtag), so a file bound to
 // another world can found or join this one. world is the tag's world the
 // dialog showed (the action's Arg): a file loaded since, with another
 // tag, is left alone.
@@ -558,7 +572,7 @@ func (b *Bridge) coopView(st session.State, running bool, mk masker) *CoopView {
 		v.Setting = "off"
 	}
 	v.Mode, v.World = coopModeOf(v.Setting)
-	if st.Coop.On && st.Coop.World != "" && st.Coop.World != session.CoopWorldNew {
+	if st.Coop.On && st.Coop.World != "" && st.Coop.World != session.CoopWorldNew && st.Coop.World != session.CoopWorldAuto {
 		v.World = st.Coop.World
 	}
 	if f := st.Founding; f != nil && f.World != "" {
@@ -675,9 +689,9 @@ func foundingBlockedText(f session.Founding) string {
 	switch f.Blocker {
 	case session.BlockBound:
 		if f.TagWorldHere {
-			return fmt.Sprintf("this file is already bound to world %s. Continue that world, or remove its tag to found a new one.", short(f.TagWorld))
+			return fmt.Sprintf("co-op is not running: this file is already bound to world %s. Continue that world, or remove its tag to found a new one.", short(f.TagWorld))
 		}
-		return fmt.Sprintf("this file is bound to world %s (another player hosts it). Remove its tag, or load another file.", short(f.TagWorld))
+		return fmt.Sprintf("co-op is not running: this file is bound to world %s, which isn't in your worlds. Remove its tag, or load another file.", short(f.TagWorld))
 	case session.BlockForeign, session.BlockGarbage:
 		return "this file holds a tag this version can't use. Remove it, or load another file."
 	case session.BlockSecondQuest:
@@ -691,7 +705,10 @@ func foundingBlockedText(f session.Founding) string {
 // closed, and nothing else shows it), "Co-op writes turned off: reason"
 // after an auto-disable, or "File not bound"; nil for none.
 func coopBanner(st session.State, running bool) *BannerView {
-	if !running || !st.Coop.On {
+	if running && !st.Coop.On {
+		return hostCoopBanner(st)
+	}
+	if !running {
 		return nil
 	}
 	if f := st.Founding; f != nil && (f.Phase == session.FoundingWaiting || f.Phase == session.FoundingBlocked) {
@@ -703,6 +720,9 @@ func coopBanner(st session.State, running bool) *BannerView {
 			b.Text = "in game and idle: founding the world."
 		default:
 			b.Text = foundingBlockedText(*f)
+			if f.GiveUp > 0 {
+				b.Text += " Without a change, the session goes on without co-op in " + session.AboutDuration(f.GiveUp) + "."
+			}
 		}
 		if f.Phase == session.FoundingBlocked && (f.Blocker == session.BlockBound || f.Blocker == session.BlockForeign || f.Blocker == session.BlockGarbage) {
 			b.Action, b.ActionLabel, b.ActionArg = actUnbind, "Remove the tag", f.TagWorld
@@ -726,10 +746,50 @@ func coopBanner(st session.State, running bool) *BannerView {
 			b := &BannerView{Kind: "coop", Title: "File not bound.", Text: text + "."}
 			// A file bound to another world (its dialog kept): its tag can
 			// still be removed from here.
-			if (cs.FileState == "foreign" || cs.FileState == "bound") && cs.TagWorld != "" && world != "" && world != session.CoopWorldNew && cs.TagWorld != world {
+			if (cs.FileState == "foreign" || cs.FileState == "bound") && cs.TagWorld != "" && world != "" && world != session.CoopWorldNew && world != session.CoopWorldAuto && cs.TagWorld != world {
 				b.Action, b.ActionLabel, b.ActionArg = actUnbind, "Remove the tag", cs.TagWorld
 			}
 			return b
+		}
+	}
+	if f := st.Founding; f != nil && f.Phase == session.FoundingFounded && f.Outcome != "" {
+		return &BannerView{Kind: "coop", Title: "Co-op:", Text: autoFoundedText(*f)}
+	}
+	return nil
+}
+
+// autoFoundedText is the one line the auto mode leaves after it
+// decided: what the host's save did.
+func autoFoundedText(f session.Founding) string {
+	switch f.Outcome {
+	case "continued":
+		return "continuing your world " + short(f.World) + "."
+	case "adopted":
+		return "your save belongs to world " + short(f.World) + ", which wasn't on this computer, so it was started here from your save."
+	case "joined":
+		return "your save joined the host's world " + short(f.World) + "."
+	case "followed":
+		return "your save was tied to another world, so it was untied and joined the host's world " + short(f.World) + " (the other world stays on this computer)."
+	case "cleared":
+		return "your save was tied to another world, so it was untied to follow the host's world " + short(f.World) + "."
+	case "scrubbed":
+		return "a stale co-op tag was removed from your save."
+	}
+	return "started a new world " + short(f.World) + " from your save."
+}
+
+// hostCoopBanner is the host's co-op status line (its lobby row's) for
+// a player whose co-op isn't on, once the lobby has started: a joiner
+// waiting on the host's founding, or anyone after co-op went off for the
+// session, sees why; nil when the host says nothing.
+func hostCoopBanner(st session.State) *BannerView {
+	l := st.Lobby
+	if l == nil || l.Legacy || l.Phase == session.LobbyPhaseLobby {
+		return nil
+	}
+	for _, m := range l.Members {
+		if m.Host && m.Via == session.ViaApp && m.CoopStatus != "" {
+			return &BannerView{Kind: "coop", Title: "Co-op:", Text: m.CoopStatus}
 		}
 	}
 	return nil
@@ -764,20 +824,9 @@ func coopDialog(st session.State, running bool, mk masker) *DialogView {
 	if len(st.Advice) > 0 {
 		return adviceDialog(st.Advice[0], st, key)
 	}
-	// A file bound to another world: the replica judged it against no
-	// world yet (bound) or against the session's (foreign).
-	world := st.Coop.World
-	for _, cs := range st.CoopStatus {
-		if cs.World != "" {
-			world = cs.World
-		}
-		if (cs.FileState == "foreign" || cs.FileState == "bound") && cs.TagWorld != "" && world != "" && world != session.CoopWorldNew && cs.TagWorld != world {
-			return &DialogView{Key: key("foreign", cs.TagWorld), Kind: dlgForeign, Live: true, Title: "This file is bound to another co-op world",
-				Text:    fmt.Sprintf("The file you loaded is bound to world %s, so it can't join this session's world. Remove its tag to bind it here instead: you'll be asked to bind it next.", short(cs.TagWorld)),
-				Detail:  "Only your game's memory changes: the file leaves world " + short(cs.TagWorld) + " at your next in-game save, and loading it from the card again brings the tag back.",
-				Actions: []DialogAction{{ID: actUnbind, Arg: cs.TagWorld, Label: "Remove the tag", Primary: true}, {ID: actOK, Label: "Keep it"}}}
-		}
-	}
+	// A file bound to another world is cleared by the session itself
+	// (docs/coop-just-works.md §5): no dialog. The banner keeps "Remove
+	// the tag" for a file the session could not clear.
 	return founding
 }
 
@@ -803,11 +852,17 @@ func foundingDialog(f *session.Founding, key func(...string) string) *DialogView
 	}
 	switch f.Phase {
 	case session.FoundingFounded:
+		if f.Outcome != "" {
+			return nil // the auto mode's one line (autoFoundedText) says it
+		}
 		return &DialogView{Key: key("founded"), Kind: dlgFounded, Title: "World " + short(f.World) + " founded",
-			Text:    "Your file founded co-op world " + f.World + ". Save in game so your card keeps the tag.",
-			Detail:  "Your file joins it through the Bind question (say Bind); then save in game.",
+			Text:    "Your file founded co-op world " + f.World + ". The app puts the tag on your memory card once Dolphin is closed: no in-game save needed.",
+			Detail:  "Your file joins it through the Bind question (say Bind).",
 			Actions: []DialogAction{{ID: actOK, Label: "OK", Primary: true}}}
 	case session.FoundingFailed:
+		if f.Outcome == "none" {
+			return nil // co-op is off this session: the host's row says why
+		}
 		return &DialogView{Key: key("found", "failed"), Kind: dlgFounding, Title: "No world was founded",
 			Text: "The new world couldn't be made, so this session plays without co-op.", Detail: f.Err,
 			Actions: []DialogAction{{ID: actOK, Label: "OK", Primary: true}}}
@@ -821,9 +876,9 @@ func foundingDialog(f *session.Founding, key func(...string) string) *DialogView
 			if f.TagWorldHere {
 				d.Text = fmt.Sprintf("This file is already bound to world %s. Continue that world instead (Leave, then pick it under Continue), or remove its tag to found a new world from this file.", f.TagWorld)
 			} else {
-				d.Text = fmt.Sprintf("This file is bound to world %s, which isn't on this computer (another player hosts it). Remove its tag to found a new world from this file, or load another file.", f.TagWorld)
+				d.Text = fmt.Sprintf("Co-op is not running yet. This file is bound to world %s, which isn't in your worlds on this computer (an old or deleted world, or one another player hosts). Remove its tag to found a new world from this file, or load another file.", f.TagWorld)
 			}
-			d.Detail = "Removing the tag changes only your game's memory: the file leaves world " + short(f.TagWorld) + " at your next in-game save."
+			d.Detail = "Removing the tag takes the file out of world " + short(f.TagWorld) + ": in your game now, and on your memory card once Dolphin is closed."
 			d.Actions = []DialogAction{{ID: actUnbind, Arg: f.TagWorld, Label: "Remove the tag", Primary: true}, {ID: actOK, Label: "Close"}}
 		case session.BlockGarbage, session.BlockForeign:
 			d.Text = "This file holds a tag this version can't use, so it can't found a world. Remove it to found the world from this file, or load another file."
@@ -872,7 +927,7 @@ func questionDialog(q session.Question, st session.State, key func(...string) st
 	}
 	d.Kind = dlgBind
 	d.Title = fmt.Sprintf("Bind %s to world %s?", file, short(q.World))
-	d.Text = "Binding ties this save file to the co-op world: from then on the world's progress is written into it, and its progress joins the world. The app writes a small tag into the file, which reaches your memory card at your next in-game save; nothing else in the file is written."
+	d.Text = "Binding ties this save file to the co-op world: from then on the world's progress is written into it, and its progress joins the world. The app writes a small tag into the file, in your game now and on your memory card once Dolphin is closed (a raw .raw card waits for your next in-game save); nothing else in the file is written."
 	switch {
 	case q.MaybeFresh:
 		d.Text += fmt.Sprintf(" Its current tag, of world %s, may be a fresh bind to that world that only its host can tell from a leak; binding replaces it.", short(q.TagWorld))

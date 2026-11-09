@@ -39,6 +39,9 @@ type Player struct {
 	// where is the place its last position carried (place.go; guarded by
 	// the server's mu, as Position is).
 	where placeState
+	// udp is its UDP side (udp.go), set at join for a CapUDP hello while
+	// the server has UDP up; nil otherwise.
+	udp *udpPlayer
 }
 
 // Server manages player connections and relays position data.
@@ -125,6 +128,15 @@ type Server struct {
 	now        func() time.Time
 	scopeMu    sync.Mutex
 	scopeStats ScopeStats
+
+	// UDP turns the UDP pose transport on (udp.go, docs/12-udp-pose.md;
+	// WW_UDP, read at NewServer). Set it before Start. udpConn is the
+	// socket Start bound (nil: UDP off), udpOffset its port minus the TCP
+	// port, udpTokens the CapUDP players by token (all guarded by mu).
+	UDP       bool
+	udpConn   *net.UDPConn
+	udpOffset uint16
+	udpTokens map[uint64]*Player
 }
 
 // NewServer creates a server on the given port.
@@ -148,6 +160,7 @@ func NewServer(port int) *Server {
 		stopped:        make(chan struct{}),
 		scope:          relayScopeFromEnv(),
 		now:            time.Now,
+		UDP:            UDPFromEnv(),
 	}
 	s.lobby = newLobbyHub(s, LobbyHoldTimeout)
 	return s
@@ -174,6 +187,9 @@ func (s *Server) Start() error {
 	s.started = time.Now()
 	s.mu.Unlock()
 	s.log(fmt.Sprintf("Server listening on port %d", s.port))
+	if s.UDP {
+		s.startUDP(host, ln.Addr().(*net.TCPAddr).Port)
+	}
 
 	go s.acceptLoop()
 	return nil
@@ -203,6 +219,9 @@ func (s *Server) Stop() {
 		c.Close()
 	}
 	s.closeEnemyLocked()
+	if s.udpConn != nil {
+		s.udpConn.Close()
+	}
 	s.mu.Unlock()
 	s.lobby.closeAll()
 }
@@ -343,10 +362,17 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	if !stopping {
 		id, ok = s.allocIDLocked()
 	}
+	welcome := []byte(nil)
 	if ok {
 		player.ID = id
 		player.Color = s.pickColorLocked(name, ParseHelloColor(hello.Data))
 		s.players[id] = player
+		welcome = WelcomeMessage(id, s.epoch)
+		if caps&CapUDP != 0 {
+			if off, token, udpOK := s.udpRegisterLocked(player); udpOK {
+				welcome = WelcomeMessageUDP(id, s.epoch, off, token)
+			}
+		}
 	}
 	s.mu.Unlock()
 	if stopping {
@@ -364,7 +390,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	// Send welcome with assigned ID + the server epoch (for restart
 	// detection) + the protocol version. Old readers take the fields they
 	// know from the front and ignore the rest.
-	s.writePlayerLocked(player, MsgWelcome, WelcomeMessage(id, s.epoch))
+	s.writePlayerLocked(player, MsgWelcome, welcome)
 	player.SendMu.Unlock()
 
 	s.log(fmt.Sprintf("%s (ID:%d) connected", name, id))
@@ -519,6 +545,7 @@ func (s *Server) handlePlayer(conn net.Conn) {
 	if s.players[id] == player {
 		delete(s.players, id)
 	}
+	s.udpUnregisterLocked(player)
 	s.mu.Unlock()
 
 	s.log(fmt.Sprintf("%s disconnected", name))
@@ -689,16 +716,7 @@ func (s *Server) relayPose(sender *Player, relay []byte) {
 			// Its own player's twin (CapNoSelfEcho): it would drop it.
 			return false
 		}
-		if p.posed.Load() {
-			// A pose sender (broadcast-pose) never draws remotes:
-			// only puppet-sync does (place.go).
-			scoped++
-			return false
-		}
-		now := s.now()
-		from, fromOK := s.placeOfLocked(sender, now)
-		to, toOK := s.placeOfLocked(p, now)
-		if poseInScope(from, fromOK, to, toOK) {
+		if s.poseWantedLocked(sender, p, s.now()) {
 			sent++
 			return true
 		}
@@ -711,6 +729,24 @@ func (s *Server) relayPose(sender *Player, relay []byte) {
 		st.PoseBytesSent += int64(sent) * frame
 		st.PoseBytesScoped += int64(scoped) * frame
 	})
+}
+
+// poseWantedLocked reports whether sender's pose goes to p, a receiver
+// sender.relaysTo: everyone while scoping is off; else a connection that
+// sends no poses itself (only puppet-sync draws remotes) in the sender's
+// stage (place.go: poseInScope). The caller holds s.mu (read).
+func (s *Server) poseWantedLocked(sender, p *Player, now time.Time) bool {
+	if !s.scope {
+		return true
+	}
+	if p.posed.Load() {
+		// A pose sender (broadcast-pose) never draws remotes:
+		// only puppet-sync does (place.go).
+		return false
+	}
+	from, fromOK := s.placeOfLocked(sender, now)
+	to, toOK := s.placeOfLocked(p, now)
+	return poseInScope(from, fromOK, to, toOK)
 }
 
 // countScope updates the scoping counters under scopeMu.

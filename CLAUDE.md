@@ -41,7 +41,7 @@ ww-multiplayer/
 │   ├── cliutil/                 # What both binaries' command lines share: FindDolphin/OpenDolphin (WW_DOLPHIN_INDEX/PID), ExeCmd, ExitUsage, --color/WW_COLOR; clitest/ = the CLI golden harness
 │   ├── gamefiles/               # Spots Nintendo game files and saves (names, extensions, magic, zip entries): tools/check_game_files, bugreport
 │   ├── config/                  # The app's saved settings (UserConfigDir/ww-multiplayer/config.json); the CLI never reads it
-│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend (sidebar pages Play/Session, Setup, Mods, Settings; light/dark theme.js); first-run Setup (setup.go); the Mods page (mods.go); the update banner + re-patch after an update (update.go); room.go: the host's rules mid-session (SetCoopShares over hub.SetFeatures), the Room items card, the Players row's co-op chip and Warp to; Bridge = the JS API; `ui --browser` server
+│   ├── gui/                     # The app window (Wails v2, -tags desktop,production only) + embedded HTML/CSS/JS frontend (sidebar pages Play/Session, Setup, Mods, Settings; light/dark theme.js); first-run Setup (setup.go); the Mods page (mods.go); the update banner (update.go); disc.go: the disc kept this build's (checked at open, Host, Join, every launch; a stale one re-patched by itself with a line on Play, Start waits; closes only an app-launched Dolphin with no save in play; vanilla search; the -app.log); room.go: the host's rules mid-session (SetCoopShares over hub.SetFeatures), the Room items card, the Players row's co-op chip and Warp to; Bridge = the JS API; `ui --browser` server
 │   ├── lan/                     # LAN discovery: the host's UDP beacon, broadcast addresses, the joiner's table (docs/10-lobby.md §10)
 │   ├── mailboxgen/              # mailbox header parser (mailbox_core.h + the mailbox_mp.h it includes) + layout_gen.go emitter (used by tools/gen_mailbox and wwapi/mailbox TestMailboxLayout)
 │   ├── inject/                  # Standalone ISO patcher (used by `./ww-multiplayer.exe patch`)
@@ -52,7 +52,7 @@ ww-multiplayer/
 │   │   └── rels/                # RELS.arc patcher: the mod's REL in an actor module's place, the profile list repointed, the 64 KB ARAM growth guard;
 │   │                            #   optional in-place byte patches to vanilla RELs (seaheap.go: BytePatch, SeaHeapFix over rel.PatchBytes, checked by inject.CheckOverlaps)
 │   ├── seachart/                # The app's Great Sea chart: island art read from the player's own disc (Fmap.arc tiles, FmapDat.bin, each stage's 2DMA square), upscaled, cached in the config dir; never in git
-│   ├── netem/                   # A shaped TCP proxy (RTT, jitter, loss as retransmit stalls) for internet-condition tests: MP_LOCAL_NETEM, `wwdev netem` (wind#82)
+│   ├── netem/                   # A shaped TCP proxy (RTT, jitter, loss as retransmit stalls) and its UDP twin (udp.go: real drops) for internet-condition tests: MP_LOCAL_NETEM, `wwdev netem` (wind#82, wind#91)
 │   ├── netutil/                 # Address parsing shared by host/join/server; join codes (WW-XXXX-XXXX, joincode.go)
 │   ├── dolphintool/             # Dolphin's DolphinTool beside its Dolphin: probe `convert --help`, RVZ/WIA/GCZ -> temporary ISO (patch's Converter), free space
 │   ├── patch/                   # `patch` as patch.Run (writes the patcher's lines, returns errors; convert.go: an RVZ/WIA/GCZ input converted first)
@@ -64,11 +64,12 @@ ww-multiplayer/
 │       ├── app.go, splash.go, connect.go, dashboard.go, styles.go
 ├── wwapi/                       # Modding API, v0 UNSTABLE (docs/api): emu/ (Attach(Options); *emu.Dolphin is a MEM1-bounded mem.Mem; memory.go = RAM scanner; launch/ = Dolphin paths/detection, user dirs, detached launch, cheats, macOS prepare (dolphin2, auto-recapture); host/ = window, screenshot, keys),
 │                                #   log/ (Reporter, Stdout / Discard / Multi / Prefix), mem/ (Reader/Mem, FakeMem), addr/ (cited addresses), state/ (per-tick snapshot), gate/ (write gates), actors/ (actor queue walk, Layout reads, structural Reread), write/ (guarded write engine: Allowlist, Breaker, FrameWriter beat wait + rechecks, Field, StageRequest; co-op's replica builds on it),
-│                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), player/ (Link: Ptr/Ready/Position/DemoType/Pose/Face; Warp, WarpForce; input Override/Release/Press; playertest = fake warp handler), avatar/ (remote Links: pose-feed slot writes, Clear/Rearm, pose math, Tunics = tunic slots; avatartest = fake RAM + C tunic allocation), gfx/texture/ (CMPR tunic recolor, ResTIMG), crash/ (the JUTException crash record: OSContext, stack walk, REL module list, symbols.txt + T2 map lookup; wwdev crash-context), heap/ (JKRExpHeap free-list walk, the heap error counters, the full-body heap gate's thresholds; heaptest = fake heaps), mailbox/ (T2 + mailbox layout, WWMB header read, BlobHash; layout_gen.go is generated from mailbox_core.h (+ mailbox_mp.h) by tools/gen_mailbox), events/ (bus + core game events), commands/ (command registry, write gate), fakegame/ (deterministic fake game for tests), schema/, semver/; the mod runtime (manifest, resolver, supervisor); Game (Attach/NewGame: watcher, strict contract check: WWMB header + hash of the blob's read-only sections, Phase E1)
+│                                #   disc/ (DiscFile, FileSource), stage/ (stage readers + stagetest), save/ (Image, Layout, View, item/slot table), savefile/ (GCI/card I/O), backup/ (card backups), tables/ (M1 disc table builders + cache), player/ (Link: Ptr/Ready/Position/DemoType/Pose/Face; Warp, WarpForce; input Override/Release/Press; playertest = fake warp handler), avatar/ (remote Links: pose-feed slot writes, Clear/Rearm, pose math, Tunics = tunic slots; avatartest = fake RAM + C tunic allocation), gfx/texture/ (CMPR tunic recolor, ResTIMG), crash/ (the JUTException crash record: OSContext, stack walk, REL module list, symbols.txt + T2 map lookup; wwdev crash-context), heap/ (JKRExpHeap free-list walk, the heap error counters, the full-body heap gate's thresholds; heaptest = fake heaps), mailbox/ (T2 + mailbox layout, WWMB header read, BlobHash, the API region ops.go mirroring wwops.h; layout_gen.go is generated from mailbox_core.h (+ mailbox_mp.h) by tools/gen_mailbox), ops/ (the C runtime's command queue and event ring, wind#90: Submit/Wait/Run, Events; opstest = a fake C runtime), events/ (bus + core game events), commands/ (command registry, write gate), fakegame/ (deterministic fake game for tests), schema/, semver/; the mod runtime (manifest, resolver, supervisor); Game (Attach/NewGame: watcher, strict contract check: WWMB header + hash of the blob's read-only sections, Phase E1)
 ├── mods/                        # Compiled-in mods (docs/api §6): example/ (D3), _fixtures/ (runtime test mods)
 │   ├── coop/                    # The co-op mod (D2c: mod.go + mod.json, requires multiplayer; CLI commands + the stage tables post-patch step). Co-op engine (docs/08): replica, hub, world, wire, derive, class, story, inventory, bind, ...; proto/ (the Feature bits, policies and scoped filters hub and replica share)
 │   │                            #   combat/ (M6: K1 classes, layouts, gates, Revalidate over wwapi/actors), savemerge/ (offline save merge), synctables/ (sync verdicts and acceptance over wwapi/tables),
 │   │                            #   roomitems/ (what a world image holds: items, songs, charts, bags, hearts; the app's Room items card via replica.Status.Room)
+│   │                            #   cardtag/ (the app's pending co-op tags: each tag a lobby session writes in game memory, written into the GCI card while no Dolphin runs, after a backup, with a read-back; #1178)
 │   │                            #   session/ (package coopsession, D2b: the --coop session, console, puzzles, combat status, the app's co-op (app.go) and the engine seam (hook.go: Env, App/CLIApp);
 │   │                            #   the co-op golden + converge tests, testdata/coop-golden), stagetables/ (+ stagetablestest/), procstate/ (session marker process check),
 │   │                            #   diag/ (what coop_diag.go shares: Tick, GateSnapshots, SplitFlags, Where, WithMem, DiffSave/SaveLabel), bind/bindtest/ (a FakeGame with a bound file),
@@ -76,19 +77,20 @@ ww-multiplayer/
 │   └── multiplayer/             # The multiplayer mod (D1): mod.go + mod.json (provides net, PublicAPI ValidatePlayerName), listed in compiledMods()
 │       ├── engine/              # Session core: Engine (session.Engine: host/join/lobby, NewTUIEngine/NewCLIEngine), lobby.go, game.go (the app's Start: Dolphin + pipelines), LiveState, RunHostSession/RunJoinSession, co-op via the seam in coop.go (Coop, CoopApp, LobbyCoop, CoopSide), RunPipelines, server + fake client, color-pref clients; enginetest/ = fake Dolphins
 │       ├── feed/                # Pose pipelines: BroadcastPose, PuppetSync (Feeder: link/actor slot assignment, lerp, arming over wwapi/avatar), PoseFakeLoop
-│       ├── net/                 # package network: TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go)
+│       ├── net/                 # package network: TCP server/client, protocol + handshake, lobby, co-op channel, timing knobs (netconfig.go), the UDP pose transport (udp.go, WW_UDP)
 │       ├── fxsync/              # Projectile events: the REL's outbox -> MsgFx (broadcast-pose), MsgFx -> its inbox, scoped to stage and room (puppet-sync)
 │       ├── boatsync/            # Peer boats: this game's ship as a pose-trailer run (broadcast-pose), the remotes' boats into the REL's boats block (puppet-sync)
 │       ├── playercolor/         # Tunic color palette + --color / WW_COLOR parsing (docs/09)
 │       └── tunicsync/           # Session side of the tunic colors: SyncTunics, the appearance byte, the dump block (docs/09 §5.4)
 ├── inject/                      # C source for the injected PPC code (split into core + the multiplayer mod in Phase E3, docs/api §6.6)
 │   ├── src/core/                # The core: hooks.c (main01_init, frame_shim + multiplayer_update, daPy_draw_hook, pad_read_shim, exec_shim, seachart_shim; the fixed call
-│   │                            #   order written as a dispatcher), services.c (warp, tunic images + swap, face tev blocks + snapshot, pose publish),
+│   │                            #   order; the mods through the WwModuleDesc table ww_modules[]), services.c (warp, tunic images + swap, face tev blocks + snapshot, pose publish),
+│   │                            #   ops.c (the API region at 0x80414000: event ring ww_event_push, command queue ww_cmd_register + the per-frame drain, core ops ECHO/KILL; wind#90),
 │   │                            #   core.h (core-only decls), mods.h (the mod entry points the hooks call)
 │   ├── src/mp/                  # The multiplayer mod: mp.h (PROC_* list, eye joints), puppets.c (actor puppets), minilink.c (mini-Links, pose feed,
 │   │                            #   eye fix; mp_frame, mp_draw_post), face.c (face hook arm/disarm, per-slot face bracket)
 │   ├── include/                 # wwapi.h (game types/addresses + the core services a C mod calls), mailbox_core.h (MAILBOX_ADDR, WWMB header,
-│   │                            #   the Mailbox struct), mailbox_mp.h (MAX_PUPPETS, MAX_REMOTE_LINKS, MAILBOX_POSE_SLOT_CAP, MP_EYE_PACKETS_*, Puppet)
+│   │                            #   the Mailbox struct), mailbox_mp.h (MAX_PUPPETS, MAX_REMOTE_LINKS, MAILBOX_POSE_SLOT_CAP, MP_EYE_PACKETS_*, Puppet), wwops.h (the API region: rings, results, op and event numbers; wind#90)
 │   └── build.py                 # Freighter wrapper — builds patched.dol from original.dol (C_SOURCES: one add_c_file per unit;
 │                                #   devkitPPC from $DEVKITPPC, default C:\devkitpro\devkitPPC; also writes build/WWMultiplayer.map, T2's Dolphin symbol map)
 ├── cheats/
@@ -116,8 +118,9 @@ ww-multiplayer/
     ├── 01-architecture.md, 02-dolphin-memory.md, 03-code-injection.md
     ├── 04-ww-addresses.md, 05-known-issues.md, 06-history.md
     ├── 07-bettersunshine-research.md (Kuribo/BetterSunshineEngine notes, input to docs/api Phase E)
-    ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md, 11-self-hosting.md (the dedicated server: Tailscale, port forwarding, owner key, status, Docker)
+    ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md, 11-self-hosting.md (the dedicated server: Tailscale, port forwarding, owner key, status, Docker), 12-udp-pose.md (WW_UDP)
     ├── coop-remaining.md        # what is left for a whole-game co-op run: blockers, owed live checks, release, polish (as of a named main)
+    ├── coop-just-works.md       # the zero-decision start plan (#1166): disc re-patched by itself, the world follows the save, joiners follow the host
     ├── mac-rig.md               # the macOS test rig: MEM1 override, Mac start save, screenshots, hotkeys, dolphin-slot leases
     ├── api/                     # the modding API: 00-design, 01-events, 02-mods, 03-writing-a-mod
     ├── release-notes/           # v<version>.md per release (the release body); README.md = how; a "<!-- draft" first line blocks the tag
@@ -187,6 +190,7 @@ go build -o wwdev.exe ./cmd/wwdev
 ./ww-multiplayer.exe debug                              # Print Link's position for 5 sec
 ./wwdev.exe crash-context                               # After a JUTException screen: OSError, registers, 20-frame stack, REL modules, named via the decomp's symbols.txt
                                                         #   (WW_TWW_SYMBOLS, default ~/projects/tww/config/GZLE01/symbols.txt), T2's map (WW_T2_MAP, default inject/build/WWMultiplayer.map) or REL module+offset
+./wwdev.exe ops status|echo [a b c]|kill <pid> <proc> [setID]|events   # The C runtime's rings (wind#90, include/wwops.h): header, counters, heap errors; ECHO round trip; KILL one actor
 ./wwdev.exe dump                                        # Dump mailbox state (WWMB header + contract verdict, shadow_mode, pose seqs, etc.)
 ./wwdev.exe shadow-mode <0|5>                           # 0=off, 5=pose-feed (the dev modes 1-4 were deleted in Phase E0)
 ./wwdev.exe poke-u32 <addr-hex> <val-hex>               # Direct memory write
@@ -211,6 +215,9 @@ WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/j
 WW_NAMETAGS=off / WW_EQUIP=off / WW_SEACHART=off / WW_HAIR=off   # puppet-sync (mods/multiplayer/vissync): no name tags over the mini-Links / no remote
                                             #   sword, shield (hero's or mirror) and scabbard (hero's or Master Sword's) on them / no remotes on the pause menu's
                                             #   sea chart / no katsura hair on a casual remote (default all on; the REL draws them, wwvis.h)
+WW_TAG_XSCALE=<f>|off                       # puppet-sync: pin the name tags' Widescreen Hack x scale (0 < f <= 1; off = 1). Default: measured every 2 s from the
+                                            #   Dolphin's GFX.ini / GameSettings GZLE01.ini / -C args and render window (wwapi/emu/launch/widescreen.go), so the
+                                            #   tags stay on the remotes when the hack widens the 3D picture (#1157; wwvis.h WWVIS_FLAGS_XSCALE_*)
 WW_LOBBY=off                                # puppet-sync: no lobby presence (issue #38). Default on: on the title screen the remotes' Links stand in a row in
                                             #   front of the title camera, facing it, with their name tags (mods/multiplayer/feed/lobby.go); on the file select
                                             #   screen the REL prints "Here: A, B" (WWVIS_FLAG_LOBBY). Off hides both. Dev knobs: WW_LOBBY_{DIST,DROP,SPACING,SIDE}
@@ -291,6 +298,9 @@ WW_LISTEN_HOST=<addr>                       # App only: a hosted lobby's server 
                                             #   and LAN discovery stays on it (127.0.0.1: beacons sent to, and heard on, loopback only)
 WW_LAN_PORT=<n>                             # App only: LAN discovery's UDP beacon port (default 25565; docs/10-lobby.md §10)
 WW_LAN=off                                  # App only: no LAN discovery (no beacon, no listening)
+WW_UDP=1                                    # Server and clients (host, join, server, the app, mp-local): positions and poses as UDP datagrams with
+                                            #   sequence numbers, newest wins, on the TCP port + 1 (wind#91, mods/multiplayer/net/udp.go, docs/12-udp-pose.md).
+                                            #   Default off. A client whose PING gets no PONG within 3 s, or a server without it, stays on TCP
 WW_RELAY_SCOPE=off                          # Server (host, server, mp-local): no relay scoping (mods/multiplayer/net/place.go). Default on: a pose goes only to the
                                             #   puppet-sync connections in the sender's stage (by the place trailer on its positions), never to a broadcaster; an enemy
                                             #   STATE goes as its header alone to an enemy client whose PSTATE names another stage or room. Unknown places fail open
@@ -317,7 +327,8 @@ WW_HEARTBEAT_SECS / WW_READ_TIMEOUT_SECS / WW_BACKOFF_MAX_SECS / WW_DIAL_TIMEOUT
 #   MP_LOCAL_PORT=<n>  mp-local's server port (default 25565); 0 = a free port on 127.0.0.1, named in "Server listening on"
 #                 (one per rig when several rigs share a Mac: docs/mac-rig.md)
 #   MP_LOCAL_NETEM=rtt=150ms,jitter=20ms,loss=1%[,rto=D][,seed=N]  Dolphin B's clients dial mp-local's server through a shaped
-#                 TCP proxy on 127.0.0.1 (internal/netem: delay both ways, jitter without reordering, loss as retransmit stalls), A stays
+#                 TCP proxy on 127.0.0.1 (internal/netem: delay both ways, jitter without reordering, loss as retransmit stalls; beside it, on the
+#                 proxy's port + 1, a UDP proxy toward the server's port + 1 that really drops and may reorder, for WW_UDP), A stays
 #                 on loopback; `wwdev netem <listen> <server> <spec>` runs the same proxy alone for a host and a join (docs/live/wind82)
 #   MP_WIRE_STATS=<secs>  mp-local's server counts each connection's frames (network.WireStats, wind#84) and logs a [wire] line per player
 #                 every <secs>: up and down kbit/s, then each stream (pose, pos, enemy/STATE, coop/0x03, ...) biggest first; the run's totals at teardown
@@ -352,7 +363,7 @@ GOOS=windows GOARCH=amd64 go vet ./... && GOOS=windows GOARCH=amd64 go vet -tags
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -o /tmp/ww-multiplayer.exe ./cmd/ww-multiplayer
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/ww-multiplayer-cli.exe ./cmd/ww-multiplayer
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/wwdev.exe ./cmd/wwdev
-grep -q 'requestedExecutionLevel level="asInvoker"' /tmp/ww-multiplayer.exe && grep -q 'permonitorv2' /tmp/ww-multiplayer.exe
+LC_ALL=C grep -aq 'requestedExecutionLevel level="asInvoker"' /tmp/ww-multiplayer.exe && LC_ALL=C grep -aq 'permonitorv2' /tmp/ww-multiplayer.exe   # -a: BSD grep (macOS) fails silently on a binary
 go test -count=1 -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions' ./cmd/ww-multiplayer ./internal/inject/... ./wwapi/mailbox
 go run ./tools/check_game_files
 go run ./tools/validate_manifests && go vet ./mods/_fixtures/

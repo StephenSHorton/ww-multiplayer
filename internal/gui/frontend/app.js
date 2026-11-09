@@ -16,6 +16,7 @@ import { initSetup, openSetup, onPatch, patchRunning } from "./setup.js";
 import { renderCoop, dialogExtra, coopAction, initCoop } from "./coop.js";
 import { initMods, refreshMods } from "./mods.js";
 import { initUpdate, startUpdate, onUpdate, render as renderUpdate, renderSettings as renderUpdateSettings } from "./update.js";
+import { initDisc, startDisc, onDisc, renderDisc } from "./disc.js";
 import { initTheme } from "./theme.js";
 import { drawMap } from "./chart.js";
 
@@ -106,14 +107,14 @@ function renderSide() {
 // ---------- screens ----------
 
 // show opens screen v. Leaving Setup while a disc is being patched asks
-// first: the patch goes on, but Host and Join wait for it (Go refuses
-// them, errPatching), so Setup is where its progress and Stop are.
+// first: the patch goes on, but Join and Start wait for it, so Setup is
+// where its progress and Stop are.
 function show(v, force = false) {
 	if (!force && view === "setup" && v !== "setup" && patchRunning()) {
 		openDialog({
 			key: "leave-setup",
 			title: "Your disc is still being patched",
-			text: "It keeps going if you leave Setup, but hosting and joining wait until it's done. Setup shows its progress and can stop it.",
+			text: "It keeps going if you leave Setup, but joining and Start wait until it's done. Setup shows its progress and can stop it.",
 			actions: [{ label: "Stay in Setup", primary: true }, { label: "Leave Setup", run: () => show(v, true) }],
 		});
 		return;
@@ -127,6 +128,7 @@ function show(v, force = false) {
 	if (v === "mods") refreshMods();
 	if (v === "settings") renderUpdateSettings();
 	renderUpdate(); // the update banner: Home, Mods and Settings only, never in a session
+	renderDisc(); // the disc update's line: Home and the Session screen
 	renderSide();
 	$("bar").hidden = v !== "session";
 	if (v !== "session") $("leave-btn").hidden = true;
@@ -370,6 +372,10 @@ function render() {
 		}
 	}
 
+	// Version skew: members on another app version than ours (status text).
+	$("skew-note").textContent = (lobby && lobby.skew) || "";
+	$("skew-note").hidden = !(lobby && lobby.skew);
+
 	// Your row's controls: color and Ready, in the lobby phase.
 	const self = lobby ? lobby.members.find((m) => m.self) : null;
 	const mine = $("mine");
@@ -408,9 +414,14 @@ function render() {
 		const waiting = lobby.notReady || [];
 		$("start-btn").disabled = !lobby.canStart || waiting.length > 0;
 		$("start-anyway").hidden = !lobby.canStart || !waiting.length;
-		$("start-note").textContent = waiting.length
-			? "Waiting for " + waiting.join(", ") + " to be ready."
-			: "Everyone's ready. Start opens Dolphin for every player with their patched disc.";
+		const disc = st.disc || {};
+		$("start-note").textContent = st.startWaiting
+			? "Starting once your disc is updated…"
+			: disc.blocks
+				? disc.title + (disc.state === "blocked" ? " Start comes back once Dolphin is closed." : " Start waits for it.")
+				: waiting.length
+					? "Waiting for " + waiting.join(", ") + " to be ready."
+					: "Everyone's ready. Start opens Dolphin for every player with their patched disc.";
 	}
 
 	syncDialog(st);
@@ -785,6 +796,10 @@ function onEv(ev) {
 		case "update":
 			onUpdate(ev.update);
 			break;
+		case "disc":
+			onDisc(ev.disc);
+			if (view === "session") refresh(); // Start's button and note
+			break;
 	}
 }
 
@@ -853,6 +868,7 @@ function wire() {
 	$("mods-back").addEventListener("click", () => show(beforeMods === "session" && !(state && state.running) ? "home" : beforeMods));
 	initMods({ openSetup });
 	initUpdate({ view: () => view, running: () => !!(state && state.running), openSetup, onPatch });
+	initDisc({ view: () => view, openSetup });
 	initTheme();
 	const toggleIPs = async () => {
 		try {
@@ -973,6 +989,7 @@ async function main() {
 	} else {
 		show("home");
 	}
+	startDisc();
 	startUpdate();
 	setInterval(() => {
 		if (view === "session") refresh();
