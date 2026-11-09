@@ -317,7 +317,7 @@ func TestPickupVerdicts(t *testing.T) {
 		{"A's +1 still pending", func(o *pickupObs) { o.A1.Key, o.A1.KeyPend = 0, 1 }, "A once", true, "0 -> 1"},
 		{"A unchanged", func(o *pickupObs) { o.A1.Key = 0 }, "A once", false, "want 1"},
 		{"B doubled", func(o *pickupObs) { o.B1.Key, o.BKeyMax = 2, 2 }, "B derive", false, "double"},
-		{"B derive by log only", func(o *pickupObs) { o.B1.Key, o.BKeyMax = 0, 0 }, "B derive", true, "log:"},
+		{"B derive by log only", func(o *pickupObs) { o.B1.Key, o.BKeyMax = 0, 0 }, "B derive", false, "want 1"}, // a line with no count moved is not a derive
 		{"B derive nowhere", func(o *pickupObs) { o.B1.Key, o.BKeyMax, o.Log.DeriveLine = 0, 0, "" }, "B derive", false, "want 1"},
 		{"B life moved", func(o *pickupObs) { o.B1.Life = 76 }, "B own state", false, "life 80 -> 76"},
 		{"B rupees moved", func(o *pickupObs) { o.B1.Rupee = 201 }, "B own state", false, "rupees 200 -> 201"},

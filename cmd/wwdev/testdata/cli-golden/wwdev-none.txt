@@ -6,6 +6,7 @@ Local two-Dolphin testing (everything in-process):
   <exe> mp-local [nameA] [nameB]     Run server + broadcast/puppet pairs for both Dolphins
   <exe> smoke [opts] [-- mp-local args] Scripted two-Dolphin smoke: boot/attach, mp-local, sync checks; exit 0/1/2
   <exe> tagdrift [opts]              Measured name-tag check: tag x vs the remote's body x, off centre, fixed and pre-#329; exit 0/1/2
+  <exe> app-found [opts]             Two real apps (ui --browser) found co-op from a save bound elsewhere: Host/Join/Start, adopted; exit 0/1/2
   <exe> smooth-steps [secs=5] [A|B]  Per-frame step log of a remote under WW_POSE_TEST_RATE jitter
   <exe> help                         Show this help
 

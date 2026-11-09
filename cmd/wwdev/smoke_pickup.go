@@ -270,10 +270,6 @@ func readPickupVals(m mem.Reader, r pickupRecipe) (pickupVals, error) {
 	if v.Key, err = mem.ReadU8(m, base+addr.MemBitOffKeyNum); err != nil {
 		return v, err
 	}
-	if v.Live {
-		v.KeyPend = s.KeyNumCount
-	}
-	v.LifePnd = s.MaxLifeCount
 	for _, f := range []struct {
 		at uint32
 		to *uint16
@@ -282,6 +278,17 @@ func readPickupVals(m mem.Reader, r pickupRecipe) (pickupVals, error) {
 			return v, err
 		}
 	}
+	// The pending counters are read after the counts they drain into: a
+	// drain between the reads then shows before+0 for a moment, never
+	// the old pending on top of the new count (a false "double").
+	s2, err := state.Read(m, state.Options{})
+	if err != nil {
+		return v, err
+	}
+	if v.Live && s2.Table == s.Table {
+		v.KeyPend = s2.KeyNumCount
+	}
+	v.LifePnd = s2.MaxLifeCount
 	return v, nil
 }
 
@@ -721,7 +728,7 @@ func pickupVerdicts(r pickupRecipe, o pickupObs) (cs []smokeCheck, rig string) {
 		switch {
 		case b1 >= b0+2 || pk >= b0+2:
 			cs = append(cs, passIf(false, name, fmt.Sprintf("double: B %s %d -> %d (peak %d); %s", unit, b0, b1, pk, line), vals))
-		case b1 == b0+1 || o.Log.DeriveLine != "":
+		case b1 == b0+1:
 			cs = append(cs, passIf(true, name, fmt.Sprintf("B %s %d -> %d; %s", unit, b0, b1, line), vals))
 		default:
 			cs = append(cs, passIf(false, name, fmt.Sprintf("B %s %d -> %d, want %d; %s", unit, b0, b1, b0+1, line), vals))
@@ -781,11 +788,23 @@ func (r *smokeRun) pickups() {
 	if enemysync.Enabled() && slices.ContainsFunc(r.o.pickups, func(p pickupRecipe) bool { return len(p.KillProcs) > 0 }) {
 		log.Logf(r.rep, log.Warn, "pickup: WW_ENEMY_SYNC is on in smoke (mp-local got WW_ENEMY_SYNC=0 unless set); the rigs that killed with enemy-kill ran without enemy sync")
 	}
+	judged := 0
 	for _, rec := range r.o.pickups {
 		if r.ctx.Err() != nil || r.cannot != "" {
 			return
 		}
+		before := len(r.report.Checks)
 		r.pickup(rec)
+		for _, c := range r.report.Checks[before:] {
+			if !c.Skipped {
+				judged++
+				break
+			}
+		}
+	}
+	// A --pickup run that judged nothing proves nothing: not a pass.
+	if judged == 0 && r.cannot == "" && r.ctx.Err() == nil {
+		r.cannot = "pickup: every recipe was skipped (see the SKIP lines): nothing was picked up"
 	}
 }
 
@@ -844,11 +863,13 @@ func (r *smokeRun) pickup(rec pickupRecipe) {
 		r.pickupRigFail(n, "the start: "+err.Error())
 		return
 	}
+	// Registered before the hop: a hop that fails after A left still
+	// brings it back (pickupHopBack does nothing if A never left).
+	defer r.pickupHopBack(n, origin)
 	if err := stageHopRun(w, r.a, h, diag.Tick); err != nil {
 		r.pickupRigFail(n, fmt.Sprintf("hop A to %s %d %d: %v", h.Name, h.Point, h.Room, err))
 		return
 	}
-	defer r.pickupHopBack(n, origin)
 	if why := r.waitIdle(r.a, rec.IdleTimeout); why != "" {
 		r.pickupRigFail(n, "A never idle after the hop: "+why)
 		return
@@ -996,8 +1017,12 @@ func (r *smokeRun) pickup(rec pickupRecipe) {
 	o := pickupObs{A0: a0, B0: b0, BFlagAt: -1, AKeyMax: aKeyMax, ALifMax: aLifMax,
 		BKeyMax: int(b0.Key), BLifMax: b0.lifeEff(), Setup: strings.Join(setup, "; ")}
 	o.Log.Path = logPath
+	// B's window starts when the item get ends, so a long item get
+	// doesn't use it up; BFlagAt stays timed from the open.
+	tSync := time.Now()
 	for r.ctx.Err() == nil {
 		el := time.Since(tOpen)
+		elSync := time.Since(tSync)
 		if v, err := readPickupVals(r.a, rec); err == nil {
 			o.AKeyMax, o.ALifMax = max(o.AKeyMax, v.keyEff()), max(o.ALifMax, v.lifeEff())
 		}
@@ -1019,7 +1044,7 @@ func (r *smokeRun) pickup(rec pickupRecipe) {
 			(err == nil && ((rec.Derive == deriveKey && int(bv.Key) > int(b0.Key)) || (rec.Derive == deriveLife && bv.lifeEff() > b0.lifeEff())))
 		done := o.BFlagAt >= 0 && (!o.Log.Available || o.Log.SetLine != "") && derived
 		// Done, then 5 s more for a late double on either side.
-		if el >= rec.SyncTimeout || (done && el >= 10*time.Second && time.Since(tOpen.Add(time.Duration(o.BFlagAt*float64(time.Second)))) >= 5*time.Second) {
+		if elSync >= rec.SyncTimeout || (done && el >= 10*time.Second && time.Since(tOpen.Add(time.Duration(o.BFlagAt*float64(time.Second)))) >= 5*time.Second) {
 			break
 		}
 		sleepCtx(r.ctx, 250*time.Millisecond)
@@ -1275,6 +1300,9 @@ func (r *smokeRun) pickupHopBack(n string, origin *state.Snapshot) {
 		return
 	}
 	_ = player.Release(r.a)
+	if now, err := state.Read(r.a, state.Options{}); err == nil && now.StageName == origin.StageName {
+		return
+	}
 	w := &reporterWriter{rep: r.rep}
 	back := stageHop{Name: origin.StageName, Point: origin.StagePoint, Room: origin.StageRoom, Layer: -1}
 	err := verifyStageHop(w, launch.FromEnv().ISO, &back, true)

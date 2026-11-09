@@ -62,7 +62,7 @@ func TestParseAppFoundArgs(t *testing.T) {
 	if err != nil || o.exe != "x.exe" || o.pids != "1,2" || o.port != 4000 || o.mode != "new" || o.timeout != 45*time.Second || o.out != "r.json" || o.worldRoot != "w" {
 		t.Fatalf("got %+v, %v", o, err)
 	}
-	for _, bad := range [][]string{{"--mode", "fresh"}, {"--mode", "continue"}, {"--port", "70000"}, {"--timeout", "0s"}, {"--exe"}, {"stray"}} {
+	for _, bad := range [][]string{{"--mode", "fresh"}, {"--mode", "continue"}, {"--mode", "off"}, {"--mode", "continue:00112233aabbccdd"}, {"--port", "70000"}, {"--timeout", "0s"}, {"--exe"}, {"stray"}} {
 		if _, err := parseAppFoundArgs(bad, env); err == nil {
 			t.Errorf("%q parsed", bad)
 		}
@@ -143,7 +143,7 @@ func TestAppFoundVerdicts(t *testing.T) {
 				t.Errorf("%s failed: %s", c.Name, c.Detail)
 			}
 		}
-		if len(cs) != 9 {
+		if len(cs) != 6 {
 			t.Fatalf("%d checks: %+v", len(cs), cs)
 		}
 	})
@@ -183,6 +183,35 @@ func TestAppFoundVerdicts(t *testing.T) {
 		}
 	})
 
+	t.Run("mode new expects the block", func(t *testing.T) {
+		// The 11-08 host's choice on fixed code: GO at Start puts both in
+		// game, the founding stays blocked and says why, co-op is off.
+		o := newAppFoundObs("new", appW, "x/adopted")
+		o.Start, o.CoopBeforeStart = start, "new"
+		h, j := appStates(t,
+			`{"phase":"in game","lobby":{"phase":"in_game","coop":"new"},"coop":{"setting":"new","on":false},
+			  "dialog":{"key":"1:found:bound","kind":"founding","title":"Found a new world","text":"This file is bound to world `+appW+`","check":{"ok":false,"text":"Loaded: File 1"},"actions":[]}}`,
+			`{"phase":"in game","lobby":{"phase":"in_game","coop":"new"},"coop":{"setting":"new","on":false}}`)
+		o.observe(h, j, false, start.Add(2*time.Second))
+		if !o.settled() {
+			t.Fatalf("not settled: %+v", o)
+		}
+		cs := appFoundVerdicts(o, &fa, &fb)
+		for _, c := range cs {
+			if !c.Pass && !c.Skipped {
+				t.Errorf("%s failed: %s", c.Name, c.Detail)
+			}
+		}
+		// The 11-08 code with new: stuck on Starting.
+		o2 := newAppFoundObs("new", appW, "x/adopted")
+		o2.Start = start
+		h2, j2 := appStates(t, `{"phase":"starting","lobby":{"phase":"starting","coop":"new"}}`, `{"phase":"starting","lobby":{"phase":"starting"}}`)
+		o2.observe(h2, j2, false, start.Add(30*time.Second))
+		if c := checkNamed(t, appFoundVerdicts(o2, &fa, &fb), "both in game"); c.Pass {
+			t.Errorf("stuck on Starting passed: %s", c.Detail)
+		}
+	})
+
 	t.Run("files", func(t *testing.T) {
 		o := newAppFoundObs("", appW, "x/adopted")
 		other := boundAppTag(2, 1, bind.WorldID{9})
@@ -190,7 +219,7 @@ func TestAppFoundVerdicts(t *testing.T) {
 			t.Errorf("B in another world passed: %s", c.Detail)
 		}
 		unread := appTag{PID: 2, Err: "failed to open dolphin process"}
-		if c := checkNamed(t, appFoundVerdicts(o, &fa, &unread), "coop bind"); c.Pass || !strings.Contains(c.Detail, "failed to open") {
+		if c := checkNamed(t, appFoundVerdicts(o, &fa, &unread), "files in W"); c.Pass || !strings.Contains(c.Detail, "failed to open") {
 			t.Errorf("unread file: %+v", c)
 		}
 	})

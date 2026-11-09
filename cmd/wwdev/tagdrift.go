@@ -246,7 +246,7 @@ func (r *tagDriftRun) run() {
 
 	// Where B's mini-Link goes: --dist ahead of A's eye and --side across,
 	// at A's Link's height.
-	cam, err := readCamera(r.a)
+	cam, err := readCamView(r.a)
 	if err != nil {
 		r.cannot = "A's camera: " + err.Error()
 		return
@@ -302,7 +302,7 @@ func (r *tagDriftRun) run() {
 			return
 		}
 	}
-	if cam2, err := readCamera(r.a); err != nil || cam2.moved(cam) > 2 {
+	if cam2, err := readCamView(r.a); err != nil || cam2.moved(cam) > 2 {
 		r.cannot = "A's camera moved during the run: keep A idle"
 		return
 	}
@@ -573,8 +573,8 @@ func (c camView) moved(d camView) float64 {
 	return m
 }
 
-// readCamera reads the play camera (addr.CameraPtr).
-func readCamera(m mem.Reader) (camView, error) {
+// readCamView reads the play camera (addr.CameraPtr).
+func readCamView(m mem.Reader) (camView, error) {
 	var c camView
 	p, err := mem.ReadU32(m, addr.CameraPtr)
 	if err != nil {

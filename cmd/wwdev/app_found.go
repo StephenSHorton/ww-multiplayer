@@ -47,7 +47,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 )
 
-const appFoundUsage = "app-found [--exe PATH] [--pids A,B] [--port N] [--mode auto|new|off|continue:<world>] [--timeout 30s] [--out FILE] [--world-root DIR]"
+const appFoundUsage = "app-found [--exe PATH] [--pids A,B] [--port N] [--mode new] [--timeout 30s] [--out FILE] [--world-root DIR]"
 
 // appFoundSeed is how to bind both Dolphins' loaded files to one world
 // in RAM, the precondition: a co-op session founds a world under an
@@ -111,10 +111,14 @@ func parseAppFoundArgs(args []string, getenv func(string) string) (appFoundOpts,
 			return o, err
 		}
 	}
-	if o.mode != "" {
-		if _, err := appFoundRequest(gui.CoopRequest{}, o.mode); err != nil {
-			return o, err
-		}
+	// Only the app's default (auto) and the 11-08 host's choice (new)
+	// have expectations a run can judge (appFoundVerdicts).
+	switch o.mode {
+	case "", "new":
+	case "auto":
+		o.mode = ""
+	default:
+		return o, fmt.Errorf("--mode %q: leave it out (the app's default, auto) or give new (the 11-08 host's choice)", o.mode)
 	}
 	if o.out == "" {
 		o.out = filepath.Join(devLogsRootOr(getenv), "latest", "app-found.json")
@@ -523,11 +527,24 @@ func (o *appFoundObs) observe(host, join gui.StateView, adopted bool, now time.T
 // settled says the run has what it watches for: both in game, the
 // joiner's co-op in W, the world adopted.
 func (o *appFoundObs) settled() bool {
+	if o.Mode == "new" {
+		return o.HostInGameMs >= 0 && o.JoinInGameMs >= 0 && o.Blocked != ""
+	}
 	return o.HostInGameMs >= 0 && o.JoinInGameMs >= 0 && o.JoinCoopMs >= 0 && o.Adopted
 }
 
 // appFoundVerdicts are the run's checks over what it saw and the two
-// files read after it (nil: not read).
+// files read after it (nil: not read). Both files are in W before the
+// run (appFoundRun refuses otherwise), so their binds are a
+// precondition, not evidence; "files in W" after it says the founding
+// tagged no file to another world.
+//
+// With the app's default (auto), the 11-08 save is adopted: both in game,
+// the joiner's co-op on in W, the adopted marker, no blocked founding.
+// With --mode new, the 11-08 host's choice, the founding still can't use
+// a save bound elsewhere, but since #1175 GO goes out at Start (both in
+// game, never stuck on Starting) and since #1163 a window says why: the
+// blocked founding is expected there, and co-op stays off.
 func appFoundVerdicts(o *appFoundObs, fa, fb *appTag) []smokeCheck {
 	var out []smokeCheck
 	if o.Mode == "" {
@@ -540,27 +557,33 @@ func appFoundVerdicts(o *appFoundObs, fa, fb *appTag) []smokeCheck {
 	out = append(out, passIf(o.HostInGameMs >= 0 && o.JoinInGameMs >= 0, "both in game",
 		fmt.Sprintf("host phase %q (lobby %q), joiner phase %q (lobby %q)", o.Host.Phase, o.Host.LobbyPhase, o.Join.Phase, o.Join.LobbyPhase),
 		map[string]any{"host_ms": o.HostInGameMs, "join_ms": o.JoinInGameMs}))
-	out = append(out, passIf(o.JoinCoopMs >= 0, "joiner coop in W",
-		fmt.Sprintf("joiner co-op on %v, world %q (want %s)", o.JoinCoopOn, o.JoinWorld, o.World), map[string]any{"ms": o.JoinCoopMs}))
-	out = append(out, passIf(o.Adopted, "world adopted on host", o.AdoptedPath, map[string]any{"ms": o.AdoptedMs}))
-	if fa == nil || fb == nil || !fa.ok || !fb.ok {
+	if o.Mode == "new" {
+		out = append(out, passIf(o.Blocked != "", "blocked founding says why",
+			fmt.Sprintf("with new and a save bound elsewhere a window must say why co-op isn't running; saw %q", o.Blocked), nil))
+		out = append(out, smokeCheck{Name: "joiner coop in W", Skipped: true, Detail: "--mode new: co-op stays off by design"})
+	} else {
+		out = append(out, passIf(o.JoinCoopMs >= 0, "joiner coop in W",
+			fmt.Sprintf("joiner co-op on %v, world %q (want %s)", o.JoinCoopOn, o.JoinWorld, o.World), map[string]any{"ms": o.JoinCoopMs}))
+		out = append(out, passIf(o.Adopted, "world adopted on host", o.AdoptedPath, map[string]any{"ms": o.AdoptedMs}))
+		detail := "no window showed a blocked founding"
+		if o.Blocked != "" {
+			detail = o.Blocked
+		}
+		out = append(out, passIf(o.Blocked == "", "no blocked founding", detail, nil))
+	}
+	switch {
+	case fa == nil || fb == nil || !fa.ok || !fb.ok:
 		why := "the files were not read"
 		for _, t := range []*appTag{fa, fb} {
 			if t != nil && t.Err != "" {
 				why = t.Err
 			}
 		}
-		out = append(out, passIf(false, "coop bind", why, nil))
-	} else {
-		out = append(out, bindChecks(fa.file, fb.file)...)
+		out = append(out, passIf(false, "files in W", why, nil))
+	default:
 		out = append(out, passIf(fa.World == o.World && fb.World == o.World, "files in W",
 			fmt.Sprintf("A's file in %q, B's in %q (want %s)", fa.World, fb.World, o.World), nil))
 	}
-	detail := "no window showed a blocked founding"
-	if o.Blocked != "" {
-		detail = o.Blocked
-	}
-	out = append(out, passIf(o.Blocked == "", "no blocked founding", detail, nil))
 	return out
 }
 
@@ -640,6 +663,10 @@ func appFoundRun(ctx context.Context, o appFoundOpts, rep *appFoundReport) strin
 		return fmt.Sprintf("A's file is not bound (%s: %s); seed both files with: %s", ta.State, ta.Why, appFoundSeed)
 	}
 	w := ta.World
+	// B's too, or the joiner gets a Bind question nobody answers.
+	if tb := rep.TagsBefore[1]; tb.Err != "" || tb.World != w {
+		return fmt.Sprintf("B's file is not bound to A's world %s (%s %s %s); seed both files with: %s", w, tb.State, tb.World, tb.Err, appFoundSeed)
+	}
 
 	// Two fresh APPDATA folders: default configs, no worlds.
 	if o.worldRoot != "" {
@@ -755,6 +782,13 @@ func appFoundRun(ctx context.Context, o appFoundOpts, rep *appFoundReport) strin
 		select {
 		case <-ctx.Done():
 		case <-t.C:
+		}
+		for _, c := range kids {
+			select {
+			case <-c.done:
+				return fmt.Sprintf("app %s exited mid-run (%v); see %s", c.label, c.waitErr, c.logPath)
+			default:
+			}
 		}
 		sa, errA := a.state()
 		sb, errB := b.state()
