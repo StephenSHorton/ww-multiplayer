@@ -77,6 +77,23 @@
 		<p class="error" id="upd-error" role="alert"></p>
 	</div>
 
+	<!-- the disc update's line (disc.js), on Home and the Session screen -->
+	<div class="card updbar discbar" id="discbar" role="status" hidden>
+		<div class="updrow">
+			<span class="spin" id="disc-spin" hidden></span>
+			<p class="updtext"><b id="disc-title"></b> <span id="disc-text"></span></p>
+			<div class="updbtns">
+				<button class="btn primary" type="button" id="disc-pick" hidden>Choose your disc</button>
+				<button class="btn primary" type="button" id="disc-retry" hidden>Try again</button>
+			</div>
+		</div>
+		<div class="meterrow" id="disc-progress" hidden>
+			<div class="meter" role="progressbar" aria-label="Updating your disc"><i id="disc-meter" class="busy"></i></div>
+			<span class="pct" id="disc-pct"></span>
+		</div>
+		<p class="error" id="disc-error" role="alert"></p>
+	</div>
+
 	<!-- Home: who you are, then Host or Join -->
 	<section id="home" class="screen" hidden>
 		<header class="pagehead">

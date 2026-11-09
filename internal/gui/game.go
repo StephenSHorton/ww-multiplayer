@@ -305,13 +305,13 @@ func (b *Bridge) Start(anyway bool) (err error) {
 		return nil // a Start already waits for the disc
 	}
 	b.emitState() // Start's button is off while it waits
-	err = b.discReady("start")
+	waited, err := b.discReady("start")
 	b.disc.starting.Store(false)
 	b.emitState()
 	if err != nil {
 		return err
 	}
-	if st := b.ctrl.Snapshot(); !canStart(st.Lobby, st.Session != 0 && st.Phase != session.Ended && st.Phase != session.Idle) {
+	if st := b.ctrl.Snapshot(); waited && !canStart(st.Lobby, st.Session != 0 && st.Phase != session.Ended && st.Phase != session.Idle) {
 		return nil // left (or started) while the disc was updated
 	}
 	if anyway {
@@ -388,7 +388,7 @@ func (b *Bridge) LaunchDolphin() (err error) {
 	if !b.disc.starting.CompareAndSwap(false, true) {
 		return nil // a launch already waits for the disc
 	}
-	err = b.discReady("launch")
+	_, err = b.discReady("launch")
 	b.disc.starting.Store(false)
 	if err != nil {
 		return err

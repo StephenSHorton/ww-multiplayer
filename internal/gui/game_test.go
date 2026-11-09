@@ -140,8 +140,9 @@ func TestGameDialogs(t *testing.T) {
 		dialog string
 		banner string
 	}{
-		{session.DolphinInfo{State: session.DolphinWrongGame, PID: 4, ISO: iso}, dlgDolphin, ""},
-		{session.DolphinInfo{State: session.DolphinUnpatched, PID: 4, ISO: iso}, dlgDolphin, ""},
+		// The wrong-disc dialog's banner stays after the dialog is closed.
+		{session.DolphinInfo{State: session.DolphinWrongGame, PID: 4, ISO: iso}, dlgDolphin, "Wrong disc in Dolphin."},
+		{session.DolphinInfo{State: session.DolphinUnpatched, PID: 4, ISO: iso}, dlgDolphin, "Wrong disc in Dolphin."},
 		// After a failed launch the banner offers Try again too: closing
 		// the dialog leaves a way to retry.
 		{session.DolphinInfo{State: session.DolphinNone, Err: "exec: not found 10.0.0.5", LaunchAttempt: 1}, dlgLaunchFail, "Couldn't start Dolphin."},

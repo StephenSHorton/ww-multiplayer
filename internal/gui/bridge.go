@@ -73,11 +73,11 @@ type Bridge struct {
 
 	// The setup's seams (setup.go): package main's post-patch steps (the
 	// co-op tables step), and what a test replaces.
-	postPatch  []func(io.Writer, string)
-	patchRun   func(ctx context.Context, in, out string, w io.Writer, o patch.Options) (patch.Result, error)
-	inspect    func(string) (patch.DiscState, error)
-	denv       func() launch.Env
-	procs      func() []launch.Process // the running Dolphins (Start's check)
+	postPatch []func(io.Writer, string)
+	patchRun  func(ctx context.Context, in, out string, w io.Writer, o patch.Options) (patch.Result, error)
+	inspect   func(string) (patch.DiscState, error)
+	denv      func() launch.Env
+	procs     func() []launch.Process // the running Dolphins (Start's check)
 	// The disc update's seams (disc.go): a look at a Dolphin (nil: never
 	// close one), closing one and waiting for it to go, and Dolphin's game
 	// folders for the vanilla search (nil: not searched).
@@ -88,7 +88,7 @@ type Bridge struct {
 	disc      discState
 	// alog is the app's own log (disc.go), opened on its first line;
 	// tests set it.
-	alog log.Reporter
+	alog       log.Reporter
 	home       func() string
 	macStatus  func() (launch.MacState, launch.MacFacts, error)
 	prepareMac func(log.Reporter) error
@@ -238,7 +238,7 @@ func (b *Bridge) State() StateView {
 	v := stateView(st, running, b.version, b.now(), mk)
 	v.StartDolphinMyself = b.launchOptions().Manual
 	v.Coop = b.coopView(st, running, mk)
-	v.Disc = b.DiscStatus()
+	v.Disc = b.discStatus()
 	v.StartWaiting = b.disc.starting.Load()
 	if v.Lobby != nil && b.discBlocks() {
 		v.Lobby.CanStart = false // Start waits for the disc, or is refused while a Dolphin holds it

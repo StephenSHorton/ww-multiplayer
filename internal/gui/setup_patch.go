@@ -15,6 +15,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
 // The setup's patch (design §2.1 step 2): patch.Run in a goroutine, its
@@ -234,8 +235,25 @@ func (b *Bridge) PatchStatus() PatchView {
 // vanilla one) is saved.
 func (b *Bridge) StartPatch(r PatchRequest) (err error) {
 	defer b.maskErr(&err)
-	_, err = b.startPatch(r, false)
-	return err
+	// The disc line's Choose (or a patch while it says the update failed)
+	// is the update: the line shows it.
+	b.disc.mu.Lock()
+	prev := b.disc.view
+	b.disc.mu.Unlock()
+	auto := !r.Patched && (prev.State == "pick" || prev.State == "failed")
+	if !auto {
+		_, err = b.startPatch(r, false)
+		return err
+	}
+	// The line first: a patch that ends at once must not leave it behind.
+	b.setDisc(DiscView{State: "patching", Title: "Updating your disc for " + b.version + "…",
+		Text: "Patching the disc you chose with this version. Start waits for it.", Started: b.now().UTC().Format(time.RFC3339)})
+	if _, err = b.startPatch(r, true); err != nil {
+		b.setDisc(prev)
+		return err
+	}
+	b.logDisc(log.Info, "disc update: patching %s, the disc the player chose", cleanPath(r.Path))
+	return nil
 }
 
 // startPatch is StartPatch; auto marks the disc update's patch (disc.go).

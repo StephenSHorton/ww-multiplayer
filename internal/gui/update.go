@@ -559,7 +559,7 @@ func (b *Bridge) OpenReleaseNotes() (err error) {
 func (b *Bridge) Repatch() (err error) {
 	defer b.maskErr(&err)
 	b.ensureDisc("try again")
-	v := b.DiscStatus()
+	v := b.discStatus()
 	switch v.State {
 	case "pick":
 		return errors.New("your vanilla disc isn't where Setup saved it: choose it again")

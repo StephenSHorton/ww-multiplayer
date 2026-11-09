@@ -162,11 +162,11 @@ func (b *Bridge) lastPlan() string {
 // updated if it needs it (ensureDisc). It returns the disc line.
 func (b *Bridge) CheckDisc() DiscView {
 	b.ensureDisc("app opened")
-	return b.DiscStatus()
+	return b.discStatus()
 }
 
-// DiscStatus returns the disc line, with the update's progress.
-func (b *Bridge) DiscStatus() DiscView {
+// discStatus is the disc line, with the update's progress.
+func (b *Bridge) discStatus() DiscView {
 	b.disc.mu.Lock()
 	v := b.disc.view
 	b.disc.mu.Unlock()
@@ -189,7 +189,8 @@ func (b *Bridge) discBlocks() bool {
 	return b.disc.view.Blocks
 }
 
-// setDisc replaces the disc line and sends it as a "disc" event.
+// setDisc replaces the disc line and sends it as a "disc" event (a line
+// that says the same as before is not sent again).
 func (b *Bridge) setDisc(v DiscView) {
 	v.Version = b.version
 	switch v.State {
@@ -197,6 +198,10 @@ func (b *Bridge) setDisc(v DiscView) {
 		v.Blocks = true
 	}
 	b.disc.mu.Lock()
+	if o := b.disc.view; o.State == v.State && o.Title == v.Title && o.Text == v.Text && o.Error == v.Error && o.Started == v.Started {
+		b.disc.mu.Unlock()
+		return
+	}
 	b.disc.seq++
 	v.Seq = b.disc.seq
 	b.disc.view = v
@@ -210,7 +215,7 @@ func (b *Bridge) emitState() {
 }
 
 func (b *Bridge) emitDisc() {
-	v := b.DiscStatus()
+	v := b.discStatus()
 	b.emit(EventView{Kind: "disc", Time: b.now().UTC().Format(time.RFC3339Nano), Disc: &v})
 }
 
@@ -422,6 +427,16 @@ func (b *Bridge) watchHolders() {
 
 // startRepatch starts the update's patch from in.Vanilla.
 func (b *Bridge) startRepatch(in discInfo) <-chan struct{} {
+	from := "the vanilla disc Setup saved"
+	if in.Found {
+		from = "the vanilla disc the search found"
+	}
+	b.logDisc(log.Info, "disc update: patching %s into %s (%s)", in.Vanilla, patch.DefaultOut(in.Vanilla), from)
+	// The line first: a patch that ends at once (discPatchEnded) must not
+	// leave it behind.
+	b.setDisc(DiscView{State: "patching", Title: "Updating your disc for " + b.version + "…",
+		Text:    "Your patched disc was made by another version of this app, so it is being patched again. Start waits for it.",
+		Started: b.now().UTC().Format(time.RFC3339)})
 	j, err := b.startPatch(PatchRequest{Path: in.Vanilla}, true)
 	if err != nil {
 		b.logDisc(log.Err, "disc update: couldn't start: %v", err)
@@ -429,14 +444,6 @@ func (b *Bridge) startRepatch(in discInfo) <-chan struct{} {
 			Text: "Try again, or patch your vanilla disc in Setup."})
 		return nil
 	}
-	from := "the vanilla disc Setup saved"
-	if in.Found {
-		from = "the vanilla disc found at " + in.Vanilla
-	}
-	b.logDisc(log.Info, "disc update: patching %s into %s (from %s)", in.Vanilla, patch.DefaultOut(in.Vanilla), from)
-	b.setDisc(DiscView{State: "patching", Title: "Updating your disc for " + b.version + "…",
-		Text:    "Your patched disc was made by another version of this app, so it is being patched again. Start waits for it.",
-		Started: b.now().UTC().Format(time.RFC3339)})
 	return j.done
 }
 
@@ -468,11 +475,12 @@ func (b *Bridge) discPatchEnded(j *patchJob) {
 // started in Setup too). It refuses while a Dolphin holds the disc, and,
 // as PR #328 did, when the app would launch Dolphin on a disc still
 // another version's.
-func (b *Bridge) discReady(why string) error {
+func (b *Bridge) discReady(why string) (waited bool, err error) {
 	wait := func(ch <-chan struct{}) error {
 		if ch == nil {
 			return nil
 		}
+		waited = true
 		select {
 		case <-ch:
 			return nil
@@ -481,22 +489,22 @@ func (b *Bridge) discReady(why string) error {
 		}
 	}
 	if err := wait(b.ensureDisc(why)); err != nil {
-		return err
+		return waited, err
 	}
 	if j := b.runningJob(); j != nil {
 		if err := wait(j.done); err != nil {
-			return err
+			return waited, err
 		}
 	}
-	v := b.DiscStatus()
+	v := b.discStatus()
 	if v.State == "blocked" {
-		return errDiscHeld
+		return waited, errDiscHeld
 	}
-	err := b.checkDiscVersion()
+	err = b.checkDiscVersion()
 	if err != nil && v.State == "failed" {
-		return fmt.Errorf("your disc couldn't be updated for this version (%s), so the game would run without its mod. Try again on the Play page, or patch your vanilla disc in Setup", v.Error)
+		return waited, fmt.Errorf("your disc couldn't be updated for this version (%s), so the game would run without its mod. Try again on the Play page, or patch your vanilla disc in Setup", v.Error)
 	}
-	return err
+	return waited, err
 }
 
 // waitDisc checks the disc and waits for its update or a running patch
@@ -771,4 +779,3 @@ func discPlanOf(c config.Config, st patch.DiscState, err error, isFile func(stri
 	}
 	return "pick"
 }
-
