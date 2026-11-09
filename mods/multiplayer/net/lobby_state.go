@@ -248,7 +248,7 @@ func (m *lobbyMachine) snapshot() LobbyStateBody {
 	for _, mb := range m.members {
 		st.Members = append(st.Members, LobbyMember{
 			ID: mb.id, Name: mb.name, Color: mb.color.Hex(), Ready: mb.ready, Host: mb.host,
-			Dolphin: mb.dolphin, File: mb.file, RTTMs: mb.rttMs, Via: ViaApp, Away: mb.conn == 0,
+			Dolphin: mb.dolphin, File: mb.file, RTTMs: mb.rttMs, Via: ViaApp, Away: mb.conn == 0, App: mb.app,
 		})
 		if mb.host {
 			st.Members[len(st.Members)-1].CoopStatus = mb.coop
@@ -425,11 +425,26 @@ func (m *lobbyMachine) message(conn int, sub byte, body []byte) []lobbyOut {
 		if !mb.host {
 			return []lobbyOut{notice(conn, NoticeNotHost, "only the host can send GO")}
 		}
-		if m.phase != PhaseStarting {
+		if m.phase != PhaseStarting && m.phase != PhaseInGame {
 			return []lobbyOut{notice(conn, NoticeWrongPhase, "GO comes after START")}
 		}
 		if b.World != "" && !coopWorldIDRe.MatchString(b.World) {
 			return []lobbyOut{notice(conn, NoticeBadMessage, "GO: bad world ID")}
+		}
+		if m.phase == PhaseInGame {
+			// The host sends GO at Start with no world and announces the
+			// co-op world with a second GO once it is founded. A repeat
+			// (a retry after a drop, a reconnected host) changes nothing;
+			// only a world after an empty GO is news, and it replaces
+			// what late joiners and rejoins are told.
+			if m.goBody == nil || b.World == "" || m.goBody.World == b.World {
+				return nil
+			}
+			if m.goBody.World != "" {
+				return []lobbyOut{notice(conn, NoticeWrongPhase, "a co-op world was announced already")}
+			}
+			m.goBody = &b
+			return []lobbyOut{{to: lobbyAll, sub: LobbyGo, body: b}}
 		}
 		m.phase = PhaseInGame
 		m.goBody = &b

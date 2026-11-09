@@ -157,7 +157,7 @@ type pendingHost struct {
 // NewBridge returns the Bridge for o. Call close when the app ends.
 func NewBridge(o Options) *Bridge {
 	b := &Bridge{ctrl: o.Controller, version: o.Version, cfgPath: o.ConfigPath, getenv: o.Getenv, now: time.Now,
-		postPatch: o.PostPatch, patchRun: patch.Run, inspect: patch.Inspect, denv: o.DolphinEnv,
+		postPatch: o.PostPatch, patchRun: patch.Run, inspect: patch.InspectFull, denv: o.DolphinEnv,
 		home:      func() string { h, _ := os.UserHomeDir(); return h },
 		macStatus: macStatusHere, prepareMac: launch.PrepareMacHere, unprepareMac: launch.UnprepareMacHere,
 		emitters: map[int]func(EventView){}, hostIPs: o.HostIPs, findSave: findSave, openPath: openFolderHere,

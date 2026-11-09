@@ -25,5 +25,6 @@ func goldenDo(cs *Session, line string) {
 
 // newGoldenSession is a co-op side reading its answers from in.
 func newGoldenSession(f Flags, in io.Reader) *Session {
-	return &Session{flags: f, ask: newCoopPrompter(f.yes, in), poses: map[string]*network.Client{}}
+	// backupDir set: the start backup was taken, so takeBackup is a no-op.
+	return &Session{flags: f, ask: newCoopPrompter(f.yes, in), poses: map[string]*network.Client{}, backupDir: "backup"}
 }

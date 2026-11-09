@@ -318,3 +318,36 @@ func TestSessionEngine_JoinLobbyOwnerKey(t *testing.T) {
 		t.Fatal("START from the keyed host never reached the lobby")
 	}
 }
+
+// TestSendGoRetries: a GO that can't be sent (the lobby connection is
+// down) is tried again, with a growing wait, until it goes or ctx ends.
+func TestSendGoRetries(t *testing.T) {
+	lc := network.NewLobbyClient("Host", network.LobbyHelloBody{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var waits []time.Duration
+	out := &recOutput{}
+	SendGo(ctx, lc, "0123456789abcdef", out, func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		if len(waits) == 6 {
+			cancel()
+		}
+		return nil
+	})
+	if len(waits) != 6 || waits[1] <= waits[0] || waits[5] > goRetryMax {
+		t.Fatalf("waits %v", waits)
+	}
+}
+
+// TestLobbyViewSkew: two members on different app versions give the
+// viewer's lobby the skew line.
+func TestLobbyViewSkew(t *testing.T) {
+	st := network.LobbyStateBody{Members: []network.LobbyMember{
+		{ID: 1, Name: "Link", Color: "#00FF00", Via: network.ViaApp, App: "0.6.1"},
+		{ID: 2, Name: "Whitney", Color: "#FF0000", Via: network.ViaApp, App: "0.6.0"},
+	}}
+	l := lobbyView(st, network.LobbyWelcomeBody{Member: 1})
+	if got, want := l.VersionSkew(), "Whitney is on 0.6.0, you're on 0.6.1: ask them to update"; got != want {
+		t.Errorf("skew %q, want %q", got, want)
+	}
+}

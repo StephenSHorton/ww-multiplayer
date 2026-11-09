@@ -3,8 +3,8 @@
 Plan from card #1166 (2026-11-08). Status: **agreed** by the owner on
 2026-11-08, with every choice in §8 answered as recommended. It is split
 into the doing cards in §9. It supersedes #1163 and #1164, and it builds
-on what they landed or are landing: #1163's co-op status line and
-no-world GO, and #1164's stale-disc gate (PR #328).
+on what they landed (both on main): #1163's co-op status line and
+no-world GO (77bcb78), and #1164's stale-disc gate (PR #328, f31e9b6).
 
 The target, in the owner's words: "They just want to play. We need to
 rethink how we're doing multiplayer to make it just work for people
@@ -181,7 +181,7 @@ Saving in game keeps working as it always has.
 
 ## 7. Never stuck, never silent
 
-- **#1163 (being built):** a per-member co-op status in the lobby state,
+- **#1163 (on main, 77bcb78):** a per-member co-op status in the lobby state,
   so every window shows why co-op isn't running, during the wait, after
   GO and on a rejoin. A founding that stays blocked sends GO with no
   world after a short wait.
@@ -231,9 +231,10 @@ Decided in the plan without a question:
 - The vanilla disc is searched for before the player is asked.
 - The CLI and TUI stay as they are.
 
-## 9. Doing cards (after agreement)
+## 9. Doing cards
 
-In order. Cards on separate lines can run side by side.
+Board cards: 1 = #1171, 2 = #1172, 3 = #1176, 4 = #1173, 5 = #1177,
+6 = #1178, 7 = #1175, 8 = #1174, 9 = #1179. In order. Cards on separate lines can run side by side.
 
 1. **Full disc freshness check** (D1). Normal.
    - `InspectFull`: the DOL plus RELS.arc. `discPlan`,
