@@ -1,7 +1,6 @@
 package gui
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -284,11 +283,7 @@ func (b *Bridge) launchOptions() session.LaunchOptions {
 	if o.UserDir == "" && o.Exe != "" {
 		o.UserDir, _ = launch.UserDir(b.denv(), o.Exe)
 	}
-	var ws struct {
-		Aspect string `json:"aspect"`
-	}
-	_ = json.Unmarshal(c.ModSettings("widescreen"), &ws)
-	o.Widescreen = ws.Aspect // unset = off in R1
+	o.Widescreen = widescreenAspect(c) // the Display card's (display.go)
 	return o
 }
 

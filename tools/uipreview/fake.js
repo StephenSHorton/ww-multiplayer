@@ -23,7 +23,8 @@
 //	&vitals=none     in game, nobody's hearts, magic and rupees are known (senders from before them)
 //	&coopoff=1       ingame: the host's founding gave up, so co-op is off this session (the host's line on the banner)
 //	&disc=S          the disc update's line (disc.go) on Home and the Session screen: patching, closing, blocked, pick, failed
-//	&click=a,b       click these element ids in turn once the page is up
+//	&ws=A           the saved widescreen aspect (off, 16:9, 64:27, ...)
+//	&click=a,b      click these element ids in turn once the page is up
 (function () {
 	const q = new URLSearchParams(location.search);
 	const S = q.get("s") || "home";
@@ -347,6 +348,7 @@
 		};
 	}
 
+	let widescreen = q.get("ws") || "off";
 	const answers = {
 		Info: () => info, State: () => { const st = state(); armEnd(); return st; }, Setup: () => setupView,
 		PatchStatus: () => (S === "setup-game" ? patchDone : setupView.patch),
@@ -369,6 +371,9 @@
 		SetCoopShares: (on) => (slow && shareCalls++ === 0
 			? new Promise((done) => setTimeout(() => { setShares(on); done(null); }, 800))
 			: (setShares(on), null)),
+		// Settings' Display card: the saved widescreen aspect (unset = off).
+		Widescreen: () => widescreen,
+		SetWidescreen: (a) => { widescreen = a.trim().toLowerCase() || "off"; return null; },
 		SetMerge: (on) => { coop.merge = on; if (coop.panel) coop.panel.rules.rows.find((r) => r.id === "merge").on = on; return null; },
 	};
 	const listeners = [];
