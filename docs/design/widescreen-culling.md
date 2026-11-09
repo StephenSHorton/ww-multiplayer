@@ -244,16 +244,19 @@ flags byte, and in mode 2 the handler also writes the 3D knob (`native-widescree
 **Rules in C:**
 
 - The mod's `ws_init` (its `WwModuleDesc` init, which main01_init runs after `ops_init` on every
-  boot) writes the block: magic, version 1, **mode 1, factor 4/3**. That covers the person's setup
+  boot) writes the block: magic, version 1, **mode 1, factor 4/3**, flags = what the build supports,
+  `ui_*` to 0 / 1.0 / 0, and the 3D knob `0x803FA998` back to vanilla `0x3FAAAAAB`. That covers the person's setup
   with no Go process at all, and it survives a soft reset (the usual reset to the title keeps RAM as it is and runs no init; a
   reboot reset re-runs main01_init, which writes the block again). The slack is
   orphan memory nothing else zeroes (hooks.c's main01_init comments explain why each block must be
   set at boot).
 - `ws_init` also registers one op, `WWAP_OP_WS_SET` = 16 (the first mod op, `WWAP_OP_MOD_FIRST`;
   take the next free number if another mod has registered 16 by then), with
-  `ww_cmd_register`. Its handler takes `a` = mode and `b` = the factor's f32 bits. It refuses
-  (`WWAP_R_REFUSED`) a mode above 2 or a factor outside [1.0, 3.0], else writes the block and
-  returns `WWAP_R_OK`. **Only C writes the block**; Go reads it for status and changes it through
+  `ww_cmd_register`. Its handler takes `a` = mode, `b` = the factor's f32 bits and `c` = flags (stored
+  `& WWWS_FLAGS_SUPPORTED`, 0 in this build). It refuses (`WWAP_R_REFUSED`) a mode above 2 or a
+  factor outside [1.0, 3.0], else writes mode, factor and flags, writes the knob (`(4·factor)/3`
+  in mode 2, `0x3FAAAAAB` otherwise; `native-widescreen.md` 3.1) and returns `WWAP_R_OK`. It never
+  touches the `ui_*` fields. **Only C writes the block**; Go reads it for status and changes it through
   the op.
 - `ws_clip_aspect` applies the factor only when the magic matches, `mode == 1` and
   `1.0 <= factor <= 3.0`. Anything else passes the aspect through unchanged, so a torn or garbage
@@ -337,6 +340,10 @@ later in-process writer must share the session's Queue. The app's mod runtime st
   recaptured once.
 
 ## 8. Build steps (card #1185)
+
+**Stage 1 of `native-widescreen.md` lands in this same blob change** (its section 8, stage 1:
+the 0x18 block, flags in WS_SET's c, the knob write, `WW_FEAT_WIDESCREEN` 0x80, the
+`ws_snap_setresult` hook and its Go list), so players re-patch and the saves are recaptured once.
 
 Each step is small enough to commit on its own. The checks are CLAUDE.md's "Checks (run locally)".
 

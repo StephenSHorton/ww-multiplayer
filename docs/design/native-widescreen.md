@@ -26,7 +26,7 @@ devkitPPC on the Mac, so the first real sizes come from the PC build of stage 1.
   4. moves HUD parts out to the real screen edges by S = 329.5·(F − 1) 2D units (110 at 16:9), by
      the same table.
 - **Shared, cheap set-ups do most of it:** one data word for 3D, one 2D hook, one load-time screen
-  hook with a table, one wrapper for 2D placed at projected 3D points (7 sites), and a few data
+  hook pair with a table, one wrapper for 2D placed at projected 3D points (7 sites), and a few data
   words. Per-screen work is small: the picto box, the opening, THP movies, minigame HUD widgets.
 - **Budget:** T2 has 0xBF8 bytes free on main. Stages 1-3 (world, 2D proportions, HUD edges) fit
   even at the high estimate (about 0x68 left); stages 4-5 fit only at the low end, with four
@@ -549,12 +549,13 @@ loads. It sets `ui_mode` = 2 if mode is 2 and `WWWS_F_2D` is set, else 0; `ui_fa
 `ui_shift` to match; then runs `ws_apply(ui_factor, ui_shift)`. Hook B's order: `set(stream)` returned true → look up the stashed name's row → if the row has EPOCH, call `ws_latch()` first → then apply the row's GEOM/EDGE (stage 3: shifts) with the new latch → clear the stash.
 
 **`ws_apply`** walks one rodata table of `{u32 addr; u8 type; f32 a; f32 b}` and writes
-a + b·F (or a + b·S), rounded for s16 entries. At F = 1 every entry gives back the vanilla word, so
+a + b·F (or a + b·S), rounded for s16 entries (`type` bit 0 = s16, rounded half away from zero, else
+f32; bit 1 = b multiplies `ui_shift`, else `ui_factor`; stage 2 step 1 lists the rows). At F = 1 every entry gives back the vanilla word, so
 leaving native mode needs no restore code. Entries: the wipe box (4), Fd4 (2), the minimap hide
 target (stage 2), the minimap corner and free icon and `g_menuHIO+0x9A` (stage 3, from S).
 
 **`ws_2d_factor()`** is the one predicate every 2D reader uses (`ws_ortho_hook`, `ws_project_2d`,
-`ws_persp`, the scissor wrapper, the side fills, the walker, and the REL's name tags): `ui_factor`
+`ws_persp`, the scissor wrapper, the side fills, the walker, the THP step, and the REL's name tags): `ui_factor`
 if the magic matches, `ui_mode` is 2 and 1 ≤ `ui_factor` ≤ 3 (NaN fails), else 1.0. The 3D knob and
 the picto judge use the live `mode`/`factor`.
 
@@ -743,7 +744,12 @@ PC two-Dolphin loop, with a start save recaptured for the stage's blob (in mode 
   `./wwdev.exe ops ws <mode> <aspect> [flags]` (submits op 16 and waits; one writer, so not while
   another runs), and an mp-local that reads `WW_WIDESCREEN` and runs the same reconcile loop as the
   app's runner (the CLI `widescreen` command refuses while mp-local holds `shadow_mode`). In the
-  app, the runner does it (host a lobby, Start).
+  app, the runner does it (host a lobby, Start). Nothing else in mp-local submits to the ops queue
+  today, so its loop is the only writer there.
+- **Manual toggles** (a mode or flags change mid-run): launch with `WW_WIDESCREEN` on `dolphin2`
+  (the `-C` pair) but run mp-local **without** it, so no loop resubmits behind you, and use
+  `wwdev ops ws`, never the CLI, once mp-local holds the mailbox. Checks that need mp-local's loop
+  (stage 2 check 10) are a separate run.
 - **Pictures.** `WW_DOLPHIN_INDEX=0 ./wwdev.exe screenshot /tmp/ws.png` (PC; the stretched window, as
   the player sees it) or `scripts/mac-rig.sh shot <pid> /tmp/ws.png`. If the Mac agent lacks Screen
   Recording: frame dumps with `-C Dolphin.Movie.DumpFrames=True -C Dolphin.Movie.DumpFramesSilent=True
@@ -967,7 +973,7 @@ Changes the C side, so it lands in **#1185's blob change**: follow the culling p
    left, ships right, battery right. Sploosh Kaboom: squid icons and numbers where a screenshot says
    they belong. Leaving a minigame: the HUD is normal; the slots still point into the REL (the
    module stays linked across stage loads, `inject/src/mp/relload.c`) and pass through when S is
-   0. `ww-multiplayer widescreen off` mid-stage: nothing goes off screen; the HUD updates at the
+   0. `wwdev ops ws 0 16:9` mid-stage (a manual-toggle run, see the rig notes): nothing goes off screen; the HUD updates at the
    next stage load. File select: the button cluster at the right.
 
 ### Stage 4: menus and special screens (release R3)
