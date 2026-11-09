@@ -604,3 +604,7 @@ Note (wind#8): this is not an unnoticed hole. `design/coop-slice-gt.md` item 3 a
 **Suggested `.deferred` replacement text:**
 
 > "Molgera larva, Kalle Demos tentacles: never. Boss-spawned parts whose pose, count or phase come from this game's own boss (d_a_bwd.cpp:112-125, 608, 1918; d_a_bmdhand.cpp:364-367, 470-507; d_a_bmdfoot.cpp:544-554). Covered by the molgera/kalle boss_kill rows. Puppet Ganon 2-3: never as mirror rows (they are the boss); a GanonK boss_kill row is the open item."
+
+---
+
+[← Modding API: mods](../api/02-mods.md) · [Docs home](../README.md) · [Native widescreen →](native-widescreen.md)

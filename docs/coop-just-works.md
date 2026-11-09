@@ -323,3 +323,7 @@ Board cards: 1 = #1171, 2 = #1172, 3 = #1176, 4 = #1173, 5 = #1177,
   sessions 1 and 2). A possible later card: launch with a session-only
   `-C` override that turns its update track off, once the key name is
   checked against Dolphin's config.
+
+---
+
+[← Co-op design](08-coop-design.md) · [Docs home](README.md) · [What is left for full co-op →](coop-remaining.md)

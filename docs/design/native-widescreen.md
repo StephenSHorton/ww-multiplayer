@@ -1078,3 +1078,7 @@ by −S with the screen) need GEOM.
 notes sliding in through a band; the title ship visible in the bands; text about 25% softer
 sideways (2D drawn into fewer EFB pixels); the sun's falloff and Aryll's telescope check stretched
 by F; photos viewed in a different mode than they were taken in; a Dolphin aspect changed mid-session.
+
+---
+
+[← Enemy rows: next](enemy-rows-next.md) · [Docs home](../README.md) · [Widescreen culling →](widescreen-culling.md)

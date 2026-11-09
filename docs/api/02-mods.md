@@ -203,3 +203,7 @@ Compatibility: a host from before mods ignores the field, the caps bit and the b
 `mods/example` is an ordinary mod folder, so `./...` builds and tests it; it is not in `compiledMods()` but in `devMods()`, so `mods` lists it only with `--dev` (`mods --dev`; in the app, `ui --dev` or `tui --dev`).
 
 `go run ./tools/validate_manifests` checks every `mods/**/mod.json`: it must parse, its id must equal its folder name, and only fixtures (under `_fixtures`) have ids that start with `_`. A folder with an `invalid.txt` must hold a manifest that is refused with an error containing that text. Run it, and `go vet ./mods/_fixtures/`, before every push (the check matrix in [TESTING.md](../TESTING.md); there is no CI).
+
+---
+
+[← Modding API: events](01-events.md) · [Docs home](../README.md) · [Enemy rows: next →](../design/enemy-rows-next.md)

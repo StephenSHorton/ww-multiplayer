@@ -197,3 +197,7 @@ Equivalent shape for us:
 4. Local 2-player harness if available (`wwdev mp-local` / host+fake-client)
 
 Research-only; no code changes required to benefit from the callback/versioning mindset above.
+
+---
+
+[← Project history](06-history.md) · [Docs home](README.md) · [Co-op design →](08-coop-design.md)
