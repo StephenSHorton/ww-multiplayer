@@ -1,0 +1,208 @@
+{
+ "area_corrections": "Verified with my own disassembly (r2 = 0x803FFD00 from __init_registers 0x80003280/84), a full r2-reader scan of the DOL text, and the decomp. Every Gecko line's vanilla and patched word, and every cave instruction, match the finder's decode. Corrections that cut across items:\n(1) The finder calls the painter's two setOrtho sites and @5162/@5163 \"the\" shared 2D choke point, but that is incomplete. dOvlpFd2_dlst_c::draw (d_ovlp_fade2.cpp:102-104, bl setOrtho at 0x80223CF4) calls setOrtho(-9,-21,659,524) on the SHARED current graf port (r31 = *(0x803C4C08+0x5D00)) from its own constants @4024 0x803FB734 / @4026 0x803FB73C. The Gecko leaves these alone. Both of the finder's options (data rewrite or painter bl hooks) must also cover this site, or they are undone for the rest of that frame. gecko-not-covered wrongly calls it a \"private uncompressed ortho\". See missed item fade2-graf-reset.\n(2) Several fixes proposed as \"per-mode\" rewrite instructions, not data: calcScissor 'li r3' at 0x8004A428, the lha->li at 0x801F0B70, the lfs-displacement patches, and the 3 'mr r4,r31'->'li r4,0' sites. A boot-time write in main01_init is fine. Switching live from T2/REL needs DCFlushRange + ICInvalidateRange on the word (CLAUDE.md gotcha #3, the JIT cache), or a hook_branchlink shim that reads the mode instead. Data words (.sdata2 floats, g_meterHIO / g_meter_mapHIO halfwords) have no such constraint.\n(3) The constants the Gecko READS for its shift values are shared with unrelated code: @10325 0x803F92CC (114.0) is also read by dCamera_c::useItem0EvCamera 0x800BAAF4 and useItem1EvCamera 0x800BB5A4; @9542 0x803F8DAC (206) by drawPoison 0x800970E8; @5015 0x803F8B74 (320) by dKyr_lenzflare_move, dKyr_sun_move and dKyr_drawRain; @4390 0x803F85A4 (4/3) by dDemo_camera_c::JSGGetProjectionAspect 0x80069E34. @7214 0x803FB334 (320) has 8 readers in d_meter. Never rewrite these to carry our shift: put the shift in the mailbox, or in a cave or shim.\n(4) The setUpRectangle side effect is not 'unknown': mDoGph_screenCapture is the Picto Box shutter. See the corrected gecko-setuprect-sideeffect, plus the new picto capture-rect item.\n(5) The cave-collision correction to docs/design/widescreen-culling.md \u00a79 stands. CanaryTRK = 0x8040CFB0..0x80410000 (wwapi/mailbox/mod.go:59,66). The DOLPatches file offsets map to exactly the finder's 12 addresses. No build.py hook site and no address literal in inject/rel or inject/include is within 0x10 of any Gecko site; the nearest is seachart_shim at 0x801BB06C (dDlst_FMAP_c::draw+0x48), clear of the Fmap patches at 0x801B6968/78/955C. Dolphin's installer is 0x80001800..0x80003000 (GeckoCode.h:46-47). The caves' vanilla bytes are all 0.\n(6) Anchors marked \"per the Gecko\" (rupee counter and swim timer screens, keys, button cluster, place name) are unverified without the .blo files or a screenshot. Clean address verification does not upgrade them.\nScratch: /Users/stephenhorton/.claude/jobs/9108197d/tmp/scratch-gecko-verify/{v.py,sites.py,sites.txt,refs.py,notes.md}.",
+ "verdicts": [
+  {
+   "id": "gecko-2d-ortho",
+   "verdict": "corrected",
+   "notes": "Confirmed: @5162 0x803F7D68 = C1100000 (-9), @5163 0x803F7D6C = 44228000 (650). They have exactly 3 r2 readers each: setUpRectangle 0x8000A6B0/B4, and the painter at 0x8000B03C/B04C and 0x8000BA00/BA10. Each painter pair stores a TBox2 at r1+0x30 / r1+0x20, then does addi r4,r1,0x30|0x20 and bl setOrtho 0x802CDD14 at 0x8000B06C / 0x8000BA30, on the same J2DOrthoGraph at r1+0x118 (m_Do_graphic.cpp:1572-1573, 1890). setOrtho only stores mOrtho (J2DOrthoGraph.cpp:34-38), so a shim that edits *r4 before the tail-call works. The numbers check out: 659/889 x 4/3 = 0.988 (1.2% narrow); exact-F box -118.83..759.83. Missing piece: d_ovlp_fade2 resets the shared graf port's ortho from its own constants (missed item fade2-graf-reset), so the fix must also cover 0x80223CF4.",
+   "corrected": {
+    "fix": "As the finder says (prefer (b): hook_branchlink at 0x8000B06C and 0x8000BA30, edit TBox2 x0/x1 at *r4 when mode==2, tail-call 0x802CDD14). ALSO hook_branchlink at 0x80223CF4 (bl setOrtho in dOvlpFd2_dlst_c::draw, r4 = r1+0x18) with the same shim, or rewrite @4024 0x803FB734 = L / @4026 0x803FB73C = R (2 readers, both in that function). Otherwise fade2 restores the vanilla -9..650 ortho on the current graf port for later draws in that frame. Option (a) is a data rewrite and is live-switchable; (b) is code-free per mode."
+   }
+  },
+  {
+   "id": "gecko-3d-aspect",
+   "verdict": "confirmed",
+   "notes": "0x8017BE5C lfs f1,-0x5368(r2) is the only reader of @17778 0x803FA998 = 3FAAAAAB. The code multiplies it by lfs 0xC of r3 = 0x803B99FC (that is, 0x803B9A08, g_HIO.mAspectRatio) and stores with stfs f2,0xD4(r31) at 0x8017BE88. d_camera.cpp:5315 confirmed. A demo camera's JSGSetProjectionAspect has no consumer, so cutscenes go through preparation too."
+  },
+  {
+   "id": "gecko-wipe-box",
+   "verdict": "confirmed",
+   "notes": "@6224..@6227 at 0x803F89B8 = -9/-21/659/524 (C1100000 C1A80000 4424C000 44030000) become -123/-118/890/716. Each has exactly one reader, at 0x8008668C/90/94/98 in wipeIn. d_drawlist.cpp:2041 confirmed (mWipeDlst.init(texture,-9,-21,659,524,...))."
+  },
+  {
+   "id": "gecko-fade4-blit",
+   "verdict": "confirmed",
+   "notes": "@4115 0x803FB78C has 1 reader (0x80224C0C) and @4076 0x803FB77C has 2 (0x80224C1C draw, 0x80224928 cnvAddress); values confirmed. dDlst_2Dt_Sp_c::draw sets no projection of its own, so it uses the painter ortho, which makes x = L, k = (R-L)/640 correct. Both 2Dt_Sp instances (fadeOutBlur1_dlst and fadeOutComposite_dlst, d_ovlp_fade4.cpp:212-219) are covered. The other 79.0 reader, execFirstSnap 0x8022513C, is a frame count and not relevant."
+  },
+  {
+   "id": "gecko-nullgraf-screens",
+   "verdict": "confirmed",
+   "notes": "0x8018F5CC, 0x8021E6E8 and 0x80234528 are all 'mr r4,r31' directly before bl J2DScreen::draw 0x802D0F2C (at 0x8018F5D0, 0x8021E6EC, 0x8023452C). Each draw first calls graf->setPort() (d_gameover.cpp:420-422, d_operate_wind.cpp:45-47, d_s_open_sub.cpp:552-554). With NULL, J2DScreen::draw builds J2DOrthoGraph(0,0,640,480) and calls setPort (J2DScreen.cpp:149-159). Live switching per mode needs a shim on the bl or an icache invalidate (see area_corrections)."
+  },
+  {
+   "id": "gecko-placename",
+   "verdict": "corrected",
+   "notes": "Cave A confirmed: r28 = this; 4(r28) = scrn; it writes J2DPane::mBounds.i.x at +0xC (J2DPane.h:108). It runs after scrn->set and before fopMsgM_setPaneData(&pane,scrn,0x706e) (0x80161044 is a bl). The root bounds come from INF1 as (0,0,w,h) (J2DScreen.cpp:135-136), and J2DPane::draw places the root at mBounds.i.x + x (J2DPane.cpp:182). So the Gecko moves the whole card by exactly -123, which is 9 units more than its -114 for the other left-anchored HUD. Open question 1 is resolved for the root x; the left-anchored intent is still unverified.",
+   "corrected": {
+    "effect_native": "Without a fix the card sits inside the compressed centre region. The Gecko moves the whole card exactly -123 ortho units (vanilla root x is 0), i.e. 9 units further than its other left-HUD shifts (-114).",
+    "fix": "hook_branchlink at 0x80161044 (bl fopMsgM_setPaneData; the original call is setPaneData(&pane, scrn, 0x706e) with r4 = scrn). After the call, in mode 2, scrn->mBounds.i.x += shiftL, where shiftL = -329.5*(F-1) = -109.8 at 4/3; keep the width. That preserves the card's distance to the edge. Use L (-118.8) instead only to copy the Gecko's look; the two differ by 9 units. Skip the shift entirely if a screenshot shows the card is centred."
+   }
+  },
+  {
+   "id": "gecko-menu-masks",
+   "verdict": "confirmed",
+   "notes": "All 17 sites disassembled. Each is the stb (Collect 0x8019E66C, Item 0x801CC208, +0x9A5 = pane+0x35 mNowAlpha) or the bl fopMsgM_setInitAlpha / setNowAlpha the finder lists. The decomp lines match. setInitAlpha only copies mInitAlpha to mNowAlpha, and setNowAlpha sets mNowAlpha = mInitAlpha*a (f_op_msg_mng.cpp:9896-9903). At d_menu_item.cpp:1395 the code stores both mInitAlpha and mNowAlpha; the Gecko NOPs only the mNowAlpha store. The finder's widen-instead recommendation is sound; it is a product decision."
+  },
+  {
+   "id": "gecko-fmap-cl-strip",
+   "verdict": "confirmed",
+   "notes": "Fmap: 0x801B6964 addi r3,r27,0x28C4 (mClPane), then x lfs at 0x801B6968 and bl paneTrans at 0x801B6974; 0x801B6978 is the next pane (mFddmPane, +0x288C). Fmap2: mClPane at r31+0x4C, bl at 0x801C5184. fopMsgM_cposMove ends with the virtual resize (vtable+0x18, 0x8003BDFC). J2DPane::resize (0x8002D0C8) leaves r3 = this and writes f.x at +0x14, so cave B holds only if 'cl' is a base J2DPane or J2DPicture. J2DWindow::resize 0x802D1F5C and J2DTextBox::resize 0x802D5DA4 override it. The proposed hooks at 0x801B6974 / 0x801C5184 are real bl sites. Reloading mClPane.pane is the right call. Medium confidence."
+  },
+  {
+   "id": "gecko-boomerang-sight",
+   "verdict": "corrected",
+   "notes": "Confirmed: 0x800E1624 bl mDoLib_project (r4 = r1+8), and 0x800E1630 lfs f1,8(r1) feeds PSMTXTrans. daBoomerang_sightPacket_c::draw sets no projection, so it draws in the current (painter) ortho. mDoLib_project returns viewport pixels (m_Do_lib.cpp:82-100), and cave C expands x away from centre by 4/3, which matches. The finder's formula uses an undefined 'Lc'; it is pinned in the corrected fix.",
+   "corrected": {
+    "fix": "hook_branchlink at 0x800E1624: save r4, call mDoLib_project, then in mode 2 set x = 320.5 + (x - 320) * (R-L)/640. That lands exactly on the 3D point in EFB terms, and also removes vanilla's 659/640 (about 3%) edge drift. To reproduce vanilla's slight drift instead, use x = 320.5 + F*(x - 320.5). Put this in one shared helper for every mDoLib_project-to-2D consumer."
+   }
+  },
+  {
+   "id": "gecko-pillarbox-pb-scope",
+   "verdict": "corrected",
+   "notes": "Cave D confirmed: TColor @4582 0x803F891C = 000000FF (opaque black). The calls are J2DFillBox(-130,-32,130,640) and (640,-32,130,640). J2DFillBox builds a local J2DOrthoGraph and never calls setPort (J2DOrthoGraph.cpp:73-77; fillBox only sets the blend mode and pos mtx), so the bars use whatever projection is current. That is the painter graf: dJle_Pb_c::draw ends with scrn1->draw(graph) then shutterLineDraw (no projection change), and dDlst_2DSCP_c::draw calls graf->setPort(). Both blr sites follow a complete epilogue, so the Gecko's tail branch is valid. The finder's proposed 'hook_branchlink tail hooks' cannot sit on a blr. The finder's WYSIWYG claim is wrong (see missed picto-capture-rect).",
+   "corrected": {
+    "fix": "hook_branchlink on the last bl before each epilogue: 0x8022B9CC (bl shutterLineDraw in dJle_Pb_c::draw) and 0x802375CC (bl outFontDraw in dDlst_2DSCP_c::draw). The shim calls the original, then in mode 2 draws J2DFillBox bars from L to 0 and from 640 to R (y -32..608), relying on the painter projection still being current. Alternatively, patch the blr with a plain 'b' to a T2 routine, as the Gecko does."
+   }
+  },
+  {
+   "id": "gecko-pb-viewport",
+   "verdict": "corrected",
+   "notes": "Patches confirmed: 0x80227A18/1C/20 make the call GXSetViewport(79,0,640->480,480,0,1); the bl GXSetViewport is at 0x80227A30. pictureDraw centres the photo on album pane pane_no[index].mPosTopLeft (d_picture_box.cpp:702-705), and that pane is compressed by the painter ortho. Its private C_MTXOrtho(-21,503,-9,650) at :742 is not. The squeeze exists mainly to keep the photo on its pane. The exact values against an exact-F ortho are x = 320(1-1/F) = 80, w = 640/F = 480.",
+   "corrected": {
+    "effect_native": "Unfixed, the photo is drawn at its uncompressed position and size, so it is off its compressed album pane and about F times too wide for it. Fixed, as the Gecko does: photos captured in 4:3 look right, but photos captured with the 3D widened are anamorphic EFB copies and come out 0.75x too narrow.",
+    "fix": "hook_branchlink at 0x80227A30 (bl GXSetViewport): in mode 2 set f1 = 320*(1-1/F), f3 = 640/F (80/480 at F = 4/3). Whether widescreen-taken photos should then be drawn wider is the picto capture-rect product decision."
+   }
+  },
+  {
+   "id": "gecko-minimap-scissor",
+   "verdict": "confirmed",
+   "notes": "calcScissor confirmed: x = (mDispPosLeftUpX - @6087)*640/@6088, then fctiwz. @6087 0x803F8238 and @6088 0x803F823C have one reader each (0x8004A3CC, 0x8004A3D8). li r3,0x74 is at 0x8004A428 and the clamp li r4,0 at 0x8004A444. The arithmetic checks out (-70*0.9712 -> -67, width 86, x 32). The only caller is a bl at 0x8004A64C in dMap_c::mapMoveAll (d_map.cpp:1699), so the hook sub-option is valid. Rewriting li r3 per mode is a code write (needs an icache invalidate); hooking 0x8004A64C and fixing mScissorOrigX/mScissorWidth (r13 -0x75FC / -0x75F8) after the call is mode-safe."
+  },
+  {
+   "id": "gecko-minimap-hio",
+   "verdict": "confirmed",
+   "notes": "The ctor 0x80205990 writes sth 0x23 to +8, -0xB4 to +0xC, 0x24E to +0x14. initMapCtrlDisp 0x802059E0 copies +8 to mDispPosLeftUpX, +0xA to mDispPosLeftUpY and +0x14 to mIconFreePosX (0x802059FC-0x80205A10). These are .bss halfwords: data, live-switchable, taking effect at the next map init."
+  },
+  {
+   "id": "gecko-hud-button-cluster",
+   "verdict": "confirmed",
+   "notes": "Confirmed: the ctor writes li r4,7 / sth 0x50 (0x801EF088/8C) and field_0x46 = 0x5A (90). 0x801F0B70 'lha r0,0x50(r5)' is the +field_0x50 term in dMeter_childPaneTransChildTrans (d_meter.cpp:1168-1181). The Gecko's li 110 compensation assumes param_5 = 0.9 and the current p3 position; I did not check the callers' param_5. The right-anchor intent is unverified (live check). Medium."
+  },
+  {
+   "id": "gecko-hud-menuplus",
+   "verdict": "corrected",
+   "notes": "Confirmed: 0x801FBA20 fadds f1,f31,f0 becomes f30. f30 is y, which is always g_meterHIO.field_0x9e (= 0) in every case (d_meter.cpp:4641-4779). The bl is at 0x801FBA2C in a 3-iteration loop. The lost case-4 '+0x52' is real but lower severity than the finder says: in the opening branch, case 4 hides all three arrows (d_meter.cpp:4688-4690). Only the closing branch (4760-4779) can show them, and only transiently.",
+   "corrected": {
+    "confidence": "medium",
+    "effect_native": "The cross floats inside the centre region. Under the Gecko, the case-4 arrow error can only appear in the closing branch, and briefly."
+   }
+  },
+  {
+   "id": "gecko-hud-meter-screens",
+   "verdict": "confirmed",
+   "notes": "Confirmed: sScrTimer1 at lfs 0x801F0678 with bl 0x801F0684; sScrTimer2 at 0x801F0694 with bl 0x801F06A0; sMainParts2 at 0x801F0700 with bl 0x801F070C. sMainParts3, sMainParts1 and sChoiceRoad are drawn at x 0, unshifted. sScrTimer1 uses setScissor(true), so its clip follows the offset. The right-anchor intent is unverified (screenshot needed)."
+  },
+  {
+   "id": "gecko-hud-swim-scissor",
+   "verdict": "confirmed",
+   "notes": "0x80201D8C: r4 = 0x803E7094 (g_regHIO), +0x36C = REG6_F(0) at 0x803E7400. f4 is loaded once and feeds fadds at 0x80201DA4 and 0x80201DDC. Don't rewrite @10325 (114, shared with the camera); see area_corrections."
+  },
+  {
+   "id": "gecko-hud-hearts",
+   "verdict": "confirmed",
+   "notes": "0x801F102C / 0x801F103C are bl paneTrans with f1 = f2 = 0 (0x801F1024/34). Cave G does f1 -= 114 and tail-calls 0x8003BC88."
+  },
+  {
+   "id": "gecko-hud-magic",
+   "verdict": "confirmed",
+   "notes": "magicInit calls magicTransNowInit at 0x801F8EF8 before the three setInitAlpha caves (0x801F8F00/08/10, r3 = +0x10F8/+0x11A0/+0x11D8). Cave F changes mPosTopLeftOrig.x (+4). TransNowInit's vanilla x = mPosCenter.x - mPosCenterOrig.x (+0xF54 - +0xF4C), so the Gecko's 0 then cave G gives orig - 114. Medium (re-layout coverage live-unverified)."
+  },
+  {
+   "id": "gecko-hud-rupee-particle",
+   "verdict": "confirmed",
+   "notes": "0x801FC28C lfs @7214 (320) is changed to @9542 (206), so local_48.x = rup1.mPosCenter.x - 206. Incomplete as a fix: dMeter_rupyAlpha re-creates the same particle from the same pane at 0x801FC024 and 0x801FC0C4 (d_meter.cpp:4976, 4985), and the Gecko leaves those unpatched. See missed hud-rupee-particle-alpha. Don't rewrite @7214 or @9542 (shared)."
+  },
+  {
+   "id": "gecko-hud-compass",
+   "verdict": "confirmed",
+   "notes": "The DirOpen bl sites 0x801FD610/20/30 (r3 = +0x12F0/+0x16A8/+0x1948, f1 = f27) are confirmed. clockMultiMove 0x801FEFB4: 0x194C = field_0x1948 + 4 (mPosTopLeftOrig.x), changed to 0x1954 = +0xC (mPosTopLeft.x); offsets verified against fopMsgM_cposMove. compassDirClose (0x801FDCE8.. lfs f2=0 before paneTrans) and compassValueInit read the same @4528 and are unpatched, as the finder says."
+  },
+  {
+   "id": "gecko-hud-keys",
+   "verdict": "confirmed",
+   "notes": "5 bl setAlpha sites update 7 panes: +0x1980, +0x19B8, +0x1AD0[2] and +0x1C20[2] in a 2-iteration loop (stride 0x38), and +0x1C90 (d_meter.cpp:7287-7293). mMtx[0][3] = +0x48 (mMtx at +0x3C) is confirmed. The right-anchor intent is unverified."
+  },
+  {
+   "id": "gecko-setuprect-sideeffect",
+   "verdict": "corrected",
+   "notes": "The trigger is the Picto Box shutter: d_picture_box.cpp:661 calls mDoGph_setCaptureStep(1), which leads to mDoGph_screenCapture (m_Do_graphic.cpp:1466). mDoGph_screenCaptureDraw runs at steps 3-5 (:1855) with mCaptureDraw = 1 (0x803F6110). It draws the just-captured photo at ortho 168..472 x 76..284 (centre 320,180, +-152x104) through setUpRectangle's ortho, so the preview is player-visible. Under the anamorphic model the vanilla ortho redraws the captured EFB pixels in place, which is correct. The Gecko's @5162/@5163 rewrite squeezes it by 1/1.349.",
+   "corrected": {
+    "scope": "per_screen",
+    "confidence": "high",
+    "effect_native": "Under the Gecko, the frozen photo preview shown after the Picto Box shutter is drawn about 26% too narrow and off its captured region. With the painter-bl hook option, setUpRectangle stays vanilla and the preview is correct.",
+    "live_check": "Take a Picto Box photo with the Gecko code on: the frozen preview should look horizontally squeezed. With our bl-hook option it should match the scene.",
+    "anchor": "centre (redraw over the captured EFB rect)"
+   }
+  },
+  {
+   "id": "gecko-caves-collision",
+   "verdict": "confirmed",
+   "notes": "Caves: 0x800037E0 = gTRKInterruptVectorTable+0x2AC, block 0x80004038..0x800040F7 = +0xB04..+0xBC3, all 00000000 in the vanilla DOL. CanaryTRK = 0x8040CFB0..0x80410000 (mod.go:59,66). Dolphin installer 0x80001800..0x80003000. The DOLPatches file offsets map to exactly the listed addresses. No repo hook or address literal is within 0x10 of any Gecko site. The doc \u00a79 correction stands."
+  },
+  {
+   "id": "gecko-not-covered",
+   "verdict": "corrected",
+   "notes": "Mostly reasonable, but d_ovlp_fade2.cpp:103 is graf->setOrtho on dComIfGp_getCurrentGrafPort(), the shared port, not a private ortho. It resets every later graf-port draw in that frame to the vanilla ortho; see missed fade2-graf-reset. Also not covered by the Gecko: the rupyAlpha particle sites, and picto-box capture framing.",
+   "corrected": {
+    "where": "As listed, minus d_ovlp_fade2.cpp:103, which moves to missed item fade2-graf-reset. Add d_meter.cpp:4976/4985 (rupyAlpha particle) and m_Do_graphic.cpp:1466-1530 (picto capture rect)."
+   }
+  }
+ ],
+ "missed": [
+  {
+   "id": "gecko-fade2-graf-reset",
+   "what": "The OVERLAP2 fade's draw re-sets the shared current graf port's ortho to vanilla -9..650. That undoes the global 2D compression for everything drawn through the graf port after it in that frame.",
+   "where": "d_ovlp_fade2.cpp:102-104 dOvlpFd2_dlst_c::draw (802237F4-80223D20), lines 'J2DOrthoGraph* graf = dComIfGp_getCurrentGrafPort(); graf->setOrtho(-9,-21,659,524,-1,1); graf->setup2D();'",
+   "dol": "0x80223CC0 'lwz r31,0x5d00(r3)' (r3 = 0x803C4C08, so r31 = the current graf port); 0x80223CC4 'lfs f0,-0x45cc(r2)' @4024 0x803FB734 = C1100000 (-9); 0x80223CD4 'lfs f0,-0x45c4(r2)' @4026 0x803FB73C = 44228000 (650); TBox2 at r1+0x18; 0x80223CE8 'addi r4,r1,0x18'; 0x80223CF4 'bl 0x802CDD14 setOrtho'; then setup2D through vtable+0x18 (0x80223D08). @4024 and @4026 have exactly 2 r2 readers, both here.",
+   "assumption": "The shared 2D ortho is -9..650.",
+   "effect_native": "After a fade2 draw, later graf-port 2D in the same frame (screens call graf->setPort) is uncompressed and stretched by F; the painter's second setOrtho at 0x8000BA30 re-widens for the later lists. The impact is small because dOvlpFd2_c's ctor calls dComIfGp_2dShowOff (d_ovlp_fade2.cpp:110), which hides the HUD during the fade. The Gecko has the same gap.",
+   "scope": "shared",
+   "anchor": "n/a (restores the shared box)",
+   "fix": "Option A, data and live-switchable: rewrite @4024 0x803FB734 = L and @4026 0x803FB73C = R (vanilla -9 / 650 in mode 0). Option B: hook_branchlink at 0x80223CF4 with the same TBox2-editing shim as the painter's 0x8000B06C / 0x8000BA30, then tail-call 0x802CDD14. Either is required for the 'one shared choke point' claim to hold.",
+   "confidence": "high",
+   "gecko": "No: the Gecko patches @5162/@5163 only, so fade2 restores the vanilla box under the Gecko too.",
+   "live_check": "Trigger a fpcNm_OVERLAP2 transition while 2D is on screen (e.g. a message window drawn after the fade in the same list); look for a frame of stretched 2D. Or break on 0x80223CF4 and read *(r4) / the graf mOrtho.",
+   "cost": "2 data words, or 1 hook sharing the painter shim"
+  },
+  {
+   "id": "gecko-hud-rupee-particle-alpha",
+   "what": "The rupee counter's sparkle particle is also (re)created in dMeter_rupyAlpha with the vanilla centre offset. The Gecko patched only rupyInit.",
+   "where": "d_meter.cpp:4976 and 4985 (dMeter_rupyAlpha 0x801FBF24-, both 'local.set(field_0x2a20.mPosCenter.x - 320.0f, ...); dComIfGp_particle_set2Dfore(ID_HM_J2_RUPYLIGHT, ...)' when mpRupyParticle == NULL)",
+   "dol": "0x801FC020 'lfs f1,0x2a3c(r31)' (rup1 mPosCenter.x); 0x801FC024 'C002B634 lfs f0,-0x49cc(r2)' @7214 0x803FB334 = 320; 0x801FC028 fsubs. Second site 0x801FC0C0 / 0x801FC0C4 'lfs f0,-0x49cc(r2)' / 0x801FC0C8 fsubs. @7214 has 8 readers (xyMove, zakoEnemyMove, rupyAlpha x2, rupyInit, arwMove x3), so it must not be rewritten.",
+   "assumption": "rup1 sits at its vanilla x (main_parts2 is shifted only by the J2DScreen::draw x offset, not by its pane positions); the 2D particle is offset relative to the centre 320.",
+   "effect_native": "When the particle is re-created here (mpRupyParticle NULL), the sparkle appears shiftR (about 110) units left of the rupee counter, which was moved right by the screen offset.",
+   "scope": "per_element",
+   "anchor": "right (follows the rupee counter)",
+   "fix": "The same treatment as rupyInit 0x801FC28C at all three sites. Either hook the particle spawn (the bl dComIfGp_particle_set2Dfore after each site) and add shiftR to the Vec x in mode 2, or route the lfs through a cave that loads (320 - shiftR) from a T2/mailbox float. Cleaner: a single helper used by all three spawns.",
+   "confidence": "medium",
+   "gecko": "No (only rupyInit 0x801FC28C is patched)",
+   "live_check": "Make the HUD fade out and back (e.g. open and close a menu or a cutscene that hides the meter) so rupyAlpha re-creates the particle, then check whether the sparkle sits on the counter.",
+   "cost": "2 sites (3 with rupyInit)"
+  },
+  {
+   "id": "gecko-picto-capture-rect",
+   "what": "The Picto Box photo capture is a fixed EFB rectangle that matches the vanilla viewfinder frame. Under global 2D compression the frame shrinks in EFB terms but the capture doesn't, and with the 3D widened the stored photo is anamorphic.",
+   "where": "m_Do_graphic.cpp:857-863 (mCaptureDraw=1, mCaptureSizeWidth=152, mCaptureSizeHeight=104, mCaptureCenterX=320, mCaptureCenterY=180); mDoGph_screenCapture :1466-1530 (GXSetTexCopySrc(centerX-sizeW, centerY-sizeH, 2*sizeW, 2*sizeH), half-res copy into a 152x104 texture); triggered from d_picture_box.cpp:661",
+   "dol": "mDoGph_screenCapture 0x8000AC3C. .sdata: 0x803F6110 = 01 (mCaptureDraw), 0x803F6113 = 0x98 (mCaptureSizeWidth 152), 0x803F6114 = 0x68 (mCaptureSizeHeight 104), 0x803F6116 = 0x0140 (mCaptureCenterX 320), 0x803F6118 = 0x00B4 (mCaptureCenterY 180) (dolread 0x803F6110: 010E0498 68000140 00B40000).",
+   "assumption": "The viewfinder frame drawn in the 2D ortho covers the same EFB pixels (168..472 x 76..284) that are copied, and the 3D is drawn at 4:3, so the photo's pixel aspect is true.",
+   "effect_native": "In mode 2 (and under the Gecko) the compressed viewfinder frame covers only about EFB 206..435 (Gecko: 209..428), while the copy still takes EFB 168..472. Photos contain about F times more width than the frame shows (not WYSIWYG), and the texture is anamorphic. The album (with pictureDraw squeezed) then shows widescreen-taken photos 0.75x narrow, and the shutter preview is wrong under the Gecko's data rewrite. Photos are saved to the memory card, so the choice also affects how they look later in 4:3 mode.",
+   "scope": "per_screen",
+   "anchor": "centre",
+   "fix": "A product decision. A GX EFB copy can only scale 1:1 or 2:1 in both axes, so no single-word fix exists. Option 1: while the Picto Box viewfinder is up (or only on the capture frame), drop the 3D aspect back to 4:3 (g_HIO.mAspectRatio or the culling block). The photo is then non-anamorphic and framed like vanilla, at the cost of a stretched scene while aiming (or a 1-frame glitch). Option 2: leave the viewfinder frame uncompressed in Picto mode so the frame matches the copy, keep photos anamorphic, and draw them with the full 640 viewport in pictureDraw. Photos from 4:3 and widescreen sessions then differ. Option 3: copy a narrower 2*sizeW/F region into a narrower texture (changes the 152x104 save format, so not recommended). Hook points: mDoGph_screenCapture 0x8000AC3C (the bl from the painter at m_Do_graphic.cpp:1754), or the step-1 setter at d_picture_box.cpp:661.",
+   "confidence": "low",
+   "gecko": "No: the Gecko pillarboxes at ortho 0/640 but leaves the capture rect alone, so it has the same WYSIWYG gap.",
+   "live_check": "With the Gecko (or mode 2), frame an object exactly at the viewfinder's left and right edges, take a photo, and view it in the album: the photo should show extra scenery beyond the frame and look squeezed.",
+   "cost": "Design decision; implementation 1-2 hooks plus mode toggling"
+  }
+ ]
+}

@@ -1,0 +1,194 @@
+{
+ "verdicts": [
+  {
+   "id": "plat-efb-render-mode",
+   "verdict": "confirmed",
+   "notes": "Checked against the decomp and the DOL. m_Do_machine.cpp:393-418 g_ntscZeldaIntDf {NTSC_INT, 640, 480, 480, 30, 0, 660, 480, DF}, and :419-444 Prog has the same sizes. :564 setRenderMode and :624 mRenderModeObj = &g_ntscZeldaIntDf. The DOL at 0x803716F0 reads 00000000 028001E0 01E0001E 00000294 01E00000 00000001 (symlook: g_ntscZeldaIntDf; 0x8037172C = g_ntscZeldaProg). mDoGph_AfterOfDraw 0x80008410: r4 = 0x803B99FC (g_HIO) at 0x80008598/9C, lha 0x2C(r4) at 0x800085A0, sth 4(r3) at 0x800085A8, lha 0x2E at 0x800085AC, sth 6(r3) at 0x800085B4, bl 0x802C815C (JUTVideo::setRenderMode) at 0x800085C0. f_ap_game.cpp:48-49 sets mFbWidth 640 and mEfbHeight 480. Dolphin VideoCommon.h:15-16 EFB_WIDTH 640 / EFB_HEIGHT 528, :27 MAX_XFB_WIDTH 720. The guard note (never touch g_HIO+0x2C/+0x2E) is sound."
+  },
+  {
+   "id": "plat-dolphin-aspect-modes",
+   "verdict": "confirmed",
+   "notes": "Present.cpp:430-476 CalculateDrawAspectRatio matches item by item: ForceWide, and Auto+IsGameWidescreen, use vi_ar x (16/9)/(4/3); Custom = vi_ar x custom/(4/3); CustomStretch = custom; Raw = last XFB w/h; Stretch = backbuffer w/h. The VideoConfig.h:22-31 enum order is right. GraphicsSettings.cpp:22-25 CustomAspectRatioWidth/Height default to 1/1, so ReadGFXAspect's 16:9 default (widescreen.go:45) does differ. I recomputed vi_ar from VideoInterface.cpp:490-575 for 660 samples, ACV 240 per field and NTSC: horizontal 0.92847, vertical 480/486 = 0.98765, giving 1.2534 (the finder's 1.2535 is consistent). It still depends on Dolphin's VI registers matching the render-mode table (HLW/HBS640/HBE640), so the frame-dump live check is still owed for the CustomStretch/Stretch factor. The XScale ~6% error in CustomStretch/Stretch (widescreen.go:129-152 uses 4/3 where Dolphin's hack uses vi_ar/draw_ar) is real. One small addition: for CustomStretch with a target between 1.2534 and 1.333, Dolphin's hack already narrows (Hor+), but XScale returns 1 because of its `target > 4/3` test."
+  },
+  {
+   "id": "plat-dolphin-auto-heuristic",
+   "verdict": "corrected",
+   "corrected": {
+    "where": "dolphin-src VideoCommon/Widescreen.cpp:55-80 GetWidescreenOverride, :84-151 UpdateWidescreenHeuristic (it compares vertex counts against a threshold of 3; ortho_looks_anamorphic alone sets is_game_widescreen = true; a change back to 4:3 needs persp to look normal, or the previous frame to have been ortho-anamorphic); VertexManagerBase.cpp:81-109, :512-544 (flush statistics). Game side: d_camera.cpp:5314-5318 (aspect = 4/3 x fapGmHIO_getAspectRatio(), every frame from camera_execute -> preparation, :5427); m_Do_graphic.cpp:1572-1574 J2DOrthoGraph graf(0,0,640,480) + setOrtho(-9,-21,659,524) = box (-9,-21)-(650,503), and setPort's C_MTXOrtho adds 0.5 to the bottom (J2DOrthoGraph.cpp:29); :1322 C_MTXOrtho(-21,503,-9,650).",
+    "assumption": "Vanilla perspective: 1.28/1.333 = 0.96, normal. The main J2D ortho is 659 x 524.5, so 1.2565/1.333 = 0.942: normal, with a margin of 0.058 (not '668x545 = 0.919'). The (0,1,0,1) full-screen quads give 0.75: other. Vanilla therefore always reads 4:3. Mode 2 at F = 4/3: perspective 1.7067/1.333 = 1.28, anamorphic (|\u0394| 0.053). At 16:10 (1.152) and 21:9 (1.7067) neither band matches, so the previous state is kept. A 2D ortho widened by F for the global compression gives 0.942 x 4/3 = 1.256 at 16:9: anamorphic with a margin of 0.077, which is a real margin and not 'by a hair'. Because ortho_looks_anamorphic alone sets widescreen, the compressed 2D layer keeps the heuristic at 16:9 even on frames with no perspective draws (menus, file select, fades).",
+    "live_check": "Launch with the hack off and AspectRatio=0. Use the 16:9 stand-in for mode 2: wwdev poke-u32 0x803B9A08 0x3FA3D70A (1.28 = 0.96 x 4/3; the finder's 0x3F9D70A4 is 1.23). Check the window snaps to about 1.67:1, and that the statistics overlay's avg persp ratio reads about 1.28. Then poke 0x3F8C49BA (1.152, i.e. 0.96 x 1.2 for 16:10): the window stays 4:3. Data pokes are fine under the JIT, because g_HIO is data and preparation reads it every frame."
+   },
+   "notes": "The conclusions hold: Auto never widens vanilla, mode 2 at exactly 16:9 is detected, other factors are not, so the app should not rely on Auto. Corrected: the ortho dimensions and ratio, the poke hex (0x3F9D70A4 = 1.23; 1.28 = 0x3FA3D70A), and the line drift (GetWidescreenOverride starts at :55). Confirmed with the tools: preparation 0x8017BE5C `lfs f1,-0x5368(r2)` -> 0x803FA998 = 0x3FAAAAAB, the only r2-relative load of that word in text0/text1 (scanned). 0x8017BE68 `lfs f0,0xC(r3)` with r3 = g_HIO. The ctor's 0x800230C8 `lfs f0,-0x7D50(r2)` -> 0x803F7FB0 = 0.96 and 0x800230CC `stfs f0,0xC(r3)` sit inside __ct__11fapGm_HIO_cFv. The Sys GameSettings GZL.ini/GZLE01.ini set no aspect or heuristic keys, so the GlobalGame layer doesn't interfere."
+  },
+  {
+   "id": "plat-dolphin-hack-on-with-native",
+   "verdict": "corrected",
+   "corrected": {
+    "live_check": "Mac rig with the fixture's hack=True and AspectRatio=1. Poke the 16:9 stand-in: wwdev poke-u32 0x803B9A08 0x3FA3D70A (1.28; not 0x3F9D70A4, which is 1.23). Screenshot: the world proportions must match a hack-off ForceWide run, and a round object stays round. Then set Custom 64:27 and poke 0x3FDA740E (0.96 x 1.7778 = 1.7067): expect the squashed, double-widened picture, which confirms the refusal rule. Expect one or two frames of double widening right after each switch, before the heuristic's counts flip."
+   },
+   "notes": "The logic is confirmed from Present.cpp:652-687. With the hack on, source_ar = vi_ar, x 4/3 when IsGameWidescreen. The heuristic runs whenever the hack is on (Widescreen.cpp:100), and with the hack on the aspect_mode override in GetWidescreenOverride is skipped (:70-78). So at F = 4/3, W = 1; at other F, W = (4/3)/custom stacks with the mod's F. Only the poke value was wrong. Extra: all six g_HIO.mAspectRatio readers (the main camera, the menu cloth, the file-select cloth and camera, fade2) follow the knob, so perspective passes in menus stay anamorphic too. With a compressed 2D the ortho counts also hold the state, so mid-session flips are less likely than the finder feared. The policy (mode 2 only with the hack off) stands."
+  },
+  {
+   "id": "plat-dolphin-cli-system-name",
+   "verdict": "confirmed",
+   "notes": "Config.cpp:157-169 has {System::GFX, \"Graphics\"}. GetSystemFromName at :176-183 is an exact, case-sensitive find. CommandLineParse.cpp:46-61 drops an unknown system without a message. widescreen.go:79-84 accepts only the 'gfx.settings.' prefix, widescreen_test.go:34-40 tests the GFX form, and widescreen-culling.md:390 uses '-C GFX.Settings.*' (:383 already uses Graphics.Settings.DumpFramesAsImages). The keys are right: GraphicsSettings.cpp:20-27 'Settings' section, wideScreenHack, AspectRatio, CustomAspectRatioWidth/Height, SuggestedAspectRatio. GameConfigLoader.cpp:113 maps [Video_Settings] to GFX/Settings, so the GameSettings part of ReadGFXAspect is right."
+  },
+  {
+   "id": "plat-launch-args",
+   "verdict": "confirmed",
+   "notes": "launch.go:17-24 LaunchArgs and :29-32 MEM1Override; devlog.go:67-80 TestArgs/LaunchTest. proc.go:85-110 HasLaunchArgs keys only on -u, -e and the MEM1Override pairs, so extra -C args are safe. The callers are exactly game.go:667, mp_local.go:172 and auto_recapture.go:35. On macOS, launch_darwin.go:34 passes args through `open -n -a <app> --args`, so -C reaches a fresh Dolphin. session.LaunchOptions (internal/session/launch.go:90-100) and gui launchOptions (game.go:279-288) have no aspect field. Enums.h:11-21 orders the layers Base < CommandLine < GlobalGame < LocalGame < ... < CurrentRun, and Config.h:123-129 is SetBaseOrCurrent. VideoConfig.h:394 GetCustomAspectRatio = (float)W/H of ints, so Custom W:H is exact. Small addition: ReadGFXAspect should also parse SuggestedAspectRatio if the app ever passes it (see missed plat-suggested-aspect)."
+  },
+  {
+   "id": "plat-screenshots-framedumps",
+   "verdict": "confirmed",
+   "notes": "Present.cpp:258-290 ProcessFrameDumping: WindowResolution at :266, XFBAspectRatioCorrectedResolution at :275-281 via CalculateDrawAspectRatio(allow_stretch=false), which turns Stretch into Auto (:434-435), and XFBRawResolution at :287. GraphicsSettings.cpp:62-64 defaults to XFBAspectRatioCorrectedResolution. FrameDumper.cpp:341 SaveScreenshot. No code change needed."
+  },
+  {
+   "id": "plat-gecko-16x9-conflict",
+   "verdict": "corrected",
+   "corrected": {
+    "where": "dolphin-src Data/Sys/GameSettings/GZLE01.ini:347-452 ($16:9 Widescreen code; the 043FA998 3FE38E39 line, which rewrites preparation's 4/3 to 16/9, is line 450, not the last line; the last is 043FB78C C2F60000 at :452), :454-455 RetroAchievements-verified list. A user enables it via [Gecko_Enabled] in <user>/GameSettings/GZLE01.ini (Dolphin also merges GZL.ini and GZLE01r0.ini). Repo: cheats/GZLE01.ini has no [Video_Settings]; launch.EnsureCheatsIni (wwapi/emu/launch/userdir.go:88-110) writes only when no GZLE01.ini exists.",
+    "fix": "Go: next to ReadGFXAspect, scan [Gecko_Enabled] in <userDir>/GameSettings/GZL.ini, GZLE01.ini and GZLE01r0.ini for the line '$16:9 Widescreen'. When it is enabled, refuse mode 2 (fall back to mode 0) and warn once. Forcing EnableCheats off would also disable the bundled codes, so a warning is better."
+   },
+   "notes": "The stacking analysis is correct: 0x803FA998 is read only by preparation 0x8017BE5C (scanned), and mode 2's g_HIO x F would multiply on top of it. The culling doc \u00a79 has the same 'last line' slip (widescreen-culling.md near :420). Medium confidence on whether Dolphin's code handler actually runs on the patched disc after a state load: the culling doc \u00a73.2 saw a C2 code fail to install after a state load. The detect-and-refuse rule is needed either way."
+  },
+  {
+   "id": "budget-t2-room",
+   "verdict": "confirmed",
+   "notes": "blob.go: T2Address 0x80410000, T2End 0x80413408, TextStart 0x804104C0, TextEnd 0x8041339C, MailboxAddr 0x80414F00, ArenaLo 0x80416000, HashRanges {0x80410000,0x80410024},{0x804104C0,0x804133E0}. 00-design.md:51-90: T2's budget ends at the API region 0x80414000, so 0xBF8 is free. The free mailbox slack +0xA6C..+0xD00 is confirmed (wwboat.h:39-40 ends at +0xA6C; eye packets start at +0xD00). ArenaLo patch: vanilla 0x80301820 = 3863EFC0 (addi r3,r3,-0x1040 -> 0x8040EFC0), and build.py:532 writes 38636000. 0x7000 still fits a signed 16-bit addi; going past 0x7FFF would need the lis changed as well. The 'roughly 250 entries' figure (0x800/8 = 256) is fine as an upper bound."
+  },
+  {
+   "id": "budget-ship-options",
+   "verdict": "corrected",
+   "corrected": {
+    "live_check": "With (a), toggle the CLI 'widescreen off' / '16:9' in game and on the title screen: values read every frame (g_HIO.mAspectRatio through preparation, the menu/file-select cloth draws, fade2) switch on the next frame. Values the game copies at create time do NOT: dScnName_c::create latches the file-select camera's aspect (0x80230034), and HUD/meter init functions that copy g_meterHIO fields into panes at create only change when that scene or element is re-created. Judge those after a scene change."
+   },
+   "notes": "The structure is confirmed. hooks.c:64-66 ww_modules[]; :131-136 ops_init and then each module's init; :309-330 multiplayer_update, with ops_frame() at :312 before `if (!link) return` and the 300-frame gate at :323. mods.h:30-36 WwModuleDesc {id, init, frame_any, frame, draw_pre, draw_post}. DOL file offsets confirmed from the section table: text1 0x2620/0x800056E0 (ends 0x80338680), .sdata 0x39F960/0x803F60E0, .sdata2 0x3A00A0/0x803F7D00 (ends 0x803FCF20), DOL length 0x3A5300. Only the live check overstated 'switch on the next frame' for create-time-latched values; the recommendation stands."
+  },
+  {
+   "id": "budget-dolpatch-hash",
+   "verdict": "confirmed",
+   "notes": "blob.go HashRanges cover only T2's read-only ranges. dol.go:105-121 hasCurrentPatch compares T2 bytes and DOLPatches sites only. build.py:526-555 uses T1_FILE + (addr - T1_LOAD), and build.py:318-331 dol_file_offset is section-correct (its own docstring says so). dol_regions_test.go:40 t1File, with build.py patches mapped through it at :63-66. dolread confirms 0x803FA998 -> file 0x3A2D38, and T1 maths would give 0x3F78D8, past the vanilla DOL's end (0x3A5300). PatchDOL's Go bounds check (dol.go:70-76) would at least reject a DOLPatch past the vanilla length, but build.py's Python write would silently extend patched.dol."
+  },
+  {
+   "id": "budget-icache",
+   "verdict": "confirmed",
+   "notes": "symlook: DCFlushRange 0x803030D8 (0x30), DCStoreRange 0x80303108, DCFlushRangeNoSync 0x80303138, ICInvalidateRange 0x803031BC (0x34). The only cache call in inject/ is boats.c:102 DCStoreRange; there is no icbi or ICInvalidate anywhere. Dolphin PPCCache.cpp:414 calls InvalidateICacheLine on icbi, and JitInterface.cpp:277-299 includes InvalidateICacheLineFromJIT, so the game's own icbi invalidates JIT blocks."
+  },
+  {
+   "id": "budget-stage-costs",
+   "verdict": "confirmed",
+   "notes": "Consistent with CLAUDE.md's blob.stamp rules and save-state coupling, and with widescreen-culling.md \u00a77. No addresses to check."
+  },
+  {
+   "id": "budget-boot-window",
+   "verdict": "corrected",
+   "corrected": {
+    "effect_native": "ws_init applies the C default at boot, before the first frame. A Go-side WS_SET can only land once Go attaches and the WWAP header exists. If the C default is mode 1, the logo and the first title frames draw before Go switches to mode 2 (cosmetic). REL-delivered fixes are absent on the logo, title screen and file select. Also: the file-select scene's camera takes g_HIO.mAspectRatio only in dScnName_c::create (d_s_name.cpp:201, lfs at 0x80230034), and setView (:614) reuses view.mAspect. A WS_SET that lands after file select is created leaves that scene's 3D at the old aspect until the scene is re-entered. The in-game camera is unaffected, because camera_execute -> preparation (d_camera.cpp:5427, 5314-5318) recomputes the aspect every frame.",
+    "fix": "Accept the gap, but have the app submit WS_SET as soon as the WWAP header appears (wwapi/ops Ready()), on the title screen and before file select is created. Never make mode 2 the C default."
+   },
+   "notes": "Confirmed: main01_init's hook site 0x80006338 is main01's first instruction (main01__Fv+0, `stwu r1,-16(r1)`); it is reached after __init_cpp, so g_HIO's ctor (__sinit_f_ap_game_cpp 0x800232D0) has already run. frame_shim 0x80023204 is a `bl 0x802449AC` (cCt_Counter). Added the file-select create-time latch."
+  },
+  {
+   "id": "setting-storage-and-ui",
+   "verdict": "confirmed",
+   "notes": "config.go:68-72 Mods map[string]ModConfig; :167-173 ModConfig with Settings json.RawMessage; :188 ModSettings. The Settings page cards (Look / Privacy / Updates / Help) are at index.html:332-366. gui launchOptions is at game.go:279-288. The design is reasonable; medium confidence is appropriate for a UI proposal."
+  },
+  {
+   "id": "setting-c-path",
+   "verdict": "corrected",
+   "corrected": {
+    "live_check": "wwdev peek 0x8041596C (magic 0x57575753) and the mode byte at 0x80415971. Peek 0x803B9A08: 0x3F75C28F (0.96) in modes 0/1, 0x3FA3D70A (1.28) in mode 2 at 16:9 (not 0x3F9D70A4, which is 1.23)."
+   },
+   "notes": "'Nothing else writes it' is confirmed. The six readers are 0x8017BE68 (preparation), 0x8017C920 (init_phase2), 0x801DF9F4 (dDlst_MENU_CLOTH_c::draw), 0x80223A00 (dOvlpFd2_dlst_c::draw), 0x80230034 (dScnName_c::create) and 0x80232498 (dDlst_FLSEL_CLOTH_c::draw), each `lfs f0,0xC(rX)` after addi 0x99FC; I disassembled all six. The only store is the ctor's 0x800230CC. This matches widescreen-culling.md \u00a79. Block layout, mode semantics and the factor range match culling doc \u00a76.1. wwops.h:116 WWAP_OP_MOD_FIRST = 16; WS_SET itself is not defined yet (planned). Mode 2 also widens the menu and file-select cloth backdrops and fade2, which is the menu agents' concern."
+  },
+  {
+   "id": "setting-dolphin-agreement",
+   "verdict": "confirmed",
+   "notes": "widescreen.go:44-92 layer order is right (apart from the system-name bug above). feed/widescreen.go has a 2 s re-read and a 30 s process retry. Config.h:123-129 SetBaseOrCurrent means a GUI change under a -C value goes to CurrentRun and can't be seen on disk. The advice to treat the WWWS block as the truth, not the sampler's hack-off value of 1, is sound."
+  },
+  {
+   "id": "own-nametags",
+   "verdict": "confirmed",
+   "notes": "Line numbers match: visuals.c:538 vis_xscale, :544 vis_tag_queue, :572 sx, :582 tag->xs, :644 vis_tag_draw, :663 width, :666 gw. vis_tag_draw calls J2DOrthoGraph_setPort(GI_GRAF_PORT) before drawing, so the tags take whatever ortho/viewport that port holds; a compression implemented in that port's ortho catches them. symlook confirms mDoLib_project 0x80017748, mDoLib_pos2camera 0x80017924, dDlst_list_c::set 0x80086540, J2DOrthoGraph::setPort 0x802CDCB4 and JUTFont::drawString_size_scale 0x802C1F24. The maths is right: compressed means pos x F and width 1; uncompressed means pos 1 and width 1/F; cull on screen.x in 0..640. Extra evidence that the REL must read WWWS: WWVIS_FLAGS_XSCALE is q16 in the top half (wwvis.h:69-78), with 0 meaning 1.0 and a maximum of 0xFFFF/65536 < 1.0, and WW_TAG_XSCALE also accepts only values <= 1. The existing Go-to-REL path cannot carry F > 1."
+  },
+  {
+   "id": "own-lobby-line",
+   "verdict": "confirmed",
+   "notes": "visuals.c:606-608 LOBBY_X 320 / Y 452 / PX 18, :612 wwvis_lobby_draw, :636 tag->xs = vis_xscale(), drawn by vis_tag_draw. Centre-anchored, so only the width scale matters."
+  },
+  {
+   "id": "own-seachart-markers",
+   "verdict": "confirmed",
+   "notes": "build.py:450 hook_branchlink seachart_shim at 0x801BB06C, which is `bl 0x802D0F2C` (J2DScreen::draw) inside dDlst_FMAP_c::draw 0x801BB024. visuals.c:810 vis_sea_draw_on, :852 J2DPane_draw(pane,0,0,graf,0), :868 wwvis_seachart_draw. symlook: J2DPane::calcMtx 0x8002D088 (it really is at 0x8002D088, out-of-line in game code) and J2DPane::draw 0x802D0078. The markers carry no aspect assumption of their own. Medium confidence is right, since this depends on how the menus agent fixes the chart."
+  },
+  {
+   "id": "own-3d-visuals",
+   "verdict": "confirmed",
+   "notes": "No clipper or mDoLib_clip use anywhere in inject/src or inject/rel (grep). The 3D draws go through the game's projection. lobby.go: dist 550, spacing 80, side 150, lobbyRefFovy 44.39 (vertical FOV only). Cosmetic."
+  }
+ ],
+ "missed": [
+  {
+   "id": "plat-file-select-aspect-latch",
+   "what": "The file-select scene's camera copies g_HIO.mAspectRatio once at create, so a mode change after file select is up does not reach its 3D",
+   "where": "tww src/d/d_s_name.cpp:201 dScnName_c::create (fopCamM_SetAspect(&mCamera, fapGmHIO_getAspectRatio() * viewport w/h)), :612-614 dScnName_c::setView (C_MTXPerspective with camera->view.mAspect). Compare d_camera.cpp:5424-5427 camera_execute -> preparation (:5314-5318), which re-sets the aspect every frame for the in-game camera, and :5568 init_phase2 (create only, but overwritten by preparation next frame).",
+   "dol": "dScnName_c::create: 0x8023002C lis r3,0x803C / 0x80230030 addi r3,r3,-0x6604 / 0x80230034 lfs f0,0xC(r3) (g_HIO+0xC). setView__10dScnName_cFv 0x80230678.",
+   "assumption": "The aspect is a boot-time constant (0.96 x viewport w/h), so the game reads it once per scene.",
+   "effect_native": "If WS_SET lands while file select is already up (e.g. Go attaches late, or the user toggles there), the file-select 3D backdrop stays at the old aspect (squeezed or stretched) until the scene is re-entered. The menu/file-select cloth draws (0x801DF9F4, 0x80232498) read g_HIO every draw and do switch, so the screen can briefly mix the two aspects.",
+   "scope": "cosmetic_skip",
+   "anchor": "n/a",
+   "fix": "No C change. The app submits WS_SET as soon as ops Ready() succeeds (title screen). Document it in the live checks, so a toggle on file select isn't read as a bug. Optional, if it matters: in the WS_SET handler, when the current scene is Name, also rewrite dScnName's mCamera.view.mAspect (needs the scene pointer; not worth it).",
+   "confidence": "high",
+   "gecko": "The Gecko code is static from boot, so it never hits this.",
+   "live_check": "Boot to file select with mode 0, then WS_SET mode 2 at 16:9: the file-select sky/sea keeps its old proportions until you back out to the title and re-enter, while the in-game camera switches on the next frame.",
+   "cost": "0 (documentation)"
+  },
+  {
+   "id": "own-vis-xscale-range",
+   "what": "The visuals block's xscale field cannot express a factor above 1, so native mode cannot reuse the Go sampler -> REL path for the name tags' position scale",
+   "where": "inject/include/wwvis.h:69-78 (WWVIS_FLAGS_XSCALE_SHIFT 16, MASK 0xFFFF0000, q16, 0 = 1.0); inject/rel/visuals.c:538-542 vis_xscale; mods/multiplayer/feed/widescreen.go measure() (WW_TAG_XSCALE accepted only for 0 < f <= 1).",
+   "dol": "n/a (REL and mailbox: the visuals block at mailbox +0x8D0, its flags word)",
+   "assumption": "The REL only ever narrows (hack on: XScale <= 1).",
+   "effect_native": "Under the global 2D compression the tags need pos_scale = F > 1, which cannot be encoded: anything at or above 0x10000 overflows into the flag bits, or reads as 1.0 when the top half is 0. Tags would then sit pulled toward the centre by 1/F.",
+   "scope": "per_element",
+   "anchor": "follows_3d_point",
+   "fix": "As own-nametags says: the REL reads the WWWS block (mailbox +0xA6C: mode, factor, and a reserved-word flag bit saying whether the tag port is compressed) and derives pos/width scales itself. Keep WWVIS_FLAGS_XSCALE only for mode 1/hack users. Go writes 0 there when WWWS mode is 2.",
+   "confidence": "high",
+   "gecko": "n/a",
+   "live_check": "Unit-level: assert in Go that the encoder never writes q >= 0x10000. Live: mp-local, mode 2 + compression, a remote at the screen edge: the tag stays over its head.",
+   "cost": "Folded into own-nametags (REL ~20 lines)."
+  },
+  {
+   "id": "plat-suggested-aspect",
+   "what": "ReadGFXAspect ignores Graphics.Settings.SuggestedAspectRatio, which overrides the heuristic and can make Auto output 16:9",
+   "where": "dolphin-src VideoCommon/Widescreen.cpp:63-67 (suggested_aspect_mode ForceWide/ForceStandard sets is_game_widescreen) and :93-95 (a non-Auto suggested mode disables the heuristic); Core/Config/GraphicsSettings.cpp:27-28 SuggestedAspectRatio (GameINI key, default Auto). Repo: wwapi/emu/launch/widescreen.go:46-63 (the set() switch has no suggestedaspectratio case).",
+   "dol": "n/a",
+   "assumption": "The repo assumes Auto always means 'Wind Waker at 4:3'.",
+   "effect_native": "A user GameSettings [Video_Settings] SuggestedAspectRatio = 1, or an app -C fallback (the finder's own plat-dolphin-auto-heuristic fallback), makes Dolphin output 16:9 under Auto. Go's 'auto' would then still pick mode 0, so the world is shown stretched; or under the hack, XScale reports 1 while the hack does widen.",
+   "scope": "shared",
+   "anchor": "n/a",
+   "fix": "Go: parse 'suggestedaspectratio' in ReadGFXAspect into GFXAspect.Suggested. Then the effective game-widescreen state is: hack off + aspect ForceStandard/ForceWide overrides; else Suggested ForceWide -> true, ForceStandard -> false; else the heuristic (unknown, treated as 4:3 for vanilla). Use it in the factor and policy maths and in XScale (source_ar x 4/3 when the game is widescreen).",
+   "confidence": "medium",
+   "gecko": "n/a",
+   "live_check": "Put [Video_Settings] SuggestedAspectRatio = 1 in a test user dir's GameSettings/GZLE01.ini with AspectRatio=0 and the hack off: the window goes about 16:9 on vanilla WW, while ReadGFXAspect today reports Auto.",
+   "cost": "Go ~15 lines + a test case."
+  },
+  {
+   "id": "plat-jpa2d-aspect-pointer",
+   "what": "Pointer for the 2D/particle agent: the 2D particle draw info gets a hardcoded 4/3 aspect, separate from the g_HIO knob",
+   "where": "tww src/m_Do/m_Do_graphic.cpp:1896 jpaDrawInfo2D.setAspect(4.0f/3.0f), in the 2D particle pass next to the :1890 graf.setOrtho(-9,-21,659,524,...). The 3D passes use camera->view.mAspect (:1604, :1673) and follow mode 2.",
+   "dol": "Not resolved here (out of the platform area): find the lfs of a 4/3 .sdata2 literal in mDoGph_Painter near the :1890 setOrtho before hooking. Do NOT rewrite 0x803FA998, which only preparation reads.",
+   "assumption": "2D particles are laid out for a 4:3 ortho.",
+   "effect_native": "Under the global 2D compression, 2D particles drawn through this info may need the same compression as the rest of the 2D. If the compression is done in the ortho, they likely follow it; if it is done per draw, they may not.",
+   "scope": "per_screen",
+   "anchor": "centre (follows the 2D layer)",
+   "fix": "Hand to the 2D/HUD agent to check whether the chosen compression point covers JPA 2D emitters (the 2D particle pass at m_Do_graphic.cpp:1890-1896).",
+   "confidence": "low",
+   "gecko": "Not in the Gecko patch list.",
+   "live_check": "Mode 2 + compression: open a menu or screen with 2D particle sparkles (e.g. a get-item or title sparkle) and check they sit on their UI element.",
+   "cost": "Unknown, belongs to the 2D area."
+  }
+ ],
+ "area_corrections": "Most of the summary holds up against the decomp, the DOL and Dolphin 2603. Corrections:\n\n1. **Wrong pokes.** The 16:9 mode-2 value of g_HIO.mAspectRatio is 1.28 = 0x3FA3D70A, not 0x3F9D70A4 (that is 1.23). The wrong hex appears in three live checks: plat-dolphin-auto-heuristic, plat-dolphin-hack-on-with-native and setting-c-path. Other factors are 0.96 x F, e.g. 16:10 = 0x3F8C49BA and 21:9 = 0x3FDA740E.\n2. **Main J2D ortho size and ratio.** The main J2D ortho is 659 x 524.5: box (-9,-21)-(650,503), and setPort adds 0.5 to the bottom. It is not 668x545.\n   - Vanilla ratio is 0.942 (normal).\n   - A 2D layer compressed by F = 4/3 gives 1.256. That is anamorphic with a 0.077 margin, which is solid, not marginal.\n   - Because ortho_looks_anamorphic alone sets is_game_widescreen, a compressed 2D layer actively holds Dolphin's heuristic at 16:9 in mode 2, including on frames with no perspective draws.\n3. **Gecko code location.** Dolphin's $16:9 Gecko code spans GZLE01.ini:347-452. Its 043FA998 3FE38E39 line is line 450, not the last line (the last is 043FB78C C2F60000). The culling doc has the same slip.\n4. **Widescreen.cpp line numbers.** GetWidescreenOverride is at :55-80 and UpdateWidescreenHeuristic at :84-151.\n5. **vi_ar.** Recomputed from VideoInterface.cpp: 1.2534 for 660 samples / 240 lines per field / NTSC, which agrees with the finder. A live frame-dump check is still owed.\n6. **Things the summary leaves out.**\n   - The file-select camera reads g_HIO.mAspectRatio only once, at dScnName_c::create (0x80230034). A WS_SET that lands after file select is created doesn't reach that scene's 3D until it is re-entered. The in-game camera recomputes every frame, via camera_execute -> preparation.\n   - WWVIS_FLAGS_XSCALE is q16 and stays below 1.0, so it cannot carry F. That is further reason for the REL to read WWWS.\n   - ReadGFXAspect ignores SuggestedAspectRatio.\n\nConfirmed unchanged:\n- The -C system name 'Graphics' and the ReadGFXAspect prefix bug.\n- build.py's text1-only patch maths (0x803FA998 -> 0x3A2D38 correct, 0x3F78D8 past the end).\n- DOLPatches are outside BlobHash.\n- The 0xBF8 of free T2.\n- ops_frame runs before the Link check.\n- The cache routine addresses, and Dolphin honouring the game's own icbi.\n- The six g_HIO+0xC readers, with the ctor's store as the only write.\n- 0x803FA998 is read only by preparation."
+}
