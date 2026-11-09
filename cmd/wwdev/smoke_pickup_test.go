@@ -40,7 +40,7 @@ func TestPickupArgs(t *testing.T) {
 	if len(o.pickups) != 2 || o.pickups[0].Name != "drc-key3" || o.pickups[1].Name != "cave01-heart" {
 		t.Fatalf("pickups %+v", o.pickups)
 	}
-	if r := o.pickups[0]; r.Table != addr.TableDRC || r.No != 3 || r.Derive != deriveKey || r.SyncTimeout != 30*time.Second || r.Stage != "M_NewD2" || r.Point != 9 || r.Room != 6 {
+	if r := o.pickups[0]; r.Table != addr.TableDRC || r.No != 3 || r.Derive != deriveKey || r.SyncTimeout != 30*time.Second || r.Stage != "M_NewD2" || r.Point != 5 || r.Room != 14 {
 		t.Errorf("drc-key3 %+v", r)
 	}
 	if r := o.pickups[1]; r.Table != addr.TableSubdungeon || r.No != 5 || r.Derive != deriveLife || len(r.KillProcs) != 0 {
@@ -58,14 +58,17 @@ func TestPickupArgs(t *testing.T) {
 
 func TestPickupChildEnv(t *testing.T) {
 	none := func(string) string { return "" }
-	o := smokeOpts{pickups: []pickupRecipe{recipe(t, "drc-key3")}}
+	// A recipe whose setup kills enemies runs mp-local without enemy sync.
+	killer := recipe(t, "drc-key3")
+	killer.KillProcs = []int16{0x00BE}
+	o := smokeOpts{pickups: []pickupRecipe{killer}}
 	if env := pickupChildEnv(o, []string{"A=1"}, none); !slices.Equal(env, []string{"A=1", "WW_ENEMY_SYNC=0"}) {
 		t.Errorf("kills: %v", env)
 	}
 	if env := pickupChildEnv(o, []string{"A=1"}, func(string) string { return "1" }); len(env) != 1 {
 		t.Errorf("WW_ENEMY_SYNC set by the user: %v", env)
 	}
-	o.pickups = []pickupRecipe{recipe(t, "cave01-heart")}
+	o.pickups = []pickupRecipe{recipe(t, "drc-key3")}
 	if env := pickupChildEnv(o, nil, none); len(env) != 0 {
 		t.Errorf("no kills: %v", env)
 	}

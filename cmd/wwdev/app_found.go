@@ -740,6 +740,15 @@ func appFoundRun(ctx context.Context, o appFoundOpts, rep *appFoundReport) strin
 	if _, err := a.call("Host", map[string]any{"name": "Host", "port": port}); err != nil {
 		return err.Error()
 	}
+	// The lobby makes the first member to say hello its host: wait for
+	// the host's own client to be in before the joiner says hello, or the
+	// joiner can come first and be made host (seen on the PC rig with the
+	// Join sent right after Host).
+	if _, err := waitAppState(ctx, a, 20*time.Second, func(v gui.StateView) bool {
+		return v.Lobby != nil && v.Lobby.Host && len(v.Lobby.Members) == 1
+	}); err != nil {
+		return "the host's own lobby never came up: " + err.Error()
+	}
 	if _, err := b.call("Join", map[string]any{"addr": fmt.Sprintf("127.0.0.1:%d", port), "name": "Joiner"}); err != nil {
 		return err.Error()
 	}
@@ -766,6 +775,7 @@ func appFoundRun(ctx context.Context, o appFoundOpts, rep *appFoundReport) strin
 	if va.Lobby != nil {
 		obs.CoopBeforeStart = va.Lobby.Coop
 	}
+
 	appFoundLogf("the host's lobby reads co-op %q before Start", obs.CoopBeforeStart)
 
 	obs.Start = time.Now()

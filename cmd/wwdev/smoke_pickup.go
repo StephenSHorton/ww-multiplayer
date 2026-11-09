@@ -50,6 +50,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/enemysync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -121,22 +122,27 @@ type pickupRecipe struct {
 var pickupRecipes = []pickupRecipe{
 	{
 		// The PC rig's save state (REL CACDFFF7, card "Abahbob" = CryZe
-		// 28-Hyrule3, DRC small-key chests untaken). stage-hop M_NewD2 9 6
-		// puts Link in room 6 at about (-4.6, 3500, 2306) with 3
-		// Bokoblins. Max life is 80, capped: keys only on this state.
-		Name: "drc-key3", Stage: "M_NewD2", Point: 9, Room: 6,
+		// 28-Hyrule3, DRC small-key chests untaken). Chest 3 (params
+		// 0xFF000180, at (-2552.7, 2850, -1317.6), yaw 0x8000) is in room
+		// 14, on the ledge above its start point 5 (Link lands at about
+		// (-3913, 1950, -2067)); the room has no enemies. Room 6 (point
+		// 9, wind82's hop) does not load room 14: a warp there falls into
+		// the void. Max life is 80, capped: keys only on this state.
+		Name: "drc-key3", Stage: "M_NewD2", Point: 5, Room: 14,
 		Kind: pickupTbox, Table: addr.TableDRC, No: 3, Derive: deriveKey,
-		KillProcs: []int16{0x00BE}, // bk
-		Hint:      &vec{-2552.7, 2850.0, -1317.6},
-		Note:      "the hint is wind82's \"DRC chest 3\" (docs/live/wind82/cond.sh:57-62), never verified to be chest 3: the chest is found by its params",
+		Hint: &vec{-2552.7, 2850.0, -1317.6},
+		Note: "chest 3 found by its params in room 14 (PC rig, 2026-11-08)",
 	},
 	{
 		// wind#88 P3 poked this one: `tbox 12:5` in coop-tables --section
 		// hearts, A "in Cave01 (table 12, room 0)". Needs a card before
 		// that heart piece with life below the cap (CryZe 16-AfterET).
+		// On the PC rig Cave01 point 0 room 0 holds chest 5 (params
+		// 0xFF200280, at (4314.5, 124.3, -149.9), yaw 0xC000), created
+		// after the entry event, and two Magtails far from it (no kill).
 		Name: "cave01-heart", Stage: "Cave01", Point: 0, Room: 0,
 		Kind: pickupTbox, Table: addr.TableSubdungeon, No: 5, Derive: deriveLife,
-		Note: "the start (Cave01 point 0 room 0) is unverified (the disc check refuses a bad one), its enemies are unknown (no kill setup), and it needs the 16-AfterET card's save state",
+		Note: "needs the 16-AfterET card's save state (max life under the cap)",
 	},
 }
 
@@ -899,12 +905,21 @@ func (r *smokeRun) pickup(rec pickupRecipe) {
 			return
 		}
 	}
-	walk, err := actors.Read(r.a, 0)
-	if err != nil {
-		r.pickupRigFail(n, "actor walk: "+err.Error())
-		return
+	// The stage's chests can be created a while after the hop settles
+	// (Cave01's came after its entry event): look for up to 15 s.
+	var chest pickupChest
+	why := ""
+	for t0 := time.Now(); ; {
+		walk, err := actors.Read(r.a, 0)
+		if err != nil {
+			r.pickupRigFail(n, "actor walk: "+err.Error())
+			return
+		}
+		if chest, why = findChest(chestsOf(&walk), rec.No, rec.Hint); why == "" || time.Since(t0) > 15*time.Second || r.ctx.Err() != nil {
+			break
+		}
+		sleepCtx(r.ctx, 500*time.Millisecond)
 	}
-	chest, why := findChest(chestsOf(&walk), rec.No, rec.Hint)
 	if why != "" {
 		r.pickupRigFail(n, why)
 		return
@@ -918,46 +933,51 @@ func (r *smokeRun) pickup(rec pickupRecipe) {
 		hint = fmt.Sprintf(", %.0f from the recipe's hint", vdist(chest.Pos, *rec.Hint))
 	}
 	logf("setup: chest %d is pid %d params 0x%08X at %s yaw 0x%04X%s; %s", chest.No, chest.PID, chest.Params, chest.Pos, uint16(chest.Yaw), hint, cst)
-	front := chestFront(chest, 150, 10)
-	if why := r.pickupWarp(front); why != "" {
-		r.pickupRigFail(n, "setup warp: "+why)
-		return
-	}
-	setup = append(setup, fmt.Sprintf("warped to %s, 150 in front of chest %d (pid %d)", front, chest.No, chest.PID))
-	logf("setup: %s", setup[len(setup)-1])
-
-	// The closed-loop walk is the drive, not setup.
-	if why := r.pickupApproach(chest, rec.WalkTimeout, logf); why != "" {
-		r.pickupRigFail(n, "the walk: "+why)
-		return
-	}
-
-	// 4. Press A; the chest opens (or an event starts) within 3 s.
+	// 3/4. A closed chest offers Open while Link stands within 100 XZ of
+	// it, within 45 degrees of its yaw (its front, (sin, cos) of the
+	// yaw), facing it (boxCheck, d_a_tbox.cpp:553-564). Its collision
+	// stops a Link walking in at about 120 (seen on the PC rig), so the
+	// setup warp puts Link 90 out on the front; the closed-loop walk turns
+	// him to face it, and A (the pad) opens it within 3 s.
 	logPath, logOff := r.pickupLogStart()
 	var tr gate.Tracker
 	var st gate.Status
 	opened := false
-	for try := 1; try <= 2 && !opened && r.ctx.Err() == nil; try++ {
-		if try == 2 {
-			// The chest's front is taken to be +Z of its shape angle (an
-			// actor at yaw a faces (sin a, cos a)); unverified for TBOX, so
-			// the second try comes from the other side.
-			back := chestFront(chest, -150, 10)
-			logf("no opening after A; setup: warping to the chest's other side %s and walking in again", back)
-			if why := r.pickupWarp(back); why != "" {
-				logf("setup warp: %s", why)
-				break
-			}
-			setup = append(setup, fmt.Sprintf("second try from %s, behind the chest's +Z", back))
-			if why := r.pickupApproach(chest, rec.WalkTimeout, logf); why != "" {
-				logf("the walk: %s", why)
-				break
-			}
+	walked := ""
+	sides := []struct {
+		turn int16 // added to the chest's yaw
+		name string
+	}{{0, "its front (yaw side)"}}
+	for try, sd := range sides {
+		if opened || r.ctx.Err() != nil {
+			break
 		}
+		c2 := chest
+		c2.Yaw += sd.turn
+		at := chestFront(c2, pickupWarpDist, 10)
+		if why := r.pickupWarp(at); why != "" {
+			walked = "setup warp: " + why
+			logf("%s", walked)
+			continue
+		}
+		setup = append(setup, fmt.Sprintf("try %d: warped to %s, %.0f out on %s of chest %d (pid %d)", try+1, at, pickupWarpDist, sd.name, chest.No, chest.PID))
+		logf("setup: %s", setup[len(setup)-1])
+		if why := r.pickupApproach(chest, rec.WalkTimeout, logf); why != "" {
+			walked = "the walk: " + why
+			logf("%s; trying the next side", walked)
+			continue
+		}
+		walked = ""
 		sleepCtx(r.ctx, 300*time.Millisecond)
 		_ = player.Press(r.a, player.Pad{Buttons: 0x0100}, 200*time.Millisecond)
-		t0 := time.Now()
+		t0, presses := time.Now(), 1
 		for time.Since(t0) < 3*time.Second && r.ctx.Err() == nil {
+			// Up to three presses a second apart: one may land while Link
+			// still settles from the walk.
+			if presses < 3 && time.Since(t0) >= time.Duration(presses)*time.Second {
+				_ = player.Press(r.a, player.Pad{Buttons: 0x0100}, 200*time.Millisecond)
+				presses++
+			}
 			s, err := state.Read(r.a, state.Options{})
 			if err == nil {
 				st = tr.Observe(s)
@@ -973,11 +993,18 @@ func (r *smokeRun) pickup(rec pickupRecipe) {
 			}
 			sleepCtx(r.ctx, diag.TickInterval)
 		}
+		if !opened {
+			r.pickupShot(fmt.Sprintf("pickup-%s-try%d.png", rec.Name, try+1), logf)
+		}
 	}
 	if !opened {
 		lp, _ := linkPos(r.a)
-		r.pickupRigFail(n, fmt.Sprintf("the drive did not open the chest: no OPENING and no event within 3 s of A (from both sides); chest %s; Link at %s, %.0f from it; gate %s",
-			cst, lp, xzDist(lp, chest.Pos), gateLine(st)))
+		last := ""
+		if walked != "" {
+			last = "; last: " + walked
+		}
+		r.pickupRigFail(n, fmt.Sprintf("the drive did not open the chest: no OPENING and no event within 3 s of A; chest %s; Link at %s, %.0f from it; gate %s%s",
+			cst, lp, xzDist(lp, chest.Pos), gateLine(st), last))
 		return
 	}
 	tOpen := time.Now()
@@ -1166,12 +1193,10 @@ func (r *smokeRun) pickupKill(rec pickupRecipe, w io.Writer) (s, why string) {
 // flight (warp_seq == warp_ack: co-op's escape warps share the slot,
 // player.Warp's note), and it checks Link landed near p.
 func (r *smokeRun) pickupWarp(p vec) string {
-	_, st, _, err := diag.GateSnapshots(r.a, diag.Tick)
-	if err != nil {
-		return err.Error()
-	}
-	if !st.CanWriteIdle() {
-		return "A is not idle: " + gateLine(st)
+	// A stage's entry event can start after the hop looked idle
+	// (Cave01's did): wait for idle again.
+	if why := r.waitIdle(r.a, 20*time.Second); why != "" {
+		return "A is not idle: " + why
 	}
 	seq, err1 := mem.ReadU32(r.a, mailbox.Mailbox+mailbox.OffWarpSeq)
 	ack, err2 := mem.ReadU32(r.a, mailbox.Mailbox+mailbox.OffWarpAck)
@@ -1199,8 +1224,9 @@ func (r *smokeRun) pickupWarp(p vec) string {
 // pickupFaceDeg, or stopped by the chest's body inside pickupPromptDist
 // (boxCheck offers Open within 100, d_a_tbox.cpp:553-564).
 const (
-	pickupNear       = 70.0
-	pickupPromptDist = 95.0
+	pickupNear       = 98.0 // inside boxCheck's 100
+	pickupPromptDist = 98.0
+	pickupWarpDist   = 90.0 // the setup warp: inside boxCheck's 100, outside the chest's collision
 	pickupFaceDeg    = 35.0
 )
 
@@ -1279,6 +1305,27 @@ func (r *smokeRun) pickupApproach(chest pickupChest, timeout time.Duration, logf
 		sleepCtx(r.ctx, 100*time.Millisecond)
 	}
 	return fmt.Sprintf("not at the chest after %s: %.0f away (best %.0f), facing %.0f deg off", timeout, dist, bestDist, face)
+}
+
+// pickupShot saves A's window beside the logs (a failed press: what the
+// A button offered, where Link stood).
+func (r *smokeRun) pickupShot(name string, logf func(string, ...any)) {
+	root := devLogsRoot(os.Getenv)
+	if root == "" {
+		return
+	}
+	hwnd, err := host.FindWindowByPID(r.a.PID())
+	if err != nil {
+		return
+	}
+	img, err := host.CaptureWindow(hwnd)
+	if err != nil {
+		return
+	}
+	p := filepath.Join(root, "latest", name)
+	if err := writePNG(p, img); err == nil {
+		logf("screenshot: %s", p)
+	}
 }
 
 // pickupLogStart is mp-local.log's path and its size now ("" with the logs
