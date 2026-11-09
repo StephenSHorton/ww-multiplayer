@@ -362,7 +362,7 @@ GOOS=windows GOARCH=amd64 go vet ./... && GOOS=windows GOARCH=amd64 go vet -tags
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -o /tmp/ww-multiplayer.exe ./cmd/ww-multiplayer
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/ww-multiplayer-cli.exe ./cmd/ww-multiplayer
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/wwdev.exe ./cmd/wwdev
-grep -q 'requestedExecutionLevel level="asInvoker"' /tmp/ww-multiplayer.exe && grep -q 'permonitorv2' /tmp/ww-multiplayer.exe
+LC_ALL=C grep -aq 'requestedExecutionLevel level="asInvoker"' /tmp/ww-multiplayer.exe && LC_ALL=C grep -aq 'permonitorv2' /tmp/ww-multiplayer.exe   # -a: BSD grep (macOS) fails silently on a binary
 go test -count=1 -run 'TestBlobFresh|TestStampRoundTrip|TestT2EndsBelowMailbox|TestCheckBudget|TestBuildPyMatchesBlob|TestFrameShimLoadsCallbackSlot|TestMailboxLayout|TestModRegions' ./cmd/ww-multiplayer ./internal/inject/... ./wwapi/mailbox
 go run ./tools/check_game_files
 go run ./tools/validate_manifests && go vet ./mods/_fixtures/
