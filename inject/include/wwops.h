@@ -114,6 +114,7 @@
 #define WWAP_OP_ECHO            1           // a, b, c come back as a WWAP_EV_ECHO event
 #define WWAP_OP_KILL            2           // a = fpc_ProcID, b = proc name (s16 in the low half), c = setID or 0xFFFFFFFF for any
 #define WWAP_OP_MOD_FIRST       16          // the first op a mod may register
+#define WWAP_OP_WS_SET          16          // the widescreen mod (src/ws): a = mode (0 off, 1 clip, 2 native), b = factor f32 bits in [1, 3], c = flags (& the build's supported ones)
 
 // Core events (WWAP_E_KIND). Mods take kinds from WWAP_EV_MOD_FIRST.
 #define WWAP_EV_BOOT            1           // main01_init ran: a = WWAP_LAYOUT

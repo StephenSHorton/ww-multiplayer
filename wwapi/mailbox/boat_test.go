@@ -43,7 +43,7 @@ func TestBoatLayout(t *testing.T) {
 		BoatEPos+12 != BoatEAngle || BoatEB+1 != BoatEPos || BoatEPos%4 != 0 {
 		t.Error("entry fields do not tile an entry")
 	}
-	if CanaryArenaHigh.Start != BoatRegion.End || CanaryArenaHigh.End != EyePacketsRegion.Start ||
+	if WsRegion.Start != BoatRegion.End || CanaryArenaHigh.End != EyePacketsRegion.Start ||
 		CanaryArenaHigh.Contains(BoatAddr, 4) || CanaryArenaHigh.Contains(BoatRegion.End-4, 4) || VisRegion.End != BoatRegion.Start {
 		t.Errorf("canaries cover the boats block: high %+v, block %+v", CanaryArenaHigh, BoatRegion)
 	}

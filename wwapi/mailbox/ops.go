@@ -69,6 +69,7 @@ const (
 	OpsOpEcho     = 1
 	OpsOpKill     = 2
 	OpsOpModFirst = 16
+	OpsOpWsSet    = 16 // the widescreen mod's op (WWAP_OP_WS_SET; widescreen.go OpWsSet)
 
 	OpsEvBoot     = 1
 	OpsEvCmd      = 2

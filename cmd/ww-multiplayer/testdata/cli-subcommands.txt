@@ -18,3 +18,4 @@ server
 status
 version
 warp
+widescreen

@@ -31,5 +31,14 @@ exit 0
       "multiplayer": "^1.0"
     },
     "load_index": -1
+  },
+  {
+    "id": "widescreen",
+    "name": "Widescreen",
+    "version": "0.1.0",
+    "status": "DISABLED",
+    "reason": "turned off in settings or by a flag",
+    "multiplayer": "local_only",
+    "load_index": -1
   }
 ]

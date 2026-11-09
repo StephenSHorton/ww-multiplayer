@@ -24,7 +24,7 @@ func TestOpsHeaderPins(t *testing.T) {
 		"WWAP_TAG_EVENTS": uint64(OpsTagEvents), "WWAP_TAG_COMMANDS": uint64(OpsTagCommands), "WWAP_TAG_COOP": uint64(OpsTagCoop),
 		"WWAP_R_OK": OpsROK, "WWAP_R_BADCHECK": OpsRBadCheck, "WWAP_R_UNKNOWN": OpsRUnknown, "WWAP_R_NOTFOUND": OpsRNotFound,
 		"WWAP_R_MISMATCH": OpsRMismatch, "WWAP_R_REFUSED": OpsRRefused, "WWAP_R_FAILED": OpsRFailed,
-		"WWAP_OP_ECHO": OpsOpEcho, "WWAP_OP_KILL": OpsOpKill, "WWAP_OP_MOD_FIRST": OpsOpModFirst,
+		"WWAP_OP_ECHO": OpsOpEcho, "WWAP_OP_KILL": OpsOpKill, "WWAP_OP_MOD_FIRST": OpsOpModFirst, "WWAP_OP_WS_SET": OpsOpWsSet,
 		"WWAP_EV_BOOT": OpsEvBoot, "WWAP_EV_CMD": OpsEvCmd, "WWAP_EV_ECHO": OpsEvEcho, "WWAP_EV_MOD_FIRST": OpsEvModFirst,
 	})
 }

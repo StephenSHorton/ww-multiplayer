@@ -61,8 +61,10 @@ static int frame_count = 0;
 // The C mods, in priority order (mods.h). The multiplayer mod has no init
 // and no pre-draw step.
 #define MOD_ID_MP 0x4D502020   // 'MP  '
+#define MOD_ID_WS 0x57532020   // 'WS  '
 static const WwModuleDesc ww_modules[] = {
     { MOD_ID_MP, 0, mp_frame_any, mp_frame, 0, mp_draw_post },
+    { MOD_ID_WS, ws_init, 0, 0, 0, 0 },
 };
 #define WW_MODULE_COUNT ((int)(sizeof(ww_modules) / sizeof(ww_modules[0])))
 
@@ -72,6 +74,17 @@ _Static_assert(__builtin_offsetof(Mailbox, pose_publish_seq) + 1 == __builtin_of
                __builtin_offsetof(Mailbox, tunic_state) % 4 == 0 &&
                __builtin_offsetof(Mailbox, tunic_swaps) == __builtin_offsetof(Mailbox, tunic_state) + 4,
                "mailbox_core.h moved a run main01_init zeroes");
+
+// view_setup's call to mDoLib_clipper::setup (0x8017BF90, the only caller;
+// docs/design/widescreen-culling.md section 5). f1..f4 arrive in
+// view->mFovy, mAspect, mNear and the far plane (EABI), so a plain C
+// function can forward them: the clipper's aspect is widened by the
+// widescreen mod, the camera's mAspect and the GPU projection are not.
+typedef void (*clip_setup_fn)(f32 fovy, f32 aspect, f32 near_, f32 far_);
+#define mDoLib_clipper_setup ((clip_setup_fn)0x800176BC)
+void clip_setup_hook(f32 fovy, f32 aspect, f32 near_, f32 far_) {
+    mDoLib_clipper_setup(fovy, ws_clip_aspect(aspect), near_, far_);
+}
 
 // Hooked to main01 (0x80006338) via hook_branchlink. Runs once.
 // Publishes multiplayer_update's address for frame_shim to find.

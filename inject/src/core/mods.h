@@ -27,6 +27,14 @@ void mp_frame_any(fopAc_ac_c* link);
 void mp_frame(fopAc_ac_c* link);
 void mp_draw_post(void* link);
 
+// src/ws, the widescreen mod (docs/design/widescreen-culling.md,
+// native-widescreen.md). ws_init writes the WWWS block and registers
+// WWAP_OP_WS_SET; ws_clip_aspect is the clipper hook's aspect (widens only
+// in mode 1); ws_live_factor is the 3D picture's factor (mode 2, else 1).
+void ws_init(void);
+f32 ws_clip_aspect(f32 aspect);
+f32 ws_live_factor(void);
+
 typedef struct {
     u32 id;                                 // four characters, e.g. 'MP  '
     void (*init)(void);                     // main01_init, after the core's ops_init
