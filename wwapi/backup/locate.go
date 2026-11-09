@@ -2,9 +2,11 @@
 // co-op session can touch a save file (§5.4), and puts a copy back on
 // request, only while Dolphin is closed.
 //
-// Co-op never writes a memory-card file (§5.1): the game's own save menu
-// does, from RAM the co-op tool may have written to. A backup is the way
-// back from a bad merge or a bad bind. Create copies every card Dolphin
+// Co-op writes no progress to a memory-card file (§5.1): the game's own
+// save menu does, from RAM the co-op tool may have written to. The one
+// card write is the app's co-op tag (mods/coop/cardtag, through Replace),
+// after a backup. A backup is the way back from a bad merge or a bad
+// bind. Create copies every card Dolphin
 // may be using for Wind Waker, read-only, into
 // <os.UserConfigDir>/ww-multiplayer/backups/<id>/ and keeps the newest
 // Keep (10). Restore copies one back over the cards, after taking a fresh

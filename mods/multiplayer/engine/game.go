@@ -67,6 +67,11 @@ type GameDeps struct {
 	CoopSync func(ctx context.Context, name, addr string, pid uint32, rep log.Reporter, cs CoopSide) error
 	// EnvPID is WW_DOLPHIN_PID: the Dolphin to play on, whatever runs.
 	EnvPID uint32
+	// CardTags writes the co-op tags waiting for the memory card, if no
+	// Dolphin runs (co-op's cardtag.Store.Flush): called right before a
+	// launch, before waiting for the player's own Dolphin, and once the
+	// Dolphin played on closed. Nil writes none.
+	CardTags func(rep log.Reporter)
 
 	Tick      time.Duration // how often the Dolphin is looked at
 	BootGrace time.Duration // how long a launched Dolphin counts as launching
@@ -95,8 +100,9 @@ func realGameDeps(ls *LiveState, c Config) *GameDeps {
 		Pipelines: func(ctx context.Context, cancel context.CancelFunc, name, addr string, pid uint32, rep log.Reporter) error {
 			return runPosePipelinesOn(ctx, cancel, c.Env.Feed, name, addr, pid, rep, onClient, onPos, onVitals)
 		},
-		Reset:  resetMailboxOn,
-		EnvPID: envDolphinPID(),
+		Reset:    resetMailboxOn,
+		EnvPID:   envDolphinPID(),
+		CardTags: c.CardTags,
 	}
 	// The two seams on one Dolphin share its enemy claim set (gameClaims):
 	// co-op's K1 refuses what the enemy client claims (enemy-mirror-general
@@ -366,6 +372,9 @@ func (g *GameRunner) run(ctx context.Context) {
 				return
 			}
 		}
+		if d.CardTags != nil {
+			d.CardTags(g.out) // no Dolphin on this folder: the card is free
+		}
 		log.Logf(g.out, log.Info, "Starting Dolphin with your patched disc.")
 		pid, err := d.Launch(g.o, g.out)
 		if err != nil {
@@ -394,6 +403,9 @@ func (g *GameRunner) run(ctx context.Context) {
 		case session.PlanLaunch:
 			doLaunch()
 		case session.PlanWait:
+			if d.CardTags != nil {
+				d.CardTags(g.out) // before the player's own Dolphin reads the card
+			}
 			g.out.Log(log.Info, "Start Dolphin with your patched disc: the session plays as soon as it runs ("+plan.Why+").")
 		}
 	}
@@ -430,6 +442,9 @@ func (g *GameRunner) run(ctx context.Context) {
 				stopPipes()
 				log.Logf(g.out, log.Warn, "Dolphin (pid %d) closed. Start it again to keep playing, or Leave.", info.PID)
 				info.PID, info.Launched = 0, false
+				if d.CardTags != nil {
+					d.CardTags(g.out) // its memory card is written and free
+				}
 			case st.Bad() && st != info.State:
 				stopPipes()
 				g.badLog(st)

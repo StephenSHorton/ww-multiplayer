@@ -286,6 +286,10 @@ type coopEnv struct {
 	tables func(iso string) (*stagetables.Tables, error)
 	// front is the session's front end; its zero value is the CLI's.
 	front coopFront
+	// tags records each tag write a replica made in the game memory of
+	// Dolphin pid (0: unknown), for the memory card (the app's,
+	// mods/coop/cardtag); nil records none (the CLI).
+	tags func(pid uint32, w bind.Written, rep log.Reporter)
 }
 
 // coopFront is how a co-op session meets its front end: who answers its
@@ -1397,7 +1401,8 @@ func (p *coopPrompter) ask(ctx context.Context, rep log.Reporter, question strin
 // and a co-op connection to the host's hub.
 type coopSync struct {
 	cs     *Session
-	name   string // the player's name: the console's handle on it
+	name   string        // the player's name: the console's handle on it
+	pid    atomic.Uint32 // the Dolphin it plays on (the app's), 0 when unknown
 	rep    log.Reporter
 	m      mem.Mem
 	r      *replica.Replica
@@ -1490,6 +1495,9 @@ func (cs *Session) newSyncClaimed(ctx context.Context, name string, m mem.Mem, r
 		Claimed:     claimed,
 		BossKill:    cs.flags.bossKill,
 		Refresh:     cs.flags.refresh,
+	}
+	if rec := cs.env.tags; rec != nil {
+		cfg.OnTagWritten = func(w bind.Written) { rec(s.pid.Load(), w, rep) }
 	}
 	if !cs.flags.dryRun {
 		cfg.Apply = true
@@ -1720,15 +1728,20 @@ func (s *coopSync) say(outcome, world string) {
 // clearForeign is replica.Config.OnForeignTag: the loaded file is tied to
 // a world other than the host's, whether on this computer or not, so its
 // tag is zeroed in the game's memory (the world file stays on disk), and
-// the file then says hello as an unbound one. The memory card keeps the
-// old tag until the next in-game save, as "Remove the tag" always did.
+// the file then says hello as an unbound one. In the app the clear is
+// recorded for the memory card too, as "Remove the tag" is (the CLI's
+// card keeps the old tag until the next in-game save).
 func (s *coopSync) clearForeign(w bind.WorldID) {
 	own := s.cs.world.String()
 	tick := s.cs.env.tick
 	if tick == nil {
 		tick = diag.Tick
 	}
-	if err := clearLoadedTag(s.rep, s.m, tick, w.String(), own); err != nil {
+	var record func(bind.Written)
+	if rec := s.cs.env.tags; rec != nil {
+		record = func(wr bind.Written) { rec(s.pid.Load(), wr, s.rep) }
+	}
+	if err := clearLoadedTag(s.rep, s.m, tick, w.String(), own, record); err != nil {
 		log.Logf(s.rep, log.Info, "co-op: %s: the tag of world %s is not cleared yet: %v", s.name, w, err)
 		return
 	}

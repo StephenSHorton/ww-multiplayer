@@ -395,3 +395,22 @@ func TestEventKindsCoverController(t *testing.T) {
 		}
 	}
 }
+
+// TestCloseWritesCardTags: opening and quitting the app write the co-op
+// tags waiting for the memory card (Options.CardTags), at quit after the
+// session ended; a second close (OnShutdown, then Run's defer) just asks
+// again.
+func TestCloseWritesCardTags(t *testing.T) {
+	e := newFakeEngine()
+	var calls int
+	b := NewBridge(Options{Version: "v9.9.9", Controller: session.New(e, session.Options{}), ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+		CardTags: func(log.Reporter) { calls++ }})
+	if calls != 1 {
+		t.Fatalf("CardTags ran %d times as the app opened, want once", calls)
+	}
+	b.close()
+	b.close()
+	if calls != 3 {
+		t.Fatalf("CardTags ran %d times, want once more per close", calls)
+	}
+}

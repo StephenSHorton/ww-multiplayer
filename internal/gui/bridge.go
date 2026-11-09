@@ -150,6 +150,9 @@ type Bridge struct {
 	mods    *wwapi.Runtime
 	modFlag func(id string) (on, set bool)
 	devMods bool
+	// cardTags writes the co-op tags waiting for the memory card
+	// (Options.CardTags); nil writes none.
+	cardTags func(rep log.Reporter)
 
 	// One-click updates (update.go): the banner's state and its seams.
 	upd     updState
@@ -172,7 +175,7 @@ func NewBridge(o Options) *Bridge {
 		home:      func() string { h, _ := os.UserHomeDir(); return h },
 		macStatus: macStatusHere, prepareMac: launch.PrepareMacHere, unprepareMac: launch.UnprepareMacHere,
 		emitters: map[int]func(EventView){}, hostIPs: o.HostIPs, findSave: findSave, openPath: openFolderHere,
-		mods: o.Mods, modFlag: o.ModFlag, devMods: o.DevMods}
+		mods: o.Mods, modFlag: o.ModFlag, devMods: o.DevMods, cardTags: o.CardTags}
 	if b.getenv == nil {
 		b.getenv = func(string) string { return "" }
 	}
@@ -201,6 +204,9 @@ func NewBridge(o Options) *Bridge {
 	}
 	b.updSeam.init(o, b.getenv)
 	b.bug.init()
+	if b.cardTags != nil {
+		b.cardTags(nil) // co-op tags a quit left waiting for Dolphin to close
+	}
 	b.afterUpdate()
 	return b
 }
@@ -700,14 +706,20 @@ func (b *Bridge) dialogs() fileDialogs {
 // running says whether a session is running (window close asks first).
 func (b *Bridge) running() bool { return b.State().Running }
 
-// close ends the running session (the same teardown as Leave), cancels a
-// running patch and waits for it to stop, however long its disc takes to
-// finish writing (see setup_patch.go), and ends the Bridge's context.
+// close ends the running session (the same teardown as Leave), writes
+// the co-op tags waiting for the memory card if no Dolphin runs (they
+// wait on disk for the next Start otherwise), cancels a running patch
+// and waits for it to stop, however long its disc takes to finish
+// writing (see setup_patch.go), and ends the Bridge's context. It may
+// run twice (the window's OnShutdown and Run's defer).
 func (b *Bridge) close() {
 	b.upd.closing.Store(true)
 	b.stopBeacon()
 	b.stopLanListen()
 	b.ctrl.Leave()
+	if b.cardTags != nil {
+		b.cardTags(nil) // no session log is left; the tags' own log has it
+	}
 	b.CancelPatch()
 	b.waitPatch()
 	b.CancelUpdate()
