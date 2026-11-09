@@ -1,0 +1,11 @@
+2026-11-09T16:03:11.238Z INFO ww-multiplayer v0.7.0 app log (windows/amd64)
+2026-11-09T16:03:11.238Z INFO disc check (app opened): ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso: patched by another version; patch it again from ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada).ciso
+2026-11-09T16:03:11.250Z INFO disc update: patching ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada).ciso into ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso (the vanilla disc Setup saved)
+2026-11-09T16:03:12.671Z OK   disc update: done: ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso is this version's
+2026-11-09T16:04:50.056Z INFO disc check (host): ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso: patched; keep
+2026-11-09T16:05:13.223Z INFO disc check (host): ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso: patched; keep
+2026-11-09T16:05:22.392Z INFO disc check (start): ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso: patched; keep
+2026-11-09T16:05:48.782Z INFO disc check (start): ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso: patched; keep
+2026-11-09T16:05:48.811Z INFO disc check (launch): ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso: patched; keep
+2026-11-09T16:16:03.609Z INFO disc check (launch): ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso: patched; keep
+2026-11-09T16:16:03.628Z INFO disc check (launch): ~\Desktop\Dolphin-x64\Roms\Legend of Zelda, The - The Wind Waker (USA, Canada)-multiplayer.iso: patched; keep

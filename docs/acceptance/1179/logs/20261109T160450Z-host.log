@@ -1,0 +1,9 @@
+2026-11-09T16:04:50.057Z INFO ww-multiplayer v0.7.0 windows/amd64: Host session 1 as "Alice"
+2026-11-09T16:04:50.058Z INFO [srv 09:04:50] Server listening on port 25565
+2026-11-09T16:04:50.058Z OK   Hosting a lobby as "Alice" on :25565.
+2026-11-09T16:04:50.077Z INFO   •••.•••.•••.20
+2026-11-09T16:04:50.077Z INFO   •••.•••.•••.227
+2026-11-09T16:04:50.077Z INFO   •••.•••.•••.1
+2026-11-09T16:04:50.094Z NET  Connected to the lobby
+2026-11-09T16:04:50.094Z INFO [srv 09:04:50] Alice (lobby 1) connected
+2026-11-09T16:05:04.936Z INFO [srv 09:05:04] Alice (lobby 1) disconnected
