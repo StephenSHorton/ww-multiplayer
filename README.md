@@ -34,7 +34,7 @@ You need [Dolphin](https://dolphin-emu.org/) and your own copy of Wind Waker (NT
 
 Step-by-step with all the details: [Getting started](docs/getting-started.md).
 
-Friends on another network? A VPN is optional: [Tailscale](https://tailscale.com) and [Toru](https://stephenshorton.github.io/toru/) both work, or forward a port. See [Playing](docs/playing.md).
+Friends on another network? A VPN is optional: [Tailscale](https://tailscale.com) and [Toru](https://stephenshorton.github.io/toru/) (Windows) both work, or forward a port. See [Playing](docs/playing.md).
 
 ## Documentation
 
