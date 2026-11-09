@@ -202,7 +202,9 @@ func TestRepatchClosesAppLaunchedDolphinAtTitle(t *testing.T) {
 	r.procs.Store(&[]launch.Process{r.launched(41)})
 	var mu sync.Mutex
 	var closed []uint32
-	r.b.probe = func(pid uint32) session.Probe { return session.Probe{Running: true, GameID: session.GameID, Patched: false} }
+	r.b.probe = func(pid uint32) session.Probe {
+		return session.Probe{Running: true, GameID: session.GameID, Patched: false}
+	}
 	r.b.closeProc = func(pid uint32) error {
 		mu.Lock()
 		closed = append(closed, pid)

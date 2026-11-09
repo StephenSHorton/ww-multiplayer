@@ -312,6 +312,36 @@ func TestFrontendDOM(t *testing.T) {
 			}
 			return ""
 		}},
+		{"the disc update's line on Home", "s=home&disc=patching", func(d string) string {
+			if regexp.MustCompile(`id="discbar"[^>]*hidden`).MatchString(d) {
+				return "the line is hidden"
+			}
+			if got := text(d, "disc-title"); !strings.HasPrefix(got, "Updating your disc for v0.6.2… ") || !strings.HasSuffix(got, " s") {
+				return "title " + got
+			}
+			if regexp.MustCompile(`id="disc-progress"[^>]*hidden`).MatchString(d) {
+				return "no progress bar"
+			}
+			return ""
+		}},
+		{"a held disc turns Start off", "s=lobby-host&disc=blocked", func(d string) string {
+			if got := text(d, "disc-title"); got != "Close Dolphin to update your disc." {
+				return "title " + got
+			}
+			if !regexp.MustCompile(`id="start-btn"[^>]*disabled`).MatchString(d) {
+				return "Start is on"
+			}
+			if !strings.Contains(text(d, "start-note"), "Close Dolphin to update your disc.") {
+				return "start note " + text(d, "start-note")
+			}
+			return ""
+		}},
+		{"no disc line for a current disc", "s=home", func(d string) string {
+			if !regexp.MustCompile(`id="discbar"[^>]*hidden`).MatchString(d) {
+				return "the line shows"
+			}
+			return ""
+		}},
 		{"leaving Setup with no patch", "s=setup-dolphin&click=nav-play", func(d string) string {
 			if strings.Contains(d, `data-key="leave-setup"`) {
 				return "asked with no patch running"

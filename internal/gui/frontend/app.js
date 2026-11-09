@@ -414,7 +414,7 @@ function render() {
 		$("start-note").textContent = st.startWaiting
 			? "Starting once your disc is updated…"
 			: disc.blocks
-				? disc.title + " " + disc.text
+				? disc.title + (disc.state === "blocked" ? " Start comes back once Dolphin is closed." : " Start waits for it.")
 				: waiting.length
 					? "Waiting for " + waiting.join(", ") + " to be ready."
 					: "Everyone's ready. Start opens Dolphin for every player with their patched disc.";

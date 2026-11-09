@@ -22,6 +22,7 @@
 //	&upd=1           a newer release is out, in any scenario
 //	&vitals=none     in game, nobody's hearts, magic and rupees are known (senders from before them)
 //	&coopoff=1       ingame: the host's founding gave up, so co-op is off this session (the host's line on the banner)
+//	&disc=S          the disc update's line (disc.go) on Home and the Session screen: patching, closing, blocked, pick, failed
 //	&click=a,b       click these element ids in turn once the page is up
 (function () {
 	const q = new URLSearchParams(location.search);
@@ -38,6 +39,16 @@
 	const dry = q.get("dry") === "1";
 	const slow = q.get("slow") === "1";
 	const coopOff = q.get("coopoff") === "1";
+	const discMode = q.get("disc") || "";
+	const DISCS = {
+		patching: { title: "Updating your disc for v0.6.2…", text: "Your patched disc was made by another version of this app, so it is being patched again. Start waits for it.", percent: 46 },
+		closing: { title: "Closing Dolphin to update your disc…", text: "The app started that Dolphin and it isn't in the game. Your disc is updated for this version next." },
+		blocked: { title: "Close Dolphin to update your disc.", text: "It has your patched disc open, and this version needs it updated. The update starts by itself once Dolphin closes; Start waits until then." },
+		pick: { title: "Choose your Wind Waker disc.", text: "Your patched disc was made by another version of this app, and the vanilla disc it came from isn't where it was. Choose it, and the app patches it with this version." },
+		failed: { title: "Couldn't update your disc.", text: "Try again, or patch your vanilla disc in Setup.", error: "There isn't enough free space next to your disc." },
+	};
+	const disc = Object.assign({ seq: 1, state: DISCS[discMode] ? discMode : "", title: "", text: "", version: "v0.6.2", percent: 0,
+		started: new Date(Date.now() - 12000).toISOString(), blocks: ["patching", "closing", "blocked"].includes(discMode) }, DISCS[discMode] || {});
 	let shareCalls = 0;
 	const updOut = S === "home-update" || q.get("upd") === "1";
 	try {
@@ -301,14 +312,14 @@
 
 	function state() {
 		if (S.startsWith("home") || S.startsWith("setup") || S === "mods" || S === "settings") {
-			return { session: 0, phase: "idle", running: false, role: "", name: "", addr: "", addrMasked: "", endReason: "", failed: false, lobby: null, players: [], playerCount: 0, hostAddrs: [], latencyMs: 0, dialog: null, banner: null, showIPs: false, dolphin: { state: "" }, map: null, color: "", startDolphinMyself: false, coop: null };
+			return { session: 0, phase: "idle", running: false, role: "", name: "", addr: "", addrMasked: "", endReason: "", failed: false, lobby: null, players: [], playerCount: 0, hostAddrs: [], latencyMs: 0, dialog: null, banner: null, showIPs: false, dolphin: { state: "" }, map: null, color: "", startDolphinMyself: false, coop: null, disc, startWaiting: false };
 		}
 		return {
 			session: 1, phase: over() ? "ended" : phase, running: !over(), role: host ? "Host" : "Join", name: "Stephen",
 			addr: "192.168.1.42", addrMasked: "•••.•••.•••.42", endReason: "The host closed the session.", failed: over(),
 			lobby: {
 				member: legacy ? 0 : 2, host, phase: lobbyPhase, legacy, members: legacy ? [] : members, coop: coopMode, link: { state: S === "reconnecting" ? "reconnecting" : "up", attempts: 0 },
-				canStart: host && !playing, notReady: host && !playing ? ["Sam"] : [],
+				canStart: host && !playing && !disc.blocks, notReady: host && !playing ? ["Sam"] : [],
 			},
 			players: legacy ? [{ name: "Blake", color: "#F08C1E" }] : [], playerCount: legacy ? 2 : 3, hostAddrs: [], latencyMs: playing ? 24 : 0,
 			dialog: S === "dialog" ? {
@@ -332,7 +343,7 @@
 				],
 			} : null,
 			where: playing ? "Dragon Roost Cavern, room 3" : "",
-			color: "#2C5CE0", startDolphinMyself: false, coop: places ? null : coop,
+			color: "#2C5CE0", startDolphinMyself: false, coop: places ? null : coop, disc, startWaiting: false,
 		};
 	}
 
@@ -340,7 +351,7 @@
 		Info: () => info, State: () => { const st = state(); armEnd(); return st; }, Setup: () => setupView,
 		PatchStatus: () => (S === "setup-game" ? patchDone : setupView.patch),
 		DetectDolphin: () => dolphinView, UserDirFor: () => dolphinView.userDir,
-		Mods: () => mods, UpdateStatus: () => update, CheckUpdate: () => update,
+		Mods: () => mods, UpdateStatus: () => update, CheckUpdate: () => update, CheckDisc: () => disc,
 		LanSessions: () => lan, ShareAddrs: () => share, CoopWorlds: () => worlds,
 		CoopStatusText: () => "co-op: Stephen: bound",
 		// The sea chart's island art: none in the repo (it is the player's
