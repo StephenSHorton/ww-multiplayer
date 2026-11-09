@@ -210,6 +210,11 @@ type HostOptions struct {
 	// Dolphin myself") counts.
 	Launch   LaunchOptions
 	LaunchFn func() LaunchOptions
+	// PrepareFn, when set, is the last check before the app launches this
+	// player's Dolphin: it returns once the disc is this build's (updating
+	// it first when it must), or an error when the launch must not go on.
+	// The lobby row says DolphinUpdating meanwhile.
+	PrepareFn func(ctx context.Context) error
 	// CoopFn, when set, is this player's own co-op choices in a lobby
 	// session (the disc for the co-op tables, a joiner's own dry run),
 	// read when co-op starts; the host's lobby settings say the rest.
@@ -240,6 +245,8 @@ type JoinOptions struct {
 	// Launch and LaunchFn: see HostOptions.Launch.
 	Launch   LaunchOptions
 	LaunchFn func() LaunchOptions
+	// PrepareFn: see HostOptions.PrepareFn.
+	PrepareFn func(ctx context.Context) error
 	// CoopFn: see HostOptions.CoopFn.
 	CoopFn func() CoopOptions
 	// OwnerKey is a dedicated server's lobby owner key (JoinLobby only;

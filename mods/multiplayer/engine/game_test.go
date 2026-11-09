@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -645,5 +646,63 @@ func TestLobbyStartGoInGame(t *testing.T) {
 	cb.Leave()
 	if ev := fb.Events(); ev[len(ev)-1] != "reset 200" {
 		t.Fatalf("joiner teardown %v", ev)
+	}
+}
+
+// TestGameRunnerPreparesBeforeLaunch (card #1176): a joiner's Dolphin
+// launches on the wire START, so the runner's last check before the launch
+// (SetPrepare) updates a stale disc first. The row shows "updating" for
+// it, the launch comes after it, and the Dolphin goes on to the title
+// screen as always.
+func TestGameRunnerPreparesBeforeLaunch(t *testing.T) {
+	f := newFakeGame()
+	g, out, lob, _ := newTestRunner(f, optsA)
+	release := make(chan struct{})
+	var calls atomic.Int32
+	g.SetPrepare(func(ctx context.Context) error {
+		calls.Add(1)
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	g.Start(context.Background())
+	waitFor(t, "the updating row", func() bool { return out.Last().State == session.DolphinUpdating })
+	if l := f.Launches(); len(l) != 0 {
+		t.Fatalf("launched during the update: %+v", l)
+	}
+	if got := lob.list(); !slices.Equal(got, []string{"updating"}) {
+		t.Fatalf("lobby states %v", got)
+	}
+	close(release)
+	waitFor(t, "the pipelines", hasEvent(f, "pipelines 100 start"))
+	if l := f.Launches(); len(l) != 1 || calls.Load() != 1 {
+		t.Fatalf("launches %+v, prepares %d", l, calls.Load())
+	}
+	if got := lob.list(); len(got) < 2 || got[0] != "updating" || got[1] != "none" && got[1] != "launching" {
+		t.Fatalf("lobby states %v", got)
+	}
+	if err := g.Stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A failed last check launches nothing and says why.
+func TestGameRunnerPrepareFailureBlocksLaunch(t *testing.T) {
+	f := newFakeGame()
+	g, out, _, _ := newTestRunner(f, optsA)
+	g.SetPrepare(func(context.Context) error { return errors.New("close Dolphin to update your disc") })
+	g.Start(context.Background())
+	waitFor(t, "the error", func() bool { return out.Last().Err != "" })
+	if d := out.Last(); !strings.Contains(d.Err, "update your disc") || d.PID != 0 || d.State != session.DolphinNone {
+		t.Fatalf("Dolphin %+v", d)
+	}
+	if l := f.Launches(); len(l) != 0 {
+		t.Fatalf("launched: %+v", l)
+	}
+	if err := g.Stop(); err != nil {
+		t.Fatal(err)
 	}
 }

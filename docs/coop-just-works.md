@@ -64,6 +64,37 @@ says why in one line, and pose sync keeps working.
 | D7 | The joiner gets the same treatment. Its Dolphin launches on the wire START inside `GameRunner.run`, so the check also goes into a `Prepare` step before `DecideLaunch`. It normally finds nothing to do, because D2 already ran in the lobby. | `mods/multiplayer/engine/game.go:349` |
 | D8 | The disc plan and every re-patch result go to an app log, not just a toast. On 11-08 nothing recorded whether a re-patch was even tried. | `internal/applog` |
 
+**As built (card #1172, `internal/gui/disc.go`):** D2, D3, D5, D6 and D8 as
+above, with these details:
+- "Not in game" is a positive read, never Link's pointer alone, which is
+  null during every stage load. Every one of three looks must read Wind
+  Waker on the title stage (`sea_T`) with no stage change pending. A
+  failed read, no game found (that read can't tell "none" from
+  "unreadable"), a load, a cutscene or file select keeps the Dolphin open
+  and shows the status line.
+- "App-launched" means this run's session launched it, or its command
+  line is `launch.LaunchArgs` on this player's `-u` folder and `-e` disc.
+  That also covers a Dolphin an older version launched.
+- The vanilla search tries the patched disc's own source name first
+  (`<name>.iso/.gcm/.ciso`). Then it looks in the saved vanilla folder,
+  the patched folder, and Dolphin's `ISOPath*` folders. It reads at most
+  16 Wind Waker discs and gives up after 5 s. A miss is not searched
+  again this run.
+- Join waits for a running patch. Host doesn't wait.
+- `ISO_PATH` (a rig override) turns the automatic update off.
+
+**As built (card #1176, D7):** the joiner's launch has its own last check.
+`session.HostOptions/JoinOptions.PrepareFn` (the Bridge's `prepareLaunch`,
+which is `discReady("launch")`) reaches `GameRunner.SetPrepare`; `doLaunch`
+calls it right before the Dolphin starts, so a START that arrives mid-patch
+waits for the update instead of launching on the old disc. While it runs
+the Dolphin chip says `updating` ("Updating disc…", `session.DolphinUpdating`).
+A failed check launches nothing and shows its error (the launch dialog's
+Try again retries). In the lobby phase the chip says `updating` too while
+the update runs (`Bridge.discChip`), and Ready also starts the check.
+- The app log is `<config>/ww-multiplayer/logs/<stamp>-app.log`. It is
+  opened only when a check finds something to do.
+
 The contract check in game stays as the backstop. It alone catches a save
 state taken on an older version, which restores the old mod into RAM.
 PR #328's gate stays as the last refusal if D3 to D6 all fail, and then

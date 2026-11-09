@@ -73,11 +73,22 @@ type Bridge struct {
 
 	// The setup's seams (setup.go): package main's post-patch steps (the
 	// co-op tables step), and what a test replaces.
-	postPatch  []func(io.Writer, string)
-	patchRun   func(ctx context.Context, in, out string, w io.Writer, o patch.Options) (patch.Result, error)
-	inspect    func(string) (patch.DiscState, error)
-	denv       func() launch.Env
-	procs      func() []launch.Process // the running Dolphins (Start's check)
+	postPatch []func(io.Writer, string)
+	patchRun  func(ctx context.Context, in, out string, w io.Writer, o patch.Options) (patch.Result, error)
+	inspect   func(string) (patch.DiscState, error)
+	denv      func() launch.Env
+	procs     func() []launch.Process // the running Dolphins (Start's check)
+	// The disc update's seams (disc.go): a look at a Dolphin (nil: never
+	// close one), closing one and waiting for it to go, and Dolphin's game
+	// folders for the vanilla search (nil: not searched).
+	probe     func(pid uint32) session.Probe
+	closeProc func(pid uint32) error
+	waitGone  func(pid uint32, d time.Duration) bool
+	isoDirs   func(userDir string) ([]string, bool)
+	disc      discState
+	// alog is the app's own log (disc.go), opened on its first line;
+	// tests set it.
+	alog       log.Reporter
 	home       func() string
 	macStatus  func() (launch.MacState, launch.MacFacts, error)
 	prepareMac func(log.Reporter) error
@@ -172,6 +183,11 @@ func NewBridge(o Options) *Bridge {
 		b.denv = launch.Host
 	}
 	b.procs = launch.Processes
+	b.probe, b.closeProc, b.waitGone = o.ProbeDolphin, launch.Close, launch.WaitGone
+	if o.SearchDiscs {
+		b.isoDirs = launch.ISOPaths
+	}
+	b.disc.logDir = o.AppLogDir
 	if o.SeaChart {
 		b.chartDir, b.chartEnsure = seachart.Dir, seachart.Ensure
 	}
@@ -228,6 +244,11 @@ func (b *Bridge) State() StateView {
 	v := stateView(st, running, b.version, b.now(), mk)
 	v.StartDolphinMyself = b.launchOptions().Manual
 	v.Coop = b.coopView(st, running, mk)
+	v.Disc = b.discStatus()
+	v.StartWaiting = b.disc.starting.Load()
+	if v.Lobby != nil && b.discBlocks() {
+		v.Lobby.CanStart = false // Start waits for the disc, or is refused while a Dolphin holds it
+	}
 	if v.Map != nil {
 		ch, rev := b.seaChart()
 		v.Map = mapView(st, v.Map.Color, mk, ch)
@@ -288,9 +309,6 @@ func (b *Bridge) Host(r HostRequest) (err error) {
 	if b.updating() {
 		return errUpdating
 	}
-	if b.patching() {
-		return errPatching
-	}
 	name, err := checkName(r.Name)
 	if err != nil {
 		return err
@@ -306,15 +324,19 @@ func (b *Bridge) Host(r HostRequest) (err error) {
 	if port == 0 {
 		port = config.DefaultPort
 	}
+	// The disc is checked: a stale one starts updating while the lobby
+	// gathers (Start waits for it).
+	b.ensureDisc("host")
 	listen := strings.TrimSpace(b.getenv(EnvListenHost))
 	b.mu.Lock()
 	b.myDryRun = false
 	b.mu.Unlock()
 	b.stopLanListen()
-	id, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen, LaunchFn: b.launchOptions, CoopFn: b.coopOptions})
+	id, err := b.ctrl.HostLobby(b.ctx, session.HostOptions{Name: name, Color: col, Port: port, ListenHost: listen, LaunchFn: b.launchOptions, PrepareFn: b.prepareLaunch, CoopFn: b.coopOptions})
 	if err != nil {
 		return err
 	}
+	b.resendChip()
 	b.sessMu.Lock()
 	b.hostPort = port
 	b.sessMu.Unlock()
@@ -358,9 +380,6 @@ func (b *Bridge) Join(r JoinRequest) (err error) {
 	if b.updating() {
 		return errUpdating
 	}
-	if b.patching() {
-		return errPatching
-	}
 	addr := strings.TrimSpace(r.Addr)
 	if addr == "" {
 		return errors.New("type the host's address (the one its window shows)")
@@ -386,15 +405,24 @@ func (b *Bridge) Join(r JoinRequest) (err error) {
 	if err != nil {
 		return err
 	}
+	// The disc is checked, and a running update (or a patch started in
+	// Setup) waited for: a joiner's Dolphin launches at the host's Start,
+	// which the joiner doesn't press (prepareLaunch is that launch's own
+	// wait). A Dolphin holding the disc doesn't stop the join: its line
+	// says to close it.
+	if err := b.waitDisc("join"); err != nil {
+		return err
+	}
 	b.mu.Lock()
 	b.myDryRun = false
 	b.mu.Unlock()
 	b.stopLanListen()
-	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col, LaunchFn: b.launchOptions, CoopFn: b.coopOptions,
+	id, err := b.ctrl.JoinLobby(b.ctx, session.JoinOptions{Addr: addr, Name: name, Color: col, LaunchFn: b.launchOptions, PrepareFn: b.prepareLaunch, CoopFn: b.coopOptions,
 		OwnerKey: strings.TrimSpace(r.OwnerKey)})
 	if err != nil {
 		return err
 	}
+	b.resendChip()
 	b.sessMu.Lock()
 	b.lastJoin = &JoinRequest{Addr: addr, Name: name, Color: r.Color, OwnerKey: r.OwnerKey}
 	b.joining = &pendingHost{session: id, addr: addr}
@@ -526,6 +554,9 @@ func (b *Bridge) SetColor(color string) (err error) {
 // SetReady sets this player's ready flag in the lobby.
 func (b *Bridge) SetReady(ready bool) (err error) {
 	defer b.maskErr(&err)
+	if ready {
+		b.ensureDisc("ready") // its update shows on the row; the launch waits for it (prepareLaunch)
+	}
 	return b.ctrl.SetReady(ready)
 }
 
@@ -694,6 +725,7 @@ func (b *Bridge) close() {
 	b.CancelUpdate()
 	b.waitUpdate()
 	b.cancel()
+	b.closeAppLog()
 }
 
 // Close questions beforeClose asks.

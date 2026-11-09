@@ -319,7 +319,7 @@ func (ac *appCoop) OnStart(s network.LobbySettingsBody) {
 		return
 	}
 	own := ac.own()
-	f := Flags{on: true, world: s.Coop, merge: s.Merge, dryRun: s.DryRun, liveSwitches: s.LiveSwitches, iso: own.ISO, yes: own.Yes,
+	f := Flags{on: true, world: s.Coop, merge: s.Merge, dryRun: s.DryRun, liveSwitches: s.LiveSwitches, iso: own.ISO, yes: true,
 		bossKill: own.BossKill, refresh: own.Refresh, sharesOff: own.SharesOff}
 	ac.wg.Add(1)
 	go func() {
@@ -425,6 +425,17 @@ func (ac *appCoop) sendGo(world string) {
 	engine.SendGo(ac.ctx, lc, world, ac.out, nil)
 }
 
+// noticeOf is a joiner's one-line outcome sink: the window's co-op line,
+// in place of the questions it used to ask.
+func (ac *appCoop) noticeOf(worldID string) func(outcome, world string) {
+	return func(outcome, w string) {
+		if w == "" {
+			w = worldID
+		}
+		ac.found1(session.Founding{Phase: session.FoundingFounded, World: w, Outcome: outcome})
+	}
+}
+
 // OnGo is a joiner's GO: with a world, its co-op side starts. The card
 // backup and the stage tables (a disc read, a build when none is cached)
 // take a while, so they run beside the lobby connection, whose reads
@@ -437,10 +448,17 @@ func (ac *appCoop) OnGo(s network.LobbySettingsBody, worldID string) {
 	go func() {
 		defer ac.wg.Done()
 		own := ac.own()
-		f := Flags{on: true, dryRun: s.DryRun || own.DryRun, iso: own.ISO, yes: own.Yes, bossKill: own.BossKill, refresh: own.Refresh}
+		// A joiner follows the host (docs/coop-just-works.md §5): its bind
+		// and scrub are answered yes here, and a tag of another world is
+		// cleared before the hello, so the window asks nothing.
+		f := Flags{on: true, dryRun: s.DryRun || own.DryRun, iso: own.ISO, yes: true, follow: true, bossKill: own.BossKill, refresh: own.Refresh}
 		env := ac.coopEnv()
 		env.front = ac.front(f)
 		cs := startCoopSession(ac.out, f, env)
+		if w, err := bind.ParseWorldID(worldID); err == nil {
+			cs.world = w
+		}
+		cs.notice = ac.noticeOf(worldID)
 		cs.poseClient = ac.poseClient
 		cs.console.setCtx(ac.ctx)
 		ac.mu.Lock()

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
@@ -151,6 +153,8 @@ type GameRunner struct {
 	out  session.LobbyOutput
 	// lobby reports the Dolphin's state to the lobby (its chip); nil-safe.
 	lobby func(state string)
+	// prepare, when set (SetPrepare), is the last check before a launch.
+	prepare func(ctx context.Context) error
 	// fail ends the session on a fatal pipelines error (a version
 	// mismatch, say).
 	fail func(error)
@@ -211,6 +215,16 @@ func (g *GameRunner) Stop() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.err
+}
+
+// SetPrepare sets the last check before this runner launches the player's
+// Dolphin (session.HostOptions.PrepareFn): it returns once the player's
+// disc is this build's, or an error that cancels the launch. Call it
+// before Start.
+func (g *GameRunner) SetPrepare(f func(ctx context.Context) error) {
+	g.mu.Lock()
+	g.prepare = f
+	g.mu.Unlock()
 }
 
 // SetHost says whether this player is the lobby's host, which decides
@@ -342,6 +356,21 @@ func (g *GameRunner) run(ctx context.Context) {
 			info.Err = "Choose your Dolphin and your patched disc in Setup first."
 			g.out.Log(log.Err, "Can't start Dolphin: "+info.Err)
 			return
+		}
+		if g.prepare != nil {
+			// The last disc check: a joiner's Dolphin launches on the wire
+			// START, which no Bridge call waits for.
+			info.State = session.DolphinUpdating
+			g.set(info)
+			err := g.prepare(ctx)
+			info.State = session.DolphinNone
+			if err != nil {
+				if ctx.Err() == nil {
+					info.Err = err.Error()
+					log.Logf(g.out, log.Err, "Can't start Dolphin: %v", err)
+				}
+				return
+			}
 		}
 		if d.CardTags != nil {
 			d.CardTags(g.out) // no Dolphin on this folder: the card is free
@@ -660,8 +689,14 @@ func runningDolphins() []session.RunningDolphin {
 	return out
 }
 
+// ProbeDolphin is probeDolphin for the app window, which looks at a
+// Dolphin outside a session (whether the app may close it to update the
+// disc: never while Link is in the world, InGame, whatever the disc).
+func ProbeDolphin(pid uint32) session.Probe { return probeDolphin(pid) }
+
 // probeDolphin looks at Dolphin pid: running, its game, this build's mod
-// in its memory, Link in the world.
+// in its memory, Link in the world (InGame is read on an unpatched game
+// too).
 func probeDolphin(pid uint32) session.Probe {
 	pids, _ := emu.ListPIDs()
 	if !slices.Contains(pids, pid) {
@@ -684,7 +719,23 @@ func probeDolphin(pid uint32) session.Probe {
 	defer d.Close()
 	p.Patched = hasThisMod(d)
 	p.InGame = player.NewLink(d).Ready()
+	p.AtTitle = atTitle(d)
 	return p
+}
+
+// atTitle says the game is on the title screen: the current stage is
+// sea_T and no stage change is pending (a read error says no).
+func atTitle(m modMem) bool {
+	n := int(addr.NextStageEnable-addr.CurStageName) + 1
+	b, err := m.Read(addr.CurStageName, n)
+	if err != nil || len(b) != n || b[len(b)-1] != 0 {
+		return false
+	}
+	name := b[:addr.StageNameLen]
+	if i := bytes.IndexByte(name, 0); i >= 0 {
+		name = name[:i]
+	}
+	return string(name) == addr.StageTitle
 }
 
 // modMem reads emulated RAM; *emu.Dolphin implements it.

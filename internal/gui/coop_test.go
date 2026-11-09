@@ -481,16 +481,17 @@ func TestAdviceAndRequestDialogs(t *testing.T) {
 		t.Fatalf("a dialog after the session ended: %+v", d)
 	}
 
-	// A file bound to another world: Remove the tag.
+	// A file bound to another world: the session clears its tag itself
+	// (docs/coop-just-works.md §5), so no dialog asks.
 	st = session.State{Session: 1, Lobby: &session.Lobby{}, Live: session.Live{CoopStatus: []session.CoopStatus{{FileState: "foreign", TagWorld: "fedcba9876543210", World: worldA}}}}
-	if d := coopDialog(st, true, masker{}); d == nil || d.Kind != dlgForeign || d.Actions[0].ID != actUnbind || d.Actions[0].Arg != "fedcba9876543210" {
+	if d := coopDialog(st, true, masker{}); d != nil {
 		t.Fatalf("foreign file: %+v", d)
 	}
 	// Refused before a welcome: the replica judged the tag against no
 	// world (bound); the session's world comes from GO.
 	st = session.State{Session: 1, Lobby: &session.Lobby{}, Coop: session.CoopOptions{On: true, World: worldA},
 		Live: session.Live{CoopStatus: []session.CoopStatus{{StateCode: "refused", FileState: "bound", TagWorld: "fedcba9876543210"}}}}
-	if d := coopDialog(st, true, masker{}); d == nil || d.Kind != dlgForeign {
+	if d := coopDialog(st, true, masker{}); d != nil {
 		t.Fatalf("refused file bound elsewhere: %+v", d)
 	}
 	st.CoopStatus[0].TagWorld = worldA
@@ -801,5 +802,31 @@ func TestHostCoopBanner(t *testing.T) {
 	st.Founding = &session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockSecondQuest, GiveUp: time.Minute}
 	if b := coopBanner(st, true); b == nil || b.Title != "Founding the new world:" || !strings.Contains(b.Text, "goes on without co-op in a minute") {
 		t.Fatalf("host's blocked founding: %+v", b)
+	}
+}
+
+// TestCoopMergeOnByDefault: an app host's merge starts on (docs/
+// coop-just-works.md §5), the saved choice is the off one, and a joiner's
+// follow outcomes read as one banner line.
+func TestCoopMergeOnByDefault(t *testing.T) {
+	if r := choiceOf(config.Coop{}); !r.Merge {
+		t.Fatalf("a fresh config's choice: %+v, want merging on", r)
+	}
+	if r := choiceOf(config.Coop{MergeOff: true}); r.Merge {
+		t.Fatalf("merging off saved: %+v", r)
+	}
+	st := session.State{Session: 1, Lobby: &session.Lobby{}, Coop: session.CoopOptions{On: true},
+		Live: session.Live{}}
+	for outcome, want := range map[string]string{
+		"joined":   "joined the host's world",
+		"followed": "untied and joined the host's world",
+		"cleared":  "untied to follow the host's world",
+		"scrubbed": "stale co-op tag was removed",
+	} {
+		st.Founding = &session.Founding{Phase: session.FoundingFounded, World: "0123456789abcdef", Outcome: outcome}
+		b := coopBanner(st, true)
+		if b == nil || !strings.Contains(b.Text, want) {
+			t.Errorf("%s: banner %+v, want %q", outcome, b, want)
+		}
 	}
 }

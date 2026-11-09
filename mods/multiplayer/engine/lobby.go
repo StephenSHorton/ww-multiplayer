@@ -63,7 +63,7 @@ func (e *Engine) HostLobby(ctx context.Context, cancel context.CancelFunc, o ses
 	for _, ip := range ips {
 		log.Logf(out, log.Info, "  %s", ip)
 	}
-	return e.runLobby(ctx, cancel, hostDialAddr(o.ListenHost, port), name, o.Color, "", o.LaunchOptions, out, ac, func() {
+	return e.runLobby(ctx, cancel, hostDialAddr(o.ListenHost, port), name, o.Color, "", o.LaunchOptions, o.PrepareFn, out, ac, func() {
 		if e.ls != nil {
 			e.ls.Begin(string(session.RoleHost), name, ips)
 			e.ls.SetServer(srv)
@@ -95,7 +95,7 @@ func (e *Engine) JoinLobby(ctx context.Context, cancel context.CancelFunc, o ses
 	log.Logf(out, log.OK, "Joining the lobby at %s as %q.", addr, name)
 	ac, _ := e.lobbyCoop(ctx, e.LobbyEnv(out, name, o.CoopFn, o.LaunchOptions))
 	defer ac.Stop()
-	err := e.runLobby(ctx, cancel, addr, name, o.Color, o.OwnerKey, o.LaunchOptions, out, ac, func() {
+	err := e.runLobby(ctx, cancel, addr, name, o.Color, o.OwnerKey, o.LaunchOptions, o.PrepareFn, out, ac, func() {
 		if e.ls != nil {
 			e.ls.Begin(string(session.RoleJoin), name, nil)
 		}
@@ -113,7 +113,7 @@ func (e *Engine) JoinLobby(ctx context.Context, cancel context.CancelFunc, o ses
 // server too; it is stopped, its pipelines ended and the mailbox reset,
 // before runLobby returns, so a host's server stops after it. A fatal
 // pipelines error (a version mismatch) ends the session through cancel.
-func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, name string, color *playercolor.Color, ownerKey string, launch func() session.LaunchOptions, out session.LobbyOutput, ac LobbyCoop, beginGame func()) (err error) {
+func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, name string, color *playercolor.Color, ownerKey string, launch func() session.LaunchOptions, prepare func(context.Context) error, out session.LobbyOutput, ac LobbyCoop, beginGame func()) (err error) {
 	_, noCoop := ac.(noLobbyCoop)
 	hasCoop := !noCoop
 	hello := network.LobbyHelloBody{App: e.version, OS: runtime.GOOS, Dolphin: network.DolphinNone, OwnerKey: ownerKey}
@@ -160,6 +160,7 @@ func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, 
 		game = NewGameRunner(e.game, launch, name, addr, out,
 			func(state string) { _ = lc.SetDolphin(state) },
 			func(error) { cancel() })
+		game.SetPrepare(prepare)
 		var once sync.Once
 		startGame := func() {
 			once.Do(func() {

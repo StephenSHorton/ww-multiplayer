@@ -181,6 +181,15 @@ type Config struct {
 	// records it so the memory card gets the same bytes without an
 	// in-game save (mods/coop/cardtag). Nil records nothing.
 	OnTagWritten func(bind.Written)
+	// OnForeignTag, when set, is called (from Tick, never under the
+	// replica's lock) when the loaded file is tied to a world other than
+	// the session's, before the hello that would be refused for it
+	// (docs/coop-just-works.md §5: a joiner follows the host). It should
+	// clear the tag in the game; the replica says hello once the tag is
+	// gone, so the file binds as unbound. A call that did not clear it
+	// (the game not idle yet) is repeated every ForeignRetry, ForeignTries
+	// times at most, then the hello goes out and the host refuses it.
+	OnForeignTag func(world bind.WorldID)
 	// PartnerPos returns partner name's position, the latest pose sync
 	// has, for a warp to that partner on the same stage (Escape, WarpTo).
 	// It is called under the replica's lock, so it must not call back
@@ -393,12 +402,17 @@ type Replica struct {
 	tr       Transport
 	hello    *wire.CoHello
 	helloKey helloKey
-	welcome  *wire.CoWelcome // the answer to hello; nil while waiting
-	features proto.Feature
-	worldUp  bool // the file's WORLD went up since the session armed
-	armedNow bool // the last tick was armed
-	presence *wire.Presence
-	presAt   time.Time
+	// foreignTry counts the OnForeignTag calls made for the file and tag
+	// in foreignKey, foreignAt when the last was.
+	foreignKey helloKey
+	foreignTry int
+	foreignAt  time.Time
+	welcome    *wire.CoWelcome // the answer to hello; nil while waiting
+	features   proto.Feature
+	worldUp    bool // the file's WORLD went up since the session armed
+	armedNow   bool // the last tick was armed
+	presence   *wire.Presence
+	presAt     time.Time
 	// partners is each other player's last relayed PRESENCE and its
 	// track, by co-op connection (schema 2: PRESENCE s->c names its
 	// sender; partners.go).
@@ -1035,6 +1049,37 @@ func (r *Replica) state(o *obs, v bind.Verdict) (State, string) {
 	return StateUnbound, v.Why
 }
 
+// ForeignTries and ForeignRetry bound OnForeignTag's calls for one file.
+const (
+	ForeignTries = 20
+	ForeignRetry = 500 * time.Millisecond
+)
+
+// holdForForeign reports whether the hello waits for OnForeignTag to
+// clear a tag of another world off the loaded file, and queues the call.
+func (r *Replica) holdForForeign(o *obs, v bind.Verdict, k helloKey, out *outbox) bool {
+	f := r.cfg.OnForeignTag
+	if f == nil || !v.HasTag || r.sessionWorld.IsZero() || v.Tag.World == r.sessionWorld {
+		return false
+	}
+	if v.State != bind.Foreign && v.State != bind.Bound {
+		return false
+	}
+	if r.foreignKey != k {
+		r.foreignKey, r.foreignTry, r.foreignAt = k, 0, time.Time{}
+	}
+	if r.foreignTry >= ForeignTries {
+		return false
+	}
+	if now := r.now(); now.Sub(r.foreignAt) >= ForeignRetry && o.st.CanWriteIdle() {
+		r.foreignTry++
+		r.foreignAt = now
+		w := v.Tag.World
+		out.calls = append(out.calls, func() { f(w) })
+	}
+	return true
+}
+
 // --- CO_HELLO --------------------------------------------------------------
 
 // sayHello sends CO_HELLO when the session has none for the file in game:
@@ -1052,6 +1097,9 @@ func (r *Replica) sayHello(o *obs, v bind.Verdict, out *outbox, rep *Report) {
 	}
 	ask := r.bindAsk != nil && !r.bindGranted
 	if r.hello != nil && k == r.helloKey {
+		return
+	}
+	if r.holdForForeign(o, v, k, out) {
 		return
 	}
 	if o.file.Slot >= wire.CardSlots {
