@@ -30,6 +30,7 @@ const (
 	DolphinNoGame    DolphinState = "no_game"    // Dolphin is open but runs no game
 	DolphinWrongGame DolphinState = "wrong_game" // Dolphin runs another game
 	DolphinUnpatched DolphinState = "unpatched"  // Wind Waker without this build's mod
+	DolphinUpdating  DolphinState = "updating"   // the app is updating this player's disc for this version; Dolphin starts after
 )
 
 // Playable says the Dolphin runs the patched Wind Waker: the pose
