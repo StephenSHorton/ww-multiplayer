@@ -23,7 +23,8 @@ package main
 //     both games keep running and the walk check passes again;
 //   - optional: co-op bind on both files (-- --coop...), one memory
 //     switch set on A reaching B (--switch), and the smoothing step log
-//     under injected jitter (--smooth, smooth-steps).
+//     under injected jitter (--smooth, smooth-steps), and real pickups by
+//     pad on A judged on both games (--pickup, smoke_pickup.go).
 //
 // The report (every check with its numbers) is logs/latest/smoke.json,
 // beside mp-local's own logs/latest files, with smoke.log; exit 0 pass,
@@ -67,7 +68,7 @@ const (
 	smokeExitCannot = 2 // the smoke could not run: usage, no Dolphins, a refused user dir, mp-local never came up
 )
 
-const smokeUsage = "smoke [--names A,B] [--no-boot] [--hop \"<stage> <point> [room]\"|none] [--tol 50] [--min-move 100] [--walk-ms 1500] [--switch <0-127>] [--smooth <hz>[:<jitter ms>[:<latency ms>]]] [--smooth-max-cv F] [--ready-timeout 120s] [--out FILE] [-v] [-- mp-local args, e.g. --coop=new]"
+const smokeUsage = "smoke [--names A,B] [--no-boot] [--hop \"<stage> <point> [room]\"|none] [--tol 50] [--min-move 100] [--walk-ms 1500] [--switch <0-127>] [--smooth <hz>[:<jitter ms>[:<latency ms>]]] [--smooth-max-cv F] [--pickup <recipe>[,<recipe>]] [--ready-timeout 120s] [--out FILE] [-v] [-- mp-local args, e.g. --coop=new]"
 
 // smokeOpts are smoke's flags.
 type smokeOpts struct {
@@ -79,6 +80,7 @@ type smokeOpts struct {
 	coopSwitch   int // -1 none
 	smooth       string
 	smoothMaxCV  float64
+	pickups      []pickupRecipe // --pickup (smoke_pickup.go)
 	readyTimeout time.Duration
 	out          string
 	verbose      bool
@@ -103,6 +105,7 @@ func parseSmokeArgs(args []string) (smokeOpts, error) {
 	fs.IntVar(&o.coopSwitch, "switch", -1, "")
 	fs.StringVar(&o.smooth, "smooth", "", "")
 	fs.Float64Var(&o.smoothMaxCV, "smooth-max-cv", 0, "")
+	pickup := fs.String("pickup", "", "")
 	fs.DurationVar(&o.readyTimeout, "ready-timeout", 120*time.Second, "")
 	fs.StringVar(&o.out, "out", "", "")
 	fs.BoolVar(&o.verbose, "v", false, "")
@@ -142,6 +145,10 @@ func parseSmokeArgs(args []string) (smokeOpts, error) {
 		if _, err := parseTestRateArg(o.smooth); err != nil {
 			return o, err
 		}
+	}
+	var err error
+	if o.pickups, err = parsePickupArg(*pickup, o.coop()); err != nil {
+		return o, err
 	}
 	return o, nil
 }
@@ -204,7 +211,7 @@ func (r *smokeRun) add(cs ...smokeCheck) {
 func runSmoke(_ string, args []string) {
 	o, err := parseSmokeArgs(args)
 	if err != nil {
-		exitUsage(err, smokeUsage)
+		smokeUsageExit(err)
 	}
 	buf := &strings.Builder{}
 	r := &smokeRun{o: o, logBuf: buf}
@@ -242,6 +249,10 @@ func (r *smokeRun) run() {
 	if r.o.coop() && r.ctx.Err() == nil {
 		r.phase = "coop"
 		r.coop()
+	}
+	if len(r.o.pickups) > 0 && r.ctx.Err() == nil {
+		r.phase = "pickup"
+		r.pickups()
 	}
 	if r.o.smooth != "" && r.ctx.Err() == nil {
 		r.phase = "smooth"
@@ -809,6 +820,7 @@ func startMpLocalChild(ctx context.Context, exe string, o smokeOpts, pidA, pidB 
 	if o.smooth != "" {
 		env = append(env, envPoseTestRate+"="+o.smooth)
 	}
+	env = pickupChildEnv(o, env, os.Getenv)
 	c.cmd.Env = env
 	pr, pw := io.Pipe()
 	c.cmd.Stdout, c.cmd.Stderr = pw, pw
