@@ -119,6 +119,7 @@ ww-multiplayer/
     ├── 07-bettersunshine-research.md (Kuribo/BetterSunshineEngine notes, input to docs/api Phase E)
     ├── 08-coop-design.md, 09-player-colors.md, 10-lobby.md, 11-self-hosting.md (the dedicated server: Tailscale, port forwarding, owner key, status, Docker), 12-udp-pose.md (WW_UDP)
     ├── coop-remaining.md        # what is left for a whole-game co-op run: blockers, owed live checks, release, polish (as of a named main)
+    ├── coop-just-works.md       # the zero-decision start plan (#1166): disc re-patched by itself, the world follows the save, joiners follow the host
     ├── mac-rig.md               # the macOS test rig: MEM1 override, Mac start save, screenshots, hotkeys, dolphin-slot leases
     ├── api/                     # the modding API: 00-design, 01-events, 02-mods, 03-writing-a-mod
     ├── release-notes/           # v<version>.md per release (the release body); README.md = how; a "<!-- draft" first line blocks the tag
