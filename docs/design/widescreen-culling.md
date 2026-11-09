@@ -142,6 +142,7 @@ to `0x803A570C` and all 19 calls to `calcViewFrustum` in the functions below.
 | Weather, sea sparkles, clouds, sea mesh | `d_kankyo_rain.cpp`, `d_a_sea.cpp:504-646` | volumes around the eye, not frustum. Rain or sparkles may look a little thinner in the bands | unchanged (separate spawn-radius tweak if anyone notices) |
 | **Screen-space 0..640 checks:** sun glare and lens flare (`dKyr_sun_move`), firefly glow (`d_a_ff`), lantern glow (`d_a_kantera`), lock-on framing (`pointInSight`, `radiusActorInSight`) | `d_kankyo_rain.cpp:617`, `d_a_ff.cpp:44-46`, `d_a_kantera.cpp:150-152`, `d_camera.cpp:1658-1760` | the glow fades in the bands, and `peekZ` samples the wrong pixel (the GPU picture is squeezed ×0.75 relative to the game's own projection) | **not fixed** by this hook. Cosmetic. Native widescreen (#1186) fixes them all at once, because `mDoLib_project` follows `view->mAspect`. Not worth hooks under the Dolphin hack |
 | HUD and reticles placed with `mDoLib_project` (boomerang sight, enemy HP bar, text box anchor) | `d_a_boomerang.cpp:247`, `d_meter.cpp:3728`, `d_msg.cpp:739` | drift outward from their targets under the hack | not culling; #1186 |
+| **Our own name tags** over remote Links (REL, `WWVIS` names) | `inject/rel/visuals.c:426-445, 482 (TAG_MARGIN 80), 556-575` | projected with `mDoLib_project` and drawn as 2D, so under the hack each tag drifts outward from its head by 0.25 × (x − 320) and is dropped outside −80..720, short of the band's edge | not culling. Optional REL fix: `tag_x = 320 + (x − 320) / factor` and a margin of about 110, with the factor read from the block below. It changes the REL id (new Mac save name). Its own small card, or part of #1186 |
 
 Not traced: REL actors whose decomp is still stub-only (`/* Nonmatching */`). Any clipper call they
 make goes through relocations to the same `mClipper`, so the hook covers it too.
@@ -176,6 +177,11 @@ void clip_setup_hook(f32 fovy, f32 aspect, f32 near_, f32 far_) {
     mDoLib_clipper_setup(fovy, ws_clip_aspect(aspect), near_, far_);
 }
 ```
+
+The hook also covers the very first clipper setup: `init_phase2` (camera create) calls
+`view_setup` (`bl 0x8017BEB0` at `0x8017C958`), which goes through the same `bl` at `0x8017BF90`.
+A store scan of the DOL finds no other write to `mClipper+0x50`. RELs were not scanned; none in
+the decomp source writes it.
 
 `ws_clip_aspect` (the widescreen mod's C entry point, declared in `mods.h`) reads the mailbox
 block (section 6) and returns `aspect × factor` only when the block is valid and in mode 1, else
@@ -227,10 +233,15 @@ Size 0x10, so the block ends at +0xA7C.
   `view->mAspect`. One field selects one widening point, so the two can never multiply.
 
 **Default on, for everyone:** a 4:3 player without the hack also gets the wider clipper. The GPU
-clips the extra objects anyway, so nothing visible changes. The cost is CPU work for objects just
-off-screen, plus `NOCULLEXEC` actors ticking about 1/8 of a screen beyond each side. Step 7 of the
-build measures it. If it costs a 4:3 player more than 1 fps in a busy scene, flip the C default to
-mode 0 and let the Go setting turn it on.
+clips the extra objects anyway, so nothing visible changes. The costs: CPU work for objects just
+off-screen; `NOCULLEXEC` actors (about 100 profiles, mostly NPCs) ticking about 1/8 of a screen
+beyond each side, so their wake-up and freeze edges move away from vanilla; and more contenders
+for the fixed pools (8 real-shadow slots handed out in actor-list order, 128 simple shadows, 150
+particle emitters). Multiplayer and co-op don't care: every mirrored enemy kind is CULL-only (it
+runs whether or not it is culled) and the REL's copies use their own draw gates. The default is on
+because the person this is for always plays with the hack and the CLI can't persist a setting
+yet (6.2). Step 7 measures the cost. If a 4:3 player loses more than 1 fps in a busy scene, or
+NPC behaviour visibly changes, make mode 0 the C default and let Go turn it on (`auto` below).
 
 ### 6.2 Who writes it from Go
 
@@ -238,8 +249,14 @@ There is no mod-facing writer today. The app's mod runtime has `Game = nil`, and
 multiplayer pipelines attach to Dolphin, and only during a session (docs/api/03-writing-a-mod.md:155;
 `app_face.go:276`). So the Go side starts small:
 
-1. **A CLI command from the mod**, `ww-multiplayer widescreen [off|16:9|16:10|21:9|32:9|<aspect>]`
-   (a `wwapi.CLI` command, as co-op's `mods/coop/cli` registers its commands). With no argument it
+1. **A CLI command from the mod**, `ww-multiplayer widescreen [auto|off|16:9|16:10|21:9|32:9|<aspect>]`
+   (a `wwapi.CLI` command, as co-op's `mods/coop/cli` registers its commands). `auto` works the
+   factor out from the Dolphin user dir it is given (`--user-dir`, default `USER_DIR_1` / the
+   launch defaults): `Config/GFX.ini [Settings]`, overridden by `GameSettings/GZLE01.ini
+   [Video_Settings]` (Dolphin maps that section onto GFX Settings, `GameConfigLoader.cpp:106-120`).
+   Hack off gives off. ForceWide gives 4/3. Custom gives custom ÷ 4/3. Stretch can't be known from
+   disk, so it gives 4/3 with a note. A toggle in Dolphin's Graphics window isn't on disk until
+   Dolphin saves, so `auto` can be stale; the explicit values are the override. With no argument it
    prints the block. With one it attaches to the running Dolphin (`cliutil.OpenDolphin`, honouring
    `WW_DOLPHIN_PID` / `WW_DOLPHIN_INDEX`), checks the contract (`wwapi.CheckContract`, as
    `mods/multiplayer/feed/contract.go` does) and writes the block. It lasts until the next boot or
@@ -305,9 +322,10 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
 5. **Go mod.** `mods/widescreen/`: `mod.json` (`id` widescreen, `multiplayer` `local_only`,
    `needs` `["widescreen"]`, `enabled_by_default` true; validate with `go run
    ./tools/validate_manifests`), `mod.go` (embedded manifest, `wwapi.NoRun`, the CLI command),
-   `setting.go` (`ParseSetting`: `off`, `16:9`, `16:10`, `21:9`, `32:9`, a decimal aspect like
-   `2.39`, or `W:H`; factor = aspect ÷ 4/3, clamped to [1, 3]; an aspect at or below 4/3 means
-   factor 1), and tests over `wwapi/mem.FakeMem`: parse table, block bytes, a refused write when
+   `setting.go` (`ParseSetting`: `auto`, `off`, `16:9`, `16:10`, `21:9`, `32:9`, a decimal aspect
+   like `2.39`, or `W:H`; factor = aspect ÷ 4/3, clamped to [1, 3]; an aspect at or below 4/3 means
+   factor 1), `auto.go` (the GFX.ini + GameSettings reader of 6.2, with test inis under
+   `testdata/`), and tests over `wwapi/mem.FakeMem`: parse table, block bytes, a refused write when
    the contract fails. List it in `compiledMods()` (`cmd/ww-multiplayer/mods.go`). Update the CLI
    and help goldens (`cmd/ww-multiplayer/testdata/cli-golden`, the `mods` listing) with
    `-update` as docs/TESTING.md says.
@@ -328,9 +346,12 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
       with `-C Dolphin.Movie.DumpFrames=True -C Dolphin.Movie.DumpFramesSilent=True -C
       Graphics.Settings.DumpFramesAsImages=True` and use `<user dir>/Dump/Frames/`. Put the
       before/after pair on the card, not in git.
-   5. Frame rate: `scripts/mac-rig.sh fps <pid>` in a busy outdoor scene (Windfall, or the sea
-      near an island) with `widescreen off` and `16:9`, hack on and off. Report the numbers. If a
-      4:3 player loses more than 1 fps, make mode 0 the C default (6.1).
+   5. Frame rate and pools: `scripts/mac-rig.sh fps <pid>` in a busy outdoor scene (Windfall at
+      night, or the sea near an island) with `widescreen off` and `16:9`, hack on and off. Also
+      count the real-shadow slots in use (`dDlst_shadowControl_c` `mReal[8]`, `mState != 0`) and
+      watch for missing shadows or effects near the centre. Report the numbers. If a 4:3 player
+      loses more than 1 fps, make mode 0 the C default (6.1). The hack can be forced on a test rig
+      with `-C GFX.Settings.wideScreenHack=True -C GFX.Settings.AspectRatio=1`.
    6. A two-Dolphin `mp-local` run with the hook (`scripts/mac-rig.sh pair` + `mp-local`): remote
       Links, puppets and enemy copies still show, and nothing new crashes (`wwdev crash-context`
       if a JUTException appears).
@@ -347,7 +368,7 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
 - **The block and the mode field.** Mode 2 means "native": #1186 widens the camera's aspect at its
   source and leaves the clipper hook as a pass-through. One field, so the two widenings can't stack.
 - **The upstream knob for mode 2** is `g_HIO.mAspectRatio` (`0x803B9A08`, default 0.96). Six DOL
-  loads read it and nothing stores to it. Setting it to `0.96 × factor` widens, in one place,
+  loads read it, and nothing writes it at runtime: only its constructor, in static init. Setting it to `0.96 × factor` widens, in one place,
   `view->mAspect` (the main projection, the clipper through `view_setup`, the particle aspect),
   the pause-menu and file-select cloth backdrops (`d_menu_capture.inc:83`, `d_s_name.cpp:1542`),
   the stage-transition fade (`d_ovlp_fade2.cpp:54`) and the file-select camera (`d_s_name.cpp:201`).
@@ -358,10 +379,16 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
 - **Dolphin side:** with `view->mAspect` widened to 1.7067 the projection-to-viewport ratio becomes
   1.28, within the heuristic's 0.11 of 1.333. Dolphin should then read the game as anamorphic 16:9
   and the hack stops widening, even if it is left on (inferred from `Widescreen.cpp`; #1186 must
-  check this live). Dolphin's own `GZLE01.ini` "$16:9 Widescreen" Gecko code is prior art for the
-  HUD: it patches only 2D/HUD functions and leaves the 3D widening to the hack, i.e. it has
-  exactly this culling problem. Its list of patched functions is a starting inventory for #1186's
-  HUD work.
+  check this live).
+- **Prior art:** Dolphin ships a "$16:9 Widescreen" Gecko code for GZLE01
+  (`Data/Sys/GameSettings/GZLE01.ini` in Dolphin's source, disabled by default). It is native
+  widescreen in Gecko form: its last line `043FA998 3FE38E39` rewrites `preparation`'s 4/3 to 16/9,
+  so it widens the projection **and** the clipper, and the rest patches HUD and menu functions
+  (`dMeter_*`, `dMenu_*`, `dMap_c::calcScissor`, the boomerang sight, the game-over screen). Its
+  patched-function list is a starting inventory for #1186's HUD work. Its code caves at
+  `0x800037E0` and `0x80004038` sit in `gTRKInterruptVectorTable`, inside the repo's `CanaryTRK`
+  region (`wwapi/mailbox/mod.go:66`). Check that conflict before anyone tries the code with our
+  patched disc, even as a stopgap.
 - **Camera framing:** `dCamera_c::mWindowAspectRatio` (`camera_process+0x848`, set in
   `preparation` at `0x8017BE84`) drives lock-on framing. It is 4:3 in either mode and is #1186's
   to decide.
@@ -370,7 +397,15 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
 ## 10. Open questions and risks
 
 - **Performance** of the wider frustum in dense scenes (Windfall at night, Forsaken Fortress, the
-  sea with many LOD islands) is not measured yet: step 7.5.
+  sea with many LOD islands) is not measured yet, nor are the real-shadow slots (8) and the
+  emitter pool (150): step 7.5.
+- **Stub-only REL actors:** about 75 actor RELs are still `/* Nonmatching */` in the decomp
+  (`npc_ko1`, `bj1`, `kk1`, `ob1`, `obj_tapestry`, `bigelf`, `obj_flame`, …), and no RELS.arc on
+  disk was scanned. Any clipper call they make is fixed by the hook. A private `mDoLib_project`
+  screen check in one of them would not be, but it would be cosmetic like section 4's.
+- **Which pop-in the person notices most** (room BG joints, actors, or grass and trees) was not
+  checked on their own scenes. The hook fixes all three, so it doesn't change the plan.
+- **Our name tags** drift under the hack (section 4). A separate small REL fix if wanted.
 - **Default on for 4:3 players:** decided in 6.1, revisited by the step 7.5 numbers.
 - **Stretch and Custom users** need the CLI setting until the persistent app setting exists (6.2).
 - **The screen-space gates** (sun glare, fireflies, lantern glow, picto-box ratio, reticles) stay
