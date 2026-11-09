@@ -97,6 +97,10 @@ type LaunchOptions struct {
 	// InstallCheats puts the bundled Gecko codes into a user folder that
 	// has none, before a launch (launch.EnsureCheatsIni).
 	InstallCheats bool
+	// Widescreen is the "Widescreen" setting's text ("16:9", "21:9",
+	// "W:H"; "" or "off" = off): the engine adds launch.WidescreenArgs to
+	// the Dolphin command line (native-widescreen.md section 7).
+	Widescreen string
 }
 
 // RunningDolphin is one running Dolphin process.

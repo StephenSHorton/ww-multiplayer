@@ -672,7 +672,11 @@ func launchDolphinFor(o session.LaunchOptions, rep log.Reporter, cheatsIni []byt
 	} else if p != "" {
 		log.Logf(rep, log.Info, "save: made an empty Wind Waker save at %s (this profile had none)", p)
 	}
-	pid, err := launch.Launch(o.Exe, o.UserDir, o.ISO, "")
+	ws, werr := launch.ParseWidescreenSetting(o.Widescreen)
+	if werr != nil {
+		log.Logf(rep, log.Warn, "widescreen: %v (left off)", werr)
+	}
+	pid, err := launch.LaunchWith(o.Exe, o.UserDir, o.ISO, "", launch.WidescreenArgs(ws))
 	if err != nil {
 		return 0, err
 	}

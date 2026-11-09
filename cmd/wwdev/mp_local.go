@@ -166,10 +166,17 @@ func runDolphin2(reset bool) {
 	// and never stops on a panic popup (launch.DevLogArgs, session-only -C).
 	devLog := launch.DevLogEnabled(os.Getenv)
 	var recs []launchRecord
+	// WW_WIDESCREEN=<setting> adds the widescreen -C pair (auto-recapture never does).
+	ws, werr := launch.ParseWidescreenSetting(os.Getenv("WW_WIDESCREEN"))
+	if werr != nil {
+		log.Logf(rep, log.Err, "WW_WIDESCREEN: %v", werr)
+		os.Exit(2)
+	}
+	wsArgs := launch.WidescreenArgs(ws)
 	for _, p := range plan {
 		logPath := launch.LogFile(p.userDir)
 		offset := fileSize(logPath) // Dolphin appends: this one's lines start here
-		pid, err := launch.LaunchTest(dolphinExe, p.userDir, isoPath, p.saveState, devLog)
+		pid, err := launch.LaunchTestWith(dolphinExe, p.userDir, isoPath, p.saveState, devLog, wsArgs)
 		if err != nil {
 			log.Logf(rep, log.Err, "launch %s: %v", p.label, err)
 			os.Exit(1)
