@@ -3,6 +3,7 @@
 package host
 
 import (
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -31,21 +32,30 @@ func RenderSize(pid uint32) (w, h int, ok bool) {
 	if w <= 0 || h <= 0 {
 		return 0, 0, false
 	}
-	bw, bh := 0, 0
-	cb := syscall.NewCallback(func(child uintptr, _ uintptr) uintptr {
-		if v, _, _ := procIsWindowVisible.Call(child); v == 0 {
-			return 1
-		}
-		cw, ch := clientSize(child)
-		if cw*ch > bw*bh {
-			bw, bh = cw, ch
-		}
-		return 1
-	})
-	procEnumChildWindows.Call(hwnd, cb, 0)
+	childMu.Lock()
+	childW, childH = 0, 0
+	procEnumChildWindows.Call(hwnd, childCB, 0)
+	bw, bh := childW, childH
+	childMu.Unlock()
 	// A child that fills most of the window is the render widget.
 	if bw > 0 && bh > 0 && bw*bh*2 >= w*h {
 		return bw, bh, true
 	}
 	return w, h, true
 }
+
+// RenderSize's EnumChildWindows callback, made once (see findWindowCB);
+// childMu guards the largest child it found.
+var (
+	childMu        sync.Mutex
+	childW, childH int
+	childCB        = syscall.NewCallback(func(child uintptr, _ uintptr) uintptr {
+		if v, _, _ := procIsWindowVisible.Call(child); v == 0 {
+			return 1
+		}
+		if cw, ch := clientSize(child); cw*ch > childW*childH {
+			childW, childH = cw, ch
+		}
+		return 1
+	})
+)

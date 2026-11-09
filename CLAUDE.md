@@ -213,6 +213,9 @@ WW_TUNIC=off                                # Pose pipeline (puppet-sync, host/j
 WW_NAMETAGS=off / WW_EQUIP=off / WW_SEACHART=off / WW_HAIR=off   # puppet-sync (mods/multiplayer/vissync): no name tags over the mini-Links / no remote
                                             #   sword, shield (hero's or mirror) and scabbard (hero's or Master Sword's) on them / no remotes on the pause menu's
                                             #   sea chart / no katsura hair on a casual remote (default all on; the REL draws them, wwvis.h)
+WW_TAG_XSCALE=<f>|off                       # puppet-sync: pin the name tags' Widescreen Hack x scale (0 < f <= 1; off = 1). Default: measured every 2 s from the
+                                            #   Dolphin's GFX.ini / GameSettings GZLE01.ini / -C args and render window (wwapi/emu/launch/widescreen.go), so the
+                                            #   tags stay on the remotes when the hack widens the 3D picture (#1157; wwvis.h WWVIS_FLAGS_XSCALE_*)
 WW_LOBBY=off                                # puppet-sync: no lobby presence (issue #38). Default on: on the title screen the remotes' Links stand in a row in
                                             #   front of the title camera, facing it, with their name tags (mods/multiplayer/feed/lobby.go); on the file select
                                             #   screen the REL prints "Here: A, B" (WWVIS_FLAG_LOBBY). Off hides both. Dev knobs: WW_LOBBY_{DIST,DROP,SPACING,SIDE}
