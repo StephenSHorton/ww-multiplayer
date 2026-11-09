@@ -1,12 +1,14 @@
 # Native widescreen: every 4:3 assumption and the build plan
 
-**Status:** plan only, no code (card #1186, 2026-11-09). It builds on #1184's culling plan
+**Status:** stage 1 built on card #1185 (with the culling plan, PC build 2026-11-09, BlobHash
+0x1100504D; live checks owed, docs/TESTING.md "Widescreen stage 1"); stages 2-5 are plan only
+(card #1186, 2026-11-09). It builds on #1184's culling plan
 (`docs/design/widescreen-culling.md`, "the culling plan" below), whose clipper hook, `WWWS` mailbox
 block and `WWAP_OP_WS_SET` op card #1185 builds. Section 9 lists what this plan corrects in it.
 Every address here was checked against the vanilla GZLE01 DOL and the decomp
 (`~/projects/tww`) by a finder and then by an adversarial verifier, unless the row says
 "unverified" or "live check". No byte count here was measured from compiled code: there is no
-devkitPPC on the Mac, so the first real sizes come from the PC build of stage 1.
+devkitPPC on the Mac, so the first real sizes come from the PC build of stage 1 (section 6).
 
 ## 1. In short
 
@@ -28,9 +30,9 @@ devkitPPC on the Mac, so the first real sizes come from the PC build of stage 1.
 - **Shared, cheap set-ups do most of it:** one data word for 3D, one 2D hook, one load-time screen
   hook pair with a table, one wrapper for 2D placed at projected 3D points (7 sites), and a few data
   words. Per-screen work is small: the picto box, the opening, THP movies, minigame HUD widgets.
-- **Budget:** T2 has 0xBF8 bytes free on main. Stages 1-3 (world, 2D proportions, HUD edges) fit
-  even at the high estimate (about 0x68 left); stages 4-5 fit only at the low end, with four
-  levers ready (section 6). No runtime code-word rewrites, so no icache work.
+- **Budget:** T2 had 0xBF8 bytes free on main. Stage 1 with #1185 measured 0x320 (the plan said
+  0xE0-0x1C0), so 0x8D8 is left. Stages 2-3 at their high estimate (0x9D0) no longer fit: the
+  levers in section 6 are chosen at stage 2. No runtime code-word rewrites, so no icache work.
 - **Dolphin:** the app launches Dolphin with `-C Graphics.Settings.wideScreenHack=False -C
   Graphics.Settings.AspectRatio=1` (Force 16:9), or Custom W:H. Go puts the mod in native mode
   (mode 2) only when Dolphin's effective settings agree. The setting is *Widescreen: 16:9 / Custom
@@ -569,10 +571,12 @@ functions sit in `inject/src/ws/widescreen.c` and are declared in `mods.h`.
 
 ## 6. Blob budget
 
-**Room.** T2 runs `0x80410000..0x80413408` (`internal/inject/blob.go` `T2End`) and its budget
-ends at the API region at `0x80414000` (`inject/include/wwops.h`): **0xBF8 bytes free**. (The
-card's "0x478" was the figure after E3, before wind#80 and wind#90.) #1185 takes about 0x80-0x100.
-T2's `.bss` counts too: latched state lives in the block, saved boxes on the stack.
+**Room.** Before #1185, T2 ran `0x80410000..0x80413408` and its budget ends at the API region at
+`0x80414000` (`inject/include/wwops.h`): 0xBF8 bytes free. **Measured after stage 1 (PC build,
+2026-11-09):** T2 runs `..0x80413728` (`internal/inject/blob.go` `T2End`), **0x8D8 bytes free**. (The
+card's "0x478" was the figure after E3, before wind#80 and wind#90.) #1185 was planned at about
+0x80-0x100; with stage 1 it took 0x320 (the table below). T2's `.bss` counts too: latched state
+lives in the block, saved boxes on the stack.
 
 **What a hook costs.** `hook_branchlink` rewrites the site's `bl` to point straight at the C
 function (no trampoline): one rewritten 4-byte instruction (a 1-4 byte run in `DOLPatches`, which stores byte diffs) and 0 bytes of T2. Sites that call the same
@@ -583,13 +587,15 @@ count code ×1.5 at the high end (E3 once overshot by 0x4E0); table data is exac
 
 | Stage | T2 bytes | Contents | Running total with #1185 |
 |---|---|---|---|
-| 1 | 0x60-0xC0 | knob store in WS_SET/`ws_init`, `ws_snap_setresult` | 0xE0-0x1C0 |
-| 2 | 0x540-0x810 | `ws_2d_factor` + latch, `ws_ortho_hook`, `ws_apply` + 7 entries, hooks A/B + walker + 27 rows and 12 EDGE rules, `ws_project_2d`, scissor wrapper, `ws_screen_draw_full` (2 entries), `ws_persp`, opening fills | 0x620-0x9D0 |
-| 3 | 0x140-0x1C0 | shift kinds (code 0x50-0x88), 7 rows + 27 rules (`main_parts1`'s 15 NONE tags, `pn`, `auction2`'s 11) + 3 `ws_apply` entries (data ≈ 0xEF); +0x80-0x120 if the cannon/Sploosh wrappers stay in T2 instead of the REL | 0x760-0xB90 |
-| 4 | 0x70-0xD0 | THP frame step, optional polish | 0x7D0-0xC60 |
-| 5 | 0x20-0x200 | telescope look-in; picto option B or C if chosen (0x78 if B's resample lives in the REL behind a forwarder); option A needs nothing | 0x7F0-0xE60 |
+| 1 | **0x320 measured** with #1185 (planned 0xE0-0x1C0 for both) | `ws_op_set` 0xB8, `ws_init` 0x88, `ws_live_factor` 0x68, `ws_clip_aspect` 0x5C, `clip_setup_hook` 0x58, `ws_snap_setresult` 0xAC (built `-Os` for that function; `-O2` unrolled it to 0x114), 0x308 in all, plus the module table entry and alignment | 0x320 |
+| 2 | 0x540-0x810 | `ws_2d_factor` + latch, `ws_ortho_hook`, `ws_apply` + 7 entries, hooks A/B + walker + 27 rows and 12 EDGE rules, `ws_project_2d`, scissor wrapper, `ws_screen_draw_full` (2 entries), `ws_persp`, opening fills | 0x860-0xB30 |
+| 3 | 0x140-0x1C0 | shift kinds (code 0x50-0x88), 7 rows + 27 rules (`main_parts1`'s 15 NONE tags, `pn`, `auction2`'s 11) + 3 `ws_apply` entries (data ≈ 0xEF); +0x80-0x120 if the cannon/Sploosh wrappers stay in T2 instead of the REL | 0x9A0-0xCF0 |
+| 4 | 0x70-0xD0 | THP frame step, optional polish | 0xA10-0xDC0 |
+| 5 | 0x20-0x200 | telescope look-in; picto option B or C if chosen (0x78 if B's resample lives in the REL behind a forwarder); option A needs nothing | 0xA30-0xFC0 |
 
-Stages 1-3 fit at the high end with about 0x68 to spare; stages 4-5 only at the low end.
+The running totals are from the measured 0x320. Stages 2-3 need 0x680-0x9D0 on top of it, and
+0x8D8 is left: they fit at the low end, not the high. So the levers below are chosen at stage 2,
+before its code is written, not after.
 
 **Must be T2:** every DOL `bl` target, and everything that runs before our REL links (Link exists +
 300 frames): `ws_init`, WS_SET, `ws_apply`, the `setOrtho` hook, hooks A/B with the walker,
@@ -768,6 +774,17 @@ PC two-Dolphin loop, with a start save recaptured for the stage's blob (in mode 
 Changes the C side, so it lands in **#1185's blob change**: follow the culling plan's section 8
 (as corrected in section 9) with these additions.
 
+**Built on card #1185** (PC build, 2026-11-09, BlobHash 0x1100504D): items 1-4, and from item 5
+the `ReadGFXAspect` fixes, the launch args (`LaunchWith`, `LaunchTestWith`,
+`session.LaunchOptions.Widescreen`, `WW_WIDESCREEN` for `dolphin2`), `ParseAppSetting`, the CLI's
+`widescreen native` and `wwdev ops ws`. Not in that base (36babc0): the Settings card, the mode
+policy and its runner, the Gecko check, the `xscaleSampler` change, `stage-hop --wipe`. Hooks:
+`clip_setup_hook` at `0x8017BF90` (DOL file offset `0x178ED0`), `ws_snap_setresult` at
+`0x800CE5E8` (DOL `0xCB528`), both in `hooks.c`. The block at
+`0x8041596C` (+0xA6C..+0xA84, mode byte `0x80415971`, factor `0x80415974`), op 16
+`WWAP_OP_WS_SET`, `WW_FEAT_WIDESCREEN` 0x80 (`WW_FEATURES` 0xFF), `CanaryArenaHigh` from +0xA84.
+T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Widescreen stage 1".
+
 1. **Header** (`inject/include/wwws.h`): the 0x18 layout of section 5, `WWWS_F_2D` 0x01,
    `WWWS_F_HUD` 0x02, `WWWS_FLAGS_SUPPORTED` 0x00, `WWWS_MODE_NATIVE` 2, `WWWS_KNOB_ADDR`
    0x803FA998, `WWWS_KNOB_VANILLA` 0x3FAAAAAB; the static asserts check `WWWS_OFF + 0x18`. The
@@ -811,7 +828,7 @@ Changes the C side, so it lands in **#1185's blob change**: follow the culling p
      `engine.mailboxClaimed` reads it).
    - wwdev: `ops ws <mode> <aspect> [flags]`; `stage-hop --wipe N` (it always writes wipe 0 today,
      `coop_diag.go` `stageHopWipe`; 2 gives OVERLAP2, 4 OVERLAP4).
-6. **Live checks (Dolphin):**
+6. **Live checks (Dolphin)** (WS-1..WS-11 in docs/TESTING.md, unchecked):
    1. Before the build, with today's blob: hack off, Force 16:9, `./wwdev.exe poke-u32 803FA998
       3FE38E39`. The world is round, not wide; `peek 803A575C` reads `0x3FDA740D`. Cross two stage
       loads and the pause menu, then `peek 803FA998` (still `3FE38E39`): a single store holds under

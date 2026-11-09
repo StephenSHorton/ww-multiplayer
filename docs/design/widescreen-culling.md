@@ -1,6 +1,8 @@
 # Widescreen culling: the cause and the plan
 
-**Status:** plan only, no code yet (card #1184, 2026-11-09). The build is card #1185. Card #1186
+**Status:** built on card #1185 with native widescreen's stage 1 (PC build 2026-11-09, BlobHash
+0x1100504D); the live checks in section 8 step 7 are owed (docs/TESTING.md "Widescreen stage 1").
+The plan was card #1184 (2026-11-09). Card #1186
 plans native widescreen (no Dolphin hack, HUD and menus) and reuses the hook and the setting
 designed here; section 9 says what it inherits.
 
@@ -319,7 +321,9 @@ later in-process writer must share the session's Queue. The app's mod runtime st
   `a9dbc82` is from before wind#90's API region. The hook, `ws_clip_aspect`, `ws_init`, the op
   handler and one `WwModuleDesc` entry come to roughly 0x80-0x100 bytes. Putting the mod in its
   own C unit costs a little more than inlining it in hooks.c (E3 measured split costs, 00-design.md
-  §6.6), but it keeps the mod separate. Either fits. #1186 shares the same 0xBF8, so it should
+  §6.6), but it keeps the mod separate. Either fits. **Measured** (PC build 2026-11-09, with
+  native widescreen's stage 1): 0x320, so T2 now ends at `0x80413728`, 0x8D8 free
+  (native-widescreen.md section 6). #1186 shares what is left, so it should
   measure before it plans kilobytes of HUD code there (the REL is the room for bulk code).
 - **Mailbox:** the 0x18-byte block above. No `WWMB_LAYOUT` bump, no change to `layout_gen.go`'s
   struct. `CanaryArenaHigh` shrinks by 0x18.
@@ -411,7 +415,11 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
    6. A two-Dolphin `mp-local` run with the hook (`scripts/mac-rig.sh pair` + `mp-local`): remote
       Links, puppets and enemy copies still show, and nothing new crashes (`wwdev crash-context`
       if a JUTException appears).
-8. **Docs.** RAM map lines in `docs/api/00-design.md` (T2 end, free bytes, the hook list, the
+
+   They are WS-C1..WS-C6 in docs/TESTING.md "Widescreen stage 1", unchecked.
+8. **Docs** (done on #1185, except `mailbox_core.h`'s owner map and the free-slack comments in
+   `wwboat.h`, `wwrefresh.h` and `wwremote.h`, which are under `inject/` and wait for the next C
+   change). RAM map lines in `docs/api/00-design.md` (T2 end, free bytes, the hook list, the
    +0xA6C block), `mailbox_core.h`'s owner map, `docs/04-ww-addresses.md` (`mClipper`,
    `view_setup`'s call site, `g_HIO.mAspectRatio`), a players' note in the next
    `docs/release-notes/v*.md` (re-patch; "objects no longer pop in at the screen edges with

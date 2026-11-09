@@ -53,15 +53,18 @@ The plan:
 ```
  0x80006338   bl main01_init       (hook: one-shot init)
  0x80023204   bl frame_shim        (hook: per frame, tail-calls 0x802449AC)
+ 0x800CE5E8   bl ws_snap_setresult (hook: dSnap_packet::Judge's bl SetResult 0x800CEB80; picto judge, widescreen mode 2)
  0x80108210   bl daPy_draw_hook    (hook: Link #1 draw, wraps daPy_lk_c::draw 0x80107308)
+ 0x8017BF90   bl clip_setup_hook   (hook: view_setup's bl mDoLib_clipper::setup 0x800176BC; widescreen culling)
  0x802C39A0   bl pad_read_shim     (hook: after PADRead in JUTGamePad::read)
  0x803CA754   Link actor pointer (PLAYER_PTR)
 
  0x8040EFC0   original __ArenaLo (vanilla)
  0x80410000   T2 code start (injected .text/.data/.bss)
- 0x80413408   T2 end since wind#90 (the C runtime's rings, src/core/ops.c) -> 0xBF8 bytes free below the API region; T2's budget ends at 0x80414000
+ 0x80413728   T2 end since #1185 (widescreen stage 1, src/ws/widescreen.c and its two hooks, +0x320) -> 0x8D8 bytes free below the API region; T2's budget ends at 0x80414000
  0x80414000   API region (inject/include/wwops.h, wind#90): 'WWAP' header and directory, event ring, command queue (to +0x260);
               the co-op world region at +0x300..+0xF00 (0x80414300..0x80414F00, reserved for co-op M7's image)
+              (before #1185: T2 end 0x80413408 -> 0xBF8 free since wind#90 (the C runtime's rings, src/core/ops.c))
               (before wind#90: T2 end 0x80412D08 -> 0x21F8 bytes free below the mailbox since wind#80 moved it +0x2000 (issue #130; 0x1F8 before, 0x258 with the REL loader, T2 end 0x80412CA8; 0x478 after F20, T2 end 0x80412A88; 0x538 after F19; 0x478 after E3; 0x958 after E1/E2; 0x978 after E0; 0x18 before E0, T2 end 0x80412EE8))
  0x80414F00   Mailbox start (0x1B0 bytes since E1; 0x1A0 before)
  0x804150B0   Mailbox end                 -> 0xF50 bytes slack, of which:
@@ -79,7 +82,9 @@ The plan:
  0x80415410   free slack (a co-op region here would start at mailbox +0x510, WWENEMY_REGION_END)
               (since then: the remote-Link block +0x510..+0x850, the knob table, the refresh request and
               the visuals block +0x8D0..+0x9E4 (0x990 before WWMB_LAYOUT 3, 0x9C0 before the wave-3 models2
-              table); the peer boats block +0x9E4..+0xA6C (wwboat.h); free slack +0xA6C..+0xD00)
+              table); the peer boats block +0x9E4..+0xA6C (wwboat.h); the widescreen block +0xA6C..+0xA84
+              (0x8041596C, 'WWWS', wwws.h, #1185; only C writes it, Go submits WWAP_OP_WS_SET 16);
+              free slack +0xA84..+0xD00, where CanaryArenaHigh starts)
  0x80415C00   the mini-Links' eye packets (mailbox +0xD00..+0xE50, MP_EYE_PACKETS_OFF in mailbox_mp.h,
               WWMB_LAYOUT 3: 3 slots x 4 J3DPacket copies x 0x1C; were T2 .bss, then +0xFB0); never canary-armed
  0x80415D50   the projectile events block (mailbox +0xE50..+0x1100, inject/include/wwfx.h WWFX_OFF;
@@ -87,7 +92,7 @@ The plan:
  0x80416000   patched __ArenaLo (OSInit patched by build.py; ARENA_LO in mailbox_core.h; 0x80414000 before wind#80)
 ```
 
-(verified: `inject/build.py`, `inject/include/mailbox_core.h`, `internal/inject/blob.go` T2Bytes = 0x2CA8 since the REL loader (2026-10-18, src/mp/relload.c; 0x2A88 after F20, 0x29C8 after F19, 0x2A88 after E3, 0x25A8 after E1/E2, 0x2588 after E0, 0x2EE8 before it), `t2_budget_test.go`; blob.go's `T2End`, `MailboxAddr` and `ArenaLo` carry these since E1)
+(verified: `inject/build.py`, `inject/include/mailbox_core.h`, `internal/inject/blob.go` T2Bytes = 0x3728 since #1185 (0x3408 after wind#90), 0x2CA8 since the REL loader (2026-10-18, src/mp/relload.c; 0x2A88 after F20, 0x29C8 after F19, 0x2A88 after E3, 0x25A8 after E1/E2, 0x2588 after E0, 0x2EE8 before it), `t2_budget_test.go`; blob.go's `T2End`, `MailboxAddr` and `ArenaLo` carry these since E1)
 
 **Mailbox layout** at 0x80414F00 (the source of truth is `inject/include/mailbox_core.h` and the `mailbox_mp.h` it includes, split from `mailbox.h` in E3 with the same offsets; `tools/gen_mailbox` generates the Go copy, `wwapi/mailbox/layout_gen.go`, and `TestMailboxLayout` fails when it is stale):
 
