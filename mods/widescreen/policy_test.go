@@ -83,7 +83,7 @@ func TestDecide(t *testing.T) {
 		{"off, hack 21:9", set("off"), Dolphin{GFX: launch.GFXAspect{Hack: true, Mode: launch.AspectCustom, CustomW: 21, CustomH: 9}}, game(clip), 1, 1.75, ""},
 		{"off, Force 16:9 hack off: never 2", set("off"), Dolphin{GFX: wide}, game(native), 0, 1, ""},
 		{"off, stretch hack 1920x1080", set("off"), Dolphin{GFX: launch.GFXAspect{Hack: true, Mode: launch.AspectStretch}, RenderW: 1920, RenderH: 1080}, game(clip), 1, f169, ""},
-		{"off, stretch hack size unknown", set("off"), Dolphin{GFX: launch.GFXAspect{Hack: true, Mode: launch.AspectStretch}}, game(clip), 0, 1, ""},
+		{"off, stretch hack size unknown: C default", set("off"), Dolphin{GFX: launch.GFXAspect{Hack: true, Mode: launch.AspectStretch}}, game(clip), 1, f169, ""},
 	} {
 		got := Decide(c.s, c.d, c.g)
 		if got.Mode != c.mode || got.Factor != c.factor || got.Flags != FlagsAll {

@@ -216,3 +216,54 @@ func TestReconcileUnknownDolphin(t *testing.T) {
 		t.Fatalf("%d WS_SETs", n)
 	}
 }
+
+// TestReconcileRebootWindow: a reboot reloads the DOL, so the knob reads
+// vanilla while the block still says mode 2 until ws_init runs. That one
+// window must not read as another widescreen writer (no warning, no
+// demote); a knob that stays foreign still warns on the next tick.
+func TestReconcileRebootWindow(t *testing.T) {
+	g := newGame(t)
+	s, _ := launch.ParseWidescreenSetting("16:9")
+	rep := &recLog{}
+	r := &Reconciler{Q: ops.New(g.m), M: g.m, Setting: s, Rep: rep,
+		Dolphin: func() (Dolphin, bool) {
+			return Dolphin{GFX: launch.GFXAspect{Mode: launch.AspectForceWide, CustomW: 1, CustomH: 1}}, true
+		}}
+	st := &reconcileState{}
+	for i := 0; i < 200 && g.block().Mode != 2; i++ {
+		r.tick(st, time.Hour)
+		time.Sleep(2 * time.Millisecond)
+	}
+	if g.block().Mode != 2 {
+		t.Fatalf("never native: %s", g.block())
+	}
+	r.tick(st, time.Hour) // settle: applied, nothing pending
+	sets := g.sets.Load()
+
+	// The reboot's window: the knob is vanilla, the block still mode 2.
+	g.halt.Store(true)
+	g.put32(mailbox.WsKnobAddr, mailbox.WsKnobVanilla)
+	r.tick(st, time.Hour)
+	if strings.Contains(rep.text(), "camera aspect") || g.sets.Load() != sets {
+		t.Fatalf("reboot window read as a foreign writer: %q, %d sets", rep.text(), g.sets.Load()-sets)
+	}
+	// ws_init runs: mode 1, knob vanilla; the loop sends mode 2 again, no warning.
+	g.halt.Store(false)
+	g.boot()
+	for i := 0; i < 200 && g.block().Mode != 2; i++ {
+		r.tick(st, time.Hour)
+		time.Sleep(2 * time.Millisecond)
+	}
+	if g.block().Mode != 2 || strings.Contains(rep.text(), "camera aspect") {
+		t.Fatalf("after ws_init: %s, log %q", g.block(), rep.text())
+	}
+	// A knob that stays foreign is still reported, on the second tick.
+	r.tick(st, time.Hour)
+	g.halt.Store(true)
+	g.put32(mailbox.WsKnobAddr, mailbox.WsKnobVanilla)
+	r.tick(st, time.Hour)
+	r.tick(st, time.Hour)
+	if !strings.Contains(rep.text(), "camera aspect") {
+		t.Fatalf("a foreign knob was not reported: %q", rep.text())
+	}
+}

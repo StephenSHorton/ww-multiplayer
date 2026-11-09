@@ -100,7 +100,13 @@ func Decide(s launch.WidescreenSetting, d Dolphin, g Game) Decision {
 // clipRequest is mode 1 at the hack's factor, or mode 0 when nothing is
 // widened.
 func clipRequest(d Dolphin) Request {
-	x, _ := d.GFX.XScale(d.RenderW, d.RenderH)
+	g := d.GFX
+	if g.Hack && g.Mode == launch.AspectStretch && (d.RenderW <= 0 || d.RenderH <= 0) {
+		// The window's size is unknown, so the hack's factor is too: keep
+		// ws_init's default (mode 1 at 4/3) rather than drop the culling fix.
+		return Request{Mode: mailbox.WsModeClip, Factor: float32(4.0 / 3), Flags: FlagsAll}
+	}
+	x, _ := g.XScale(d.RenderW, d.RenderH)
 	if !(x > 0 && x < 1) {
 		return Request{Mode: mailbox.WsModeOffVal, Factor: 1, Flags: FlagsAll}
 	}

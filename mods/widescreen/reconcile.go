@@ -83,6 +83,7 @@ type reconcileState struct {
 	said     string
 	refused  bool
 	lastWant Request
+	reboot   bool // the block said mode 2 with the knob vanilla once (a reboot mid-load)
 }
 
 func (r *Reconciler) tick(s *reconcileState, slow time.Duration) {
@@ -125,6 +126,15 @@ func (r *Reconciler) tick(s *reconcileState, slow time.Duration) {
 	if !s.viewOK {
 		return
 	}
+	// A reboot reloads the DOL (the knob back to vanilla) before ws_init
+	// rewrites the block, which still says mode 2: skip one tick so that
+	// window doesn't read as another widescreen writer.
+	inReboot := blk.Mode == mailbox.WsModeNative && knob == mailbox.WsKnobVanilla
+	if inReboot && !s.reboot {
+		s.reboot = true
+		return
+	}
+	s.reboot = inReboot
 	want := Decide(r.Setting, s.view, Game{Block: blk, Knob: knob, Painter: painter})
 	if want.Warn != s.warned {
 		if want.Warn != "" {

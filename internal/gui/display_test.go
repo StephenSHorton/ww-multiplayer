@@ -53,6 +53,16 @@ func TestBridgeSetWidescreen(t *testing.T) {
 	if err := b.SetWidescreen("21:9"); err != nil {
 		t.Fatal(err)
 	}
+	// The mod switched off on the Mods page: Dolphin launches vanilla.
+	off := false
+	m := b.cfg.Mods["widescreen"]
+	m.Enabled = &off
+	b.cfg.Mods["widescreen"] = m
+	if g := b.launchOptions().Widescreen; g != "off" {
+		t.Errorf("mod disabled: launches with %q, want off", g)
+	}
+	m.Enabled = &on
+	b.cfg.Mods["widescreen"] = m
 	for _, bad := range []string{"auto", "2.39", "16x9", "5:1", "0:9", "-16:9", "a:b"} {
 		if err := b.SetWidescreen(bad); err == nil {
 			t.Errorf("%q was saved", bad)
