@@ -200,16 +200,17 @@ func runCullProbe(_ string, args []string) {
 	if err != nil {
 		exitUsage(err, usage)
 	}
+	// Exit 1 means only "culled while visible"; no game or a bad read is 2.
 	d, err := findDolphin("GZLE01")
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 	defer d.Close()
 	bad, err := cullProbe(os.Stdout, d, secs, func() { time.Sleep(time.Second) })
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 	if bad > 0 {
 		os.Exit(1)
