@@ -370,6 +370,10 @@ function render() {
 		}
 	}
 
+	// Version skew: members on another app version than ours (status text).
+	$("skew-note").textContent = (lobby && lobby.skew) || "";
+	$("skew-note").hidden = !(lobby && lobby.skew);
+
 	// Your row's controls: color and Ready, in the lobby phase.
 	const self = lobby ? lobby.members.find((m) => m.self) : null;
 	const mine = $("mine");

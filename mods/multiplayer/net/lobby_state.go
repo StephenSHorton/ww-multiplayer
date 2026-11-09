@@ -248,7 +248,7 @@ func (m *lobbyMachine) snapshot() LobbyStateBody {
 	for _, mb := range m.members {
 		st.Members = append(st.Members, LobbyMember{
 			ID: mb.id, Name: mb.name, Color: mb.color.Hex(), Ready: mb.ready, Host: mb.host,
-			Dolphin: mb.dolphin, File: mb.file, RTTMs: mb.rttMs, Via: ViaApp, Away: mb.conn == 0,
+			Dolphin: mb.dolphin, File: mb.file, RTTMs: mb.rttMs, Via: ViaApp, Away: mb.conn == 0, App: mb.app,
 		})
 		if mb.host {
 			st.Members[len(st.Members)-1].CoopStatus = mb.coop

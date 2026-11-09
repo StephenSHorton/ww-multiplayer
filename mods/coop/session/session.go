@@ -340,8 +340,13 @@ type Session struct {
 	// noTags says why no tag may be written this session (the backup
 	// failed); nil when tag writes may be offered.
 	noTags error
-	// backupDir is where the session-start backup went ("" without).
+	// backupDir is where the session-start backup went ("" without: no
+	// card yet, or noTags).
 	backupDir string
+	// backupMu guards backupDir and noTags against takeBackup, which a
+	// later offer runs on the replica's tick; env is what it backs up.
+	backupMu sync.Mutex
+	env      coopEnv
 	// ask answers the questions (coopFront.ask, or the stdin prompter).
 	ask    coopAsker
 	advise func(session.Advice) // nil for none
@@ -399,7 +404,7 @@ func startCoopSession(rep log.Reporter, f Flags, env coopEnv) *Session {
 // startCoopSide is startCoopSession for a host (host: its hub needs the
 // tables even in a dry run) or a joiner.
 func startCoopSide(rep log.Reporter, f Flags, env coopEnv, host bool) *Session {
-	cs := &Session{flags: f, rep: rep, ask: env.front.ask, advise: env.front.advise, poses: map[string]*network.Client{}}
+	cs := &Session{env: env, flags: f, rep: rep, ask: env.front.ask, advise: env.front.advise, poses: map[string]*network.Client{}}
 	var cmds <-chan promptLine
 	if cs.ask == nil {
 		p := newCoopPrompter(f.yes, env.input)
@@ -409,15 +414,7 @@ func startCoopSide(rep log.Reporter, f Flags, env coopEnv, host bool) *Session {
 	if env.front.attach != nil {
 		env.front.attach(cs)
 	}
-	b, err := backup.Create(env.userDirs, backup.Options{Root: env.backups, Label: "co-op session start"})
-	if err != nil {
-		cs.noTags = err
-		log.Logf(rep, log.Warn, "co-op: could not back up the memory cards: %v. No co-op tag is written this session (set USER_DIR_1 if Dolphin keeps its user folder elsewhere).", err)
-	} else {
-		cs.backupDir = b.Dir
-		log.Logf(rep, log.OK, "co-op: backed up %d memory-card file(s) to %s (`coop-world restore %s --yes`, with Dolphin closed, puts them back). Check that these are your cards:", len(b.Files), b.Dir, b.ID)
-		logBackupCards(rep, b)
-	}
+	cs.takeBackup("co-op session start")
 	if env.tables != nil && (host || !f.dryRun) {
 		st, err := env.tables(f.iso)
 		stagetables.Log(rep, st, err)
@@ -429,6 +426,39 @@ func startCoopSide(rep log.Reporter, f Flags, env coopEnv, host bool) *Session {
 		logCoopCombat(rep, cs.m1())
 	}
 	return cs
+}
+
+// takeBackup backs up the memory cards. A player with no card yet (a
+// fresh Dolphin: backup.ErrNoCards) has nothing to lose, so tags stay on
+// and the backup is taken by a later call, once a card exists; any other
+// failure turns tags off for the session. It is a no-op once a backup
+// exists or tags are off.
+func (cs *Session) takeBackup(label string) {
+	cs.backupMu.Lock()
+	defer cs.backupMu.Unlock()
+	if cs.backupDir != "" || cs.noTags != nil {
+		return
+	}
+	rep := cs.rep
+	b, err := backup.Create(cs.env.userDirs, backup.Options{Root: cs.env.backups, Label: label})
+	switch {
+	case errors.Is(err, backup.ErrNoCards):
+		log.Logf(rep, log.Info, "co-op: no Dolphin memory card yet, so there is nothing to back up; a tag may still be written, and the cards are backed up once one exists.")
+	case err != nil:
+		cs.noTags = err
+		log.Logf(rep, log.Warn, "co-op: could not back up the memory cards: %v. No co-op tag is written this session (set USER_DIR_1 if Dolphin keeps its user folder elsewhere).", err)
+	default:
+		cs.backupDir = b.Dir
+		log.Logf(rep, log.OK, "co-op: backed up %d memory-card file(s) to %s (`coop-world restore %s --yes`, with Dolphin closed, puts them back). Check that these are your cards:", len(b.Files), b.Dir, b.ID)
+		logBackupCards(rep, b)
+	}
+}
+
+// noTagsErr is noTags, read under backupMu.
+func (cs *Session) noTagsErr() error {
+	cs.backupMu.Lock()
+	defer cs.backupMu.Unlock()
+	return cs.noTags
 }
 
 // m1 is the session's M1 tables, nil without.
@@ -1429,7 +1459,8 @@ func (s *coopSync) run(ctx context.Context, addr string) error {
 // goroutine, so the replica keeps ticking meanwhile; the replica drops an
 // offer whose file changed before the answer.
 func (s *coopSync) offer(ctx context.Context, o replica.Offer) {
-	if err := s.cs.noTags; err != nil {
+	s.cs.takeBackup("co-op tag write")
+	if err := s.cs.noTagsErr(); err != nil {
 		msg := fmt.Sprintf("co-op: the %s is not offered: there is no memory-card backup this session (%v)", o.Plan.Kind, err)
 		s.rep.Log(log.Warn, msg)
 		s.advise(session.AdviceNoBackup, msg)
@@ -1479,8 +1510,8 @@ func (s *coopSync) preflight(pf replica.PreflightReport) {
 		s.rep.Log(log.Info, msg)
 		s.advise(session.AdviceNeedsMerge, msg)
 		return
-	case s.cs.noTags != nil:
-		msg := fmt.Sprintf("co-op: this file could bind, but there is no memory-card backup this session (%v)", s.cs.noTags)
+	case s.cs.noTagsErr() != nil:
+		msg := fmt.Sprintf("co-op: this file could bind, but there is no memory-card backup this session (%v)", s.cs.noTagsErr())
 		s.rep.Log(log.Info, msg)
 		s.advise(session.AdviceNoBackup, msg)
 		return
