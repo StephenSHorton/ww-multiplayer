@@ -286,7 +286,7 @@ func choiceOf(c config.Coop) CoopRequest {
 	case mode == "off" || mode == "":
 		mode = "auto" // saved when Off was the default: co-op is on now
 	}
-	return CoopRequest{Mode: mode, World: c.LastWorld, DryRun: c.DryRun, Merge: c.Merge, LiveSwitches: !c.LiveSwitchesOff, ISO: c.ISO}
+	return CoopRequest{Mode: mode, World: c.LastWorld, DryRun: c.DryRun, Merge: !c.MergeOff, LiveSwitches: !c.LiveSwitchesOff, ISO: c.ISO}
 }
 
 // SetCoop sets the host's co-op choice: saved for next time, and sent to
@@ -312,7 +312,7 @@ func (b *Bridge) SetCoop(r CoopRequest) (err error) {
 	if r.Mode == "continue" {
 		b.cfg.Coop.LastWorld = s.Coop
 	}
-	b.cfg.Coop.DryRun, b.cfg.Coop.Merge, b.cfg.Coop.LiveSwitchesOff = r.DryRun, r.Merge, !r.LiveSwitches
+	b.cfg.Coop.DryRun, b.cfg.Coop.MergeOff, b.cfg.Coop.LiveSwitchesOff = r.DryRun, !r.Merge, !r.LiveSwitches
 	b.cfg.Coop.ISO = strings.TrimSpace(r.ISO)
 	b.mu.Unlock()
 	b.save()
@@ -765,6 +765,14 @@ func autoFoundedText(f session.Founding) string {
 		return "continuing your world " + short(f.World) + "."
 	case "adopted":
 		return "your save belongs to world " + short(f.World) + ", which wasn't on this computer, so it was started here from your save."
+	case "joined":
+		return "your save joined the host's world " + short(f.World) + "."
+	case "followed":
+		return "your save was tied to another world, so it was untied and joined the host's world " + short(f.World) + " (the other world stays on this computer)."
+	case "cleared":
+		return "your save was tied to another world, so it was untied to follow the host's world " + short(f.World) + "."
+	case "scrubbed":
+		return "a stale co-op tag was removed from your save."
 	}
 	return "started a new world " + short(f.World) + " from your save."
 }
@@ -815,20 +823,9 @@ func coopDialog(st session.State, running bool, mk masker) *DialogView {
 	if len(st.Advice) > 0 {
 		return adviceDialog(st.Advice[0], st, key)
 	}
-	// A file bound to another world: the replica judged it against no
-	// world yet (bound) or against the session's (foreign).
-	world := st.Coop.World
-	for _, cs := range st.CoopStatus {
-		if cs.World != "" {
-			world = cs.World
-		}
-		if (cs.FileState == "foreign" || cs.FileState == "bound") && cs.TagWorld != "" && world != "" && world != session.CoopWorldNew && world != session.CoopWorldAuto && cs.TagWorld != world {
-			return &DialogView{Key: key("foreign", cs.TagWorld), Kind: dlgForeign, Live: true, Title: "This file is bound to another co-op world",
-				Text:    fmt.Sprintf("The file you loaded is bound to world %s, so it can't join this session's world. Remove its tag to bind it here instead: you'll be asked to bind it next.", short(cs.TagWorld)),
-				Detail:  "Only your game's memory changes: the file leaves world " + short(cs.TagWorld) + " at your next in-game save, and loading it from the card again brings the tag back.",
-				Actions: []DialogAction{{ID: actUnbind, Arg: cs.TagWorld, Label: "Remove the tag", Primary: true}, {ID: actOK, Label: "Keep it"}}}
-		}
-	}
+	// A file bound to another world is cleared by the session itself
+	// (docs/coop-just-works.md §5): no dialog. The banner keeps "Remove
+	// the tag" for a file the session could not clear.
 	return founding
 }
 
