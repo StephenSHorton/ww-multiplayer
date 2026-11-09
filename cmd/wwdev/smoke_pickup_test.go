@@ -46,6 +46,12 @@ func TestPickupArgs(t *testing.T) {
 	if r := o.pickups[1]; r.Table != addr.TableSubdungeon || r.No != 5 || r.Derive != deriveLife || len(r.KillProcs) != 0 {
 		t.Errorf("cave01-heart %+v", r)
 	}
+	// RP-2's heart piece: Angular Isles' chest on the sea table, its
+	// peak's ChuChu killed in the setup.
+	if r := recipe(t, "angular-heart"); r.Stage != "sea" || r.Point != 0 || r.Room != 47 || r.Kind != pickupTbox ||
+		r.Table != addr.TableSea || r.No != 0 || r.Derive != deriveLife || !slices.Equal(r.KillProcs, []int16{0x00CF}) || r.Hint == nil {
+		t.Errorf("angular-heart %+v", r)
+	}
 	if o, err := parseSmokeArgs([]string{"--", "--coop=new"}); err != nil || o.pickups != nil {
 		t.Errorf("no --pickup: %+v %v", o.pickups, err)
 	}
@@ -236,6 +242,12 @@ func TestPickupLogScan(t *testing.T) {
 	}
 	if got := pickupSetPhrase(recipe(t, "cave01-heart")); got != "co-op: set t12 subdungeon chest 5 (" {
 		t.Errorf("heart set phrase %q (wind88: set t12 subdungeon chest 5 (0x803C513B |= 0x20))", got)
+	}
+	if got := pickupSetPhrase(recipe(t, "angular-heart")); got != "co-op: set t00 sea chest 0 (" {
+		t.Errorf("angular heart set phrase %q", got)
+	}
+	if got := pickupDerivePhrase(recipe(t, "angular-heart")); got != "co-op: wrote max-life counter +1 " {
+		t.Errorf("angular heart derive phrase %q", got)
 	}
 	lines := []string{
 		"[coop-B] co-op: dry-run: would set t03 DRC chest 3 (0x803C4FF7 |= 0x08)",
