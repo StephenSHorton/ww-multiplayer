@@ -75,6 +75,7 @@ smooth-steps
 stage-hop
 stress
 stress-host
+tagdrift
 track-pos
 tunic-probe
 tunic-recolor

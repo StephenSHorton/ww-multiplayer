@@ -59,3 +59,24 @@ var (
 		return 1
 	})
 )
+
+var procClientToScreen = user32.NewProc("ClientToScreen")
+
+// ClientRectInWindow is hwnd's client area within a CaptureWindow image
+// of it (whose origin is the window rect's top-left): the picture without
+// the title bar and borders. ok is false when a call fails.
+func ClientRectInWindow(hwnd uintptr) (x, y, w, h int, ok bool) {
+	var wr rect
+	if r, _, _ := procGetWindowRect.Call(hwnd, uintptr(unsafe.Pointer(&wr))); r == 0 {
+		return 0, 0, 0, 0, false
+	}
+	w, h = clientSize(hwnd)
+	if w <= 0 || h <= 0 {
+		return 0, 0, 0, 0, false
+	}
+	var p struct{ X, Y int32 }
+	if r, _, _ := procClientToScreen.Call(hwnd, uintptr(unsafe.Pointer(&p))); r == 0 {
+		return 0, 0, 0, 0, false
+	}
+	return int(p.X - wr.Left), int(p.Y - wr.Top), w, h, true
+}

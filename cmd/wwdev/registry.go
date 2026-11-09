@@ -59,6 +59,13 @@ func commandTable() []command {
 			run:     runSmoke,
 		},
 		{
+			name:    "tagdrift",
+			group:   groupLocal,
+			usage:   "tagdrift [opts]",
+			summary: "Measured name-tag check: tag x vs the remote's body x, off centre, fixed and pre-#329; exit 0/1/2",
+			run:     runTagDrift,
+		},
+		{
 			name:    "smooth-steps",
 			group:   groupLocal,
 			usage:   "smooth-steps [secs=5] [A|B]",
