@@ -1,4 +1,5 @@
 actors
+app-found
 auto-recapture
 auto-recapture-pair
 bdk-probe
@@ -75,6 +76,7 @@ smooth-steps
 stage-hop
 stress
 stress-host
+tagdrift
 track-pos
 tunic-probe
 tunic-recolor

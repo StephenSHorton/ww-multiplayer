@@ -59,6 +59,20 @@ func commandTable() []command {
 			run:     runSmoke,
 		},
 		{
+			name:    "tagdrift",
+			group:   groupLocal,
+			usage:   "tagdrift [opts]",
+			summary: "Measured name-tag check: tag x vs the remote's body x, off centre, fixed and pre-#329; exit 0/1/2",
+			run:     runTagDrift,
+		},
+		{
+			name:    "app-found",
+			group:   groupLocal,
+			usage:   "app-found [opts]",
+			summary: "Two real apps (ui --browser) found co-op from a save bound elsewhere: Host/Join/Start, adopted; exit 0/1/2",
+			run:     func(_ string, a []string) { os.Exit(runAppFound(a)) },
+		},
+		{
 			name:    "smooth-steps",
 			group:   groupLocal,
 			usage:   "smooth-steps [secs=5] [A|B]",

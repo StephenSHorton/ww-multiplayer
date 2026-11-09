@@ -6,21 +6,23 @@ Local two-Dolphin testing (everything in-process):
   <exe> dolphin2 [--reset]           Bootstrap & launch a 2nd Dolphin instance
   <exe> mp-local [nameA] [nameB]     Run server + broadcast/puppet pairs for both Dolphins
   <exe> smoke [opts] [-- mp-local args] Scripted two-Dolphin smoke: boot/attach, mp-local, sync checks; exit 0/1/2
+  <exe> tagdrift [opts]              Measured name-tag check: tag x vs the remote's body x, off centre, fixed and pre-#329; exit 0/1/2
+  <exe> app-found [opts]             Two real apps (ui --browser) found co-op from a save bound elsewhere: Host/Join/Start, adopted; exit 0/1/2
   <exe> smooth-steps [secs=5] [A|B]  Per-frame step log of a remote under WW_POSE_TEST_RATE jitter
   <exe> help                         Show this help
 
 Diagnostics and research probes (Dolphin picked by WW_DOLPHIN_INDEX / WW_DOLPHIN_PID):
-  screenshot auto-recapture auto-recapture-pair send-shift-f1 dump move-puppet
-  input input-release input-probe poke-u32 boss-end shadow-mode pose-test
-  unhide-puppet broadcast-link pose-fake-loop tunic-probe tunic-recolor
-  tunic-slot disasm scan-pos poke-vec3 peek warp-force warp-force-off
-  eye-fix-probe eye-fix-chain eye-fix-find-shape eye-fix-gates eye-anim-find
-  eye-anim-dl-dump eye-anim-watch eye-anim-poke face-sync-status
-  face-sync-watch face-hook-arm face-hook-disarm face-tev-hammer face-mat-list
-  face-mat-hammer face-sync-tev-poll face-dl-loop face-sync-fake
-  face-sync-fake-loop j3dsys-probe ppc-disasm find-pos track-pos coop-probe
-  coop-watch actors zone-dump frame-phase-probe heap-free blob-verify-live
-  region-probe stage-hop enemy-kill peek-demo enemy-watch enemy-mirror-local
-  enemy-block-dump enemy-match remote-watch remote-flags remote-slot
-  fullbody-globals bst-probe rf-probe rf-ask face mt2-probe bwd-probe
-  bpw-probe bdk-probe crash-context
+  screenshot auto-recapture auto-recapture-pair send-shift-f1 dump ops
+  move-puppet input input-release input-probe poke-u32 boss-end shadow-mode
+  pose-test unhide-puppet broadcast-link pose-fake-loop stress stress-host
+  netem tunic-probe tunic-recolor tunic-slot disasm scan-pos poke-vec3 peek
+  warp-force warp-force-off eye-fix-probe eye-fix-chain eye-fix-find-shape
+  eye-fix-gates eye-anim-find eye-anim-dl-dump eye-anim-watch eye-anim-poke
+  face-sync-status face-sync-watch face-hook-arm face-hook-disarm
+  face-tev-hammer face-mat-list face-mat-hammer face-sync-tev-poll
+  face-dl-loop face-sync-fake face-sync-fake-loop j3dsys-probe ppc-disasm
+  find-pos track-pos coop-probe coop-watch actors zone-dump frame-phase-probe
+  heap-free blob-verify-live region-probe stage-hop enemy-kill peek-demo
+  enemy-watch enemy-mirror-local enemy-block-dump enemy-match remote-watch
+  remote-flags remote-slot fullbody-globals bst-probe rf-probe rf-ask face
+  mt2-probe bwd-probe bpw-probe bdk-probe crash-context

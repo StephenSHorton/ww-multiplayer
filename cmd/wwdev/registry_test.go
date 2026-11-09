@@ -66,7 +66,7 @@ func TestRegistryHelp(t *testing.T) {
 			t.Errorf("%s: group %d", c.name, c.group)
 		}
 	}
-	if local != 5 {
-		t.Errorf("%d local-testing commands, want 5 (dolphin2, mp-local, smoke, smooth-steps, help)", local)
+	if local != 7 {
+		t.Errorf("%d local-testing commands, want 7 (dolphin2, mp-local, smoke, tagdrift, app-found, smooth-steps, help)", local)
 	}
 }
