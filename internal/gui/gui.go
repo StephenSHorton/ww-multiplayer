@@ -68,7 +68,7 @@ type Options struct {
 	HostIPs func() []string
 	// ProbeDolphin looks at a running Dolphin (engine.ProbeDolphin): the
 	// disc update may close a Dolphin the app launched only when this
-	// says Link isn't in the world. Nil: the app never closes a Dolphin.
+	// reads it on the title screen (no save in play). Nil: the app never closes a Dolphin.
 	ProbeDolphin func(pid uint32) session.Probe
 	// SearchDiscs lets the disc update look for the vanilla disc in
 	// Dolphin's game folders (its Config/Dolphin.ini) when the one Setup

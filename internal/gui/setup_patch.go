@@ -237,31 +237,42 @@ func (b *Bridge) StartPatch(r PatchRequest) (err error) {
 	defer b.maskErr(&err)
 	// The disc line's Choose (or a patch while it says the update failed)
 	// is the update: the line shows it.
+	// One disc update at a time: the line's state is read under its lock.
+	b.disc.ensure.Lock()
+	defer b.disc.ensure.Unlock()
 	b.disc.mu.Lock()
 	prev, busy := b.disc.view, b.disc.busy != nil
 	b.disc.mu.Unlock()
 	if busy {
 		return errors.New("your disc is being updated (the app is closing its Dolphin first): wait until the Play page says it's done")
 	}
-	if r.Patched || (prev.State != "pick" && prev.State != "failed") {
+	if r.Patched || (prev.State != "pick" && prev.State != "failed") || b.runningJob() != nil {
 		_, err = b.startPatch(r, false)
 		return err
 	}
 	// The disc line's Choose (or a patch while it says the update failed)
 	// is the update: it takes the update's way, Dolphins holding the disc
-	// included (repatch), and the line shows it. A vanilla disc chosen is
-	// saved first, so an update that waits for Dolphin to close finds it.
+	// included (repatch), and the line shows it. The disc chosen is saved
+	// first (a compressed one too: it is converted when patched), so an
+	// update that waits for Dolphin to close patches it.
 	in := cleanPath(r.Path)
-	if st, ierr := b.inspect(in); ierr == nil && st == patch.Vanilla {
+	if !isFile(in) {
+		_, err = b.startPatch(r, false) // its own words for a bad path
+		return err
+	}
+	st, ierr := b.inspect(in)
+	var u *inject.UnsupportedFormatError
+	switch {
+	case ierr == nil && st == patch.OtherVersion:
+		return errors.New("that disc was patched by a different ww-multiplayer version: choose your vanilla (unmodified) Wind Waker disc")
+	case ierr == nil && st == patch.Vanilla, errors.As(ierr, &u) && u.Convertible():
 		b.mu.Lock()
 		b.cfg.ISO.Vanilla = in
 		b.mu.Unlock()
 		b.save()
 	}
 	b.logDisc(log.Info, "disc update: the player chose %s", in)
-	b.disc.ensure.Lock()
 	b.repatch(discInfo{Plan: "repatch", Vanilla: in})
-	b.disc.ensure.Unlock()
 	if v := b.discStatus(); v.State == "failed" {
 		return errors.New(v.Error)
 	}

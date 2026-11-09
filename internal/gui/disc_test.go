@@ -287,10 +287,9 @@ func TestNotPlaying(t *testing.T) {
 		p    session.Probe
 		want bool
 	}{
-		{session.Probe{}, true}, // gone
-		{session.Probe{Running: true, NoGame: true}, true},
+		{session.Probe{}, true},               // gone
+		{session.Probe{Running: true}, false}, // no game found: no sure read
 		{session.Probe{Running: true, GameID: session.GameID, AtTitle: true, InGame: true}, true},
-		{session.Probe{Running: true}, false},                                       // a read that failed
 		{session.Probe{Running: true, GameID: session.GameID}, false},               // a stage load, file select, a cutscene
 		{session.Probe{Running: true, GameID: session.GameID, InGame: true}, false}, // in the world
 		{session.Probe{Running: true, GameID: "GALE01", AtTitle: true}, false},      // another game

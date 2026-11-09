@@ -35,11 +35,11 @@ import (
 // Only a Dolphin holding the disc stops it. The app closes one only when
 // it launched it (this run's session says so, or its command line is the
 // one Launch builds, on this player's folder and disc) and no save is in
-// play: every look (ProbeDolphin, several) reads its memory and finds no
-// game, or Wind Waker on the title screen with no stage change pending.
-// A read that fails, a stage load, a cutscene, another game: never
-// closed (Link's pointer alone isn't enough: it is null during every
-// stage load). Any other Dolphin gets the line "Close
+// play: every look (ProbeDolphin, several) reads Wind Waker on the title
+// screen with no stage change pending. A read that fails, no game found,
+// a stage load, a cutscene, file select, another game: never closed
+// (Link's pointer alone isn't enough: it is null during every stage
+// load). Any other Dolphin gets the line "Close
 // Dolphin to update your disc", Start is refused, and the update starts by
 // itself once it closes (watchHolders). PR #328's gate (checkDiscVersion)
 // stays the last refusal when the disc could not be updated.
@@ -334,14 +334,13 @@ func (b *Bridge) closable(h holder) bool {
 }
 
 // notPlaying is a positive read of a Dolphin with no save in play: gone,
-// no game running, or Wind Waker on the title screen with no stage change
-// pending. Anything else (a read that failed, a stage load, a cutscene,
-// file select, another game) says no.
+// or Wind Waker on the title screen with no stage change pending.
+// Anything else (a read that failed, no game found, a stage load, a
+// cutscene, file select, another game) says no: no game found is no sure
+// read (emu.DiscID finds nothing, too, when it can't read the memory).
 func notPlaying(p session.Probe) bool {
 	switch {
 	case !p.Running:
-		return true
-	case p.NoGame:
 		return true
 	case p.GameID == session.GameID && p.AtTitle:
 		return true
@@ -367,7 +366,7 @@ func (b *Bridge) repatch(in discInfo) <-chan struct{} {
 	b.disc.busy = busy
 	b.disc.mu.Unlock()
 	b.setDisc(DiscView{State: "closing", Title: "Closing Dolphin to update your disc…",
-		Text: "The app started that Dolphin and it isn't in the game. Your disc is updated for this version next."})
+		Text: "The app started that Dolphin and it is on the title screen. Your disc is updated for this version next."})
 	go func() {
 		defer func() {
 			b.disc.mu.Lock()
@@ -378,7 +377,7 @@ func (b *Bridge) repatch(in discInfo) <-chan struct{} {
 		var left []holder
 		for _, h := range hs {
 			pid := h.p.PID
-			b.logDisc(log.Info, "disc update: closing Dolphin pid %d (the app launched it; Link isn't in the world)", pid)
+			b.logDisc(log.Info, "disc update: closing Dolphin pid %d (the app launched it; it is on the title screen)", pid)
 			if err := b.closeProc(pid); err != nil {
 				b.logDisc(log.Warn, "disc update: couldn't close Dolphin pid %d: %v", pid, err)
 			}

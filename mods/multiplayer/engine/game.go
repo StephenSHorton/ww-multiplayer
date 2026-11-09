@@ -655,7 +655,6 @@ func probeDolphin(pid uint32) session.Probe {
 	p := session.Probe{Running: true}
 	id, err := emu.DiscID(pid)
 	if err != nil || id == "" {
-		p.NoGame = err == nil
 		return p
 	}
 	p.GameID = id
