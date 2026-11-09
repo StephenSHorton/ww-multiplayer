@@ -19,6 +19,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/backup"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
@@ -663,6 +664,13 @@ func mailboxClaimed(pid uint32) bool {
 func launchDolphinFor(o session.LaunchOptions, rep log.Reporter, cheatsIni []byte) (uint32, error) {
 	if o.InstallCheats {
 		launch.EnsureCheatsIni(rep, o.UserDir, cheatsIni)
+	}
+	// A profile with no save yet gets the empty one the game would ask to
+	// create, so no "create a save file?" prompt comes up. Best effort.
+	if p, err := backup.EnsureFreshSave(o.UserDir); err != nil {
+		log.Logf(rep, log.Warn, "save: %v", err)
+	} else if p != "" {
+		log.Logf(rep, log.Info, "save: made an empty Wind Waker save at %s (this profile had none)", p)
 	}
 	pid, err := launch.Launch(o.Exe, o.UserDir, o.ISO, "")
 	if err != nil {
