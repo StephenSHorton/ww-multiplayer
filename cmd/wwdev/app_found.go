@@ -697,10 +697,10 @@ func appFoundRun(ctx context.Context, o appFoundOpts, rep *appFoundReport) strin
 			set["WW_LISTEN_HOST"] = "127.0.0.1"
 		}
 		env := appChildEnv(os.Environ(), set, "USER_DIR_2", "WW_DOLPHIN_INDEX", "WW_LISTEN_HOST", "MP_LOCAL_PIDS")
+		kids[i] = c // stopped at the end even when it never served its page
 		if err := startAppChild(ctx, c, o.exe, env, 30*time.Second); err != nil {
 			return err.Error()
 		}
-		kids[i] = c
 		rep.Pages[i] = c.base
 		appFoundLogf("app %s at %s (APPDATA %s, Dolphin %d)", l, c.base, c.appData, c.pid)
 	}
