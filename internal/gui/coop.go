@@ -691,7 +691,10 @@ func foundingBlockedText(f session.Founding) string {
 // closed, and nothing else shows it), "Co-op writes turned off: reason"
 // after an auto-disable, or "File not bound"; nil for none.
 func coopBanner(st session.State, running bool) *BannerView {
-	if !running || !st.Coop.On {
+	if running && !st.Coop.On {
+		return hostCoopBanner(st)
+	}
+	if !running {
 		return nil
 	}
 	if f := st.Founding; f != nil && (f.Phase == session.FoundingWaiting || f.Phase == session.FoundingBlocked) {
@@ -703,6 +706,9 @@ func coopBanner(st session.State, running bool) *BannerView {
 			b.Text = "in game and idle: founding the world."
 		default:
 			b.Text = foundingBlockedText(*f)
+			if f.GiveUp > 0 {
+				b.Text += " Without a change, the session goes on without co-op in " + session.AboutDuration(f.GiveUp) + "."
+			}
 		}
 		if f.Phase == session.FoundingBlocked && (f.Blocker == session.BlockBound || f.Blocker == session.BlockForeign || f.Blocker == session.BlockGarbage) {
 			b.Action, b.ActionLabel, b.ActionArg = actUnbind, "Remove the tag", f.TagWorld
@@ -730,6 +736,23 @@ func coopBanner(st session.State, running bool) *BannerView {
 				b.Action, b.ActionLabel, b.ActionArg = actUnbind, "Remove the tag", cs.TagWorld
 			}
 			return b
+		}
+	}
+	return nil
+}
+
+// hostCoopBanner is the host's co-op status line (its lobby row's) for
+// a player whose co-op isn't on, once the lobby has started: a joiner
+// waiting on the host's founding, or anyone after co-op went off for the
+// session, sees why; nil when the host says nothing.
+func hostCoopBanner(st session.State) *BannerView {
+	l := st.Lobby
+	if l == nil || l.Legacy || l.Phase == session.LobbyPhaseLobby {
+		return nil
+	}
+	for _, m := range l.Members {
+		if m.Host && m.Via == session.ViaApp && m.CoopStatus != "" {
+			return &BannerView{Kind: "coop", Title: "Co-op:", Text: m.CoopStatus}
 		}
 	}
 	return nil

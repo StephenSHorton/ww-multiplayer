@@ -546,7 +546,7 @@ func FuzzLobbyMachine(f *testing.F) {
 	names := []string{"Ann", "ann", "Bo", "Cy", "Di", strings.Repeat("Z", MaxNameLen)}
 	colors := []string{"", "red", "#D83030", "green", "blue", "#000000", "nonsense", "pink"}
 	bodies := [][]byte{
-		[]byte(`{"color":"red"}`), []byte(`{"color":"#2C5CE1","ready":true}`), []byte(`{"ready":false,"dolphin":"in_game","file":"File 2"}`),
+		[]byte(`{"color":"red"}`), []byte(`{"color":"#2C5CE1","ready":true}`), []byte(`{"ready":false,"dolphin":"in_game","file":"File 2"}`), []byte(`{"coopStatus":"the host is founding the world\u2028"}`),
 		[]byte(`{"coop":"new","dryRun":true}`), []byte(`{"coop":"off","merge":true}`), []byte(`{}`), []byte(`{"world":"0123456789abcdef"}`),
 		[]byte(`{"member":1}`), []byte(`{"member":2}`), []byte(`{"kind":"merge"}`), []byte(`[`), []byte(`{"color":"green"}`),
 		[]byte(`{"file":"` + strings.Repeat("é\"\\", 60) + `"}`),
@@ -724,4 +724,84 @@ func FuzzLobbyMachine(f *testing.F) {
 			check(desc, outs, before)
 		}
 	})
+}
+
+// TestLobbyMachineCoopStatus: a member's co-op status line goes into
+// STATE in every phase (the host's founding speaks while the lobby is
+// starting, and after GO), is clamped and stripped of control
+// characters, an unchanged line sends nothing, and a member who joins
+// late or reclaims its slot sees it in its first STATE.
+func TestLobbyMachineCoopStatus(t *testing.T) {
+	m := testMachine(time.Minute)
+	t0 := time.Unix(0, 0)
+	host := mustJoin(t, m, 1, "Host", true, LobbyHelloBody{})
+	jo := mustJoin(t, m, 2, "Jo", false, LobbyHelloBody{})
+	m.message(1, LobbySettings, []byte(`{"coop":"new"}`))
+	m.message(1, LobbyStart, nil)
+
+	statusOf := func(st LobbyStateBody, id int) string {
+		for _, mb := range st.Members {
+			if mb.ID == id {
+				return mb.CoopStatus
+			}
+		}
+		t.Fatalf("no member %d in %+v", id, st)
+		return ""
+	}
+	outs := m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("The host is founding\x07 the world.")}))
+	o, ok := findOut(outs, lobbyAll, LobbyState)
+	if !ok || statusOf(o.body.(LobbyStateBody), host.id) != "The host is founding the world." {
+		t.Fatalf("SET coopStatus while starting: %+v", outs)
+	}
+	if outs := m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("The host is founding the world.")})); len(outs) != 0 {
+		t.Fatalf("an unchanged status sent %+v", outs)
+	}
+	long := strings.Repeat("é", maxLobbyCoopStatus)
+	m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: &long}))
+	if len(host.coop) > maxLobbyCoopStatus || !strings.HasPrefix(long, host.coop) {
+		t.Fatalf("status not clamped on a rune: %d bytes", len(host.coop))
+	}
+
+	m.message(1, LobbyGo, nil)
+	outs = m.message(1, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("Co-op is off this session.")}))
+	if o, ok := findOut(outs, lobbyAll, LobbyState); !ok || statusOf(o.body.(LobbyStateBody), host.id) != "Co-op is off this session." {
+		t.Fatalf("SET coopStatus in game: %+v", outs)
+	}
+	m.drop(2, t0)
+	_, outs = m.hello(3, "Jo", false, LobbyHelloBody{Token: jo.token}, t0)
+	if o, ok := findOut(outs, lobbyAll, LobbyState); !ok || statusOf(o.body.(LobbyStateBody), host.id) != "Co-op is off this session." {
+		t.Fatalf("reclaim's STATE: %+v", outs)
+	}
+	if st := m.snapshot(); statusOf(st, jo.id) != "" {
+		t.Fatalf("the joiner has a status it never set: %+v", st)
+	}
+	// Only the host's line is taken: a member's is ignored.
+	if outs := m.message(3, LobbySet, setBody(t, LobbySetBody{CoopStatus: strp("mine")})); len(outs) != 0 || jo.coop != "" {
+		t.Fatalf("a member's coopStatus taken: %+v %q", outs, jo.coop)
+	}
+}
+
+// TestLobbyMachineCoopStatusFits: a full lobby whose members all send the
+// longest co-op status that escapes worst (U+2028 is 3 bytes, 6 in JSON)
+// still has a STATE within MaxLobbyBody: only the host's line is kept.
+func TestLobbyMachineCoopStatusFits(t *testing.T) {
+	m := testMachine(time.Minute)
+	worst := strings.Repeat("\u2028", maxLobbyCoopStatus/3)
+	file := strings.Repeat("\"", maxLobbyFile)
+	for i := 1; i <= MaxLobbyMembers; i++ {
+		mustJoin(t, m, i, fmt.Sprintf("Player%02dxxxxxxx", i), i == 1, LobbyHelloBody{})
+		m.message(i, LobbySet, setBody(t, LobbySetBody{CoopStatus: &worst, File: &file, Dolphin: strp(DolphinInGame)}))
+	}
+	if _, err := EncodeLobby(LobbyState, m.snapshot()); err != nil {
+		t.Fatalf("STATE with every member's status: %v", err)
+	}
+	n := 0
+	for _, mb := range m.snapshot().Members {
+		if mb.CoopStatus != "" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d rows carry a co-op status, want the host's alone", n)
+	}
 }

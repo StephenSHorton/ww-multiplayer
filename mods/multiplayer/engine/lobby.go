@@ -124,9 +124,20 @@ func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, 
 	lc.SetMods(e.mods)
 	lc.Client().OnLog = func(s string) { out.Log(log.Net, s) }
 	lc.Client().OnChat = out.Chat
+	hostCoop := "" // the host's co-op status line last logged
 	lc.OnState = func(st network.LobbyStateBody) {
 		w, _ := lc.Welcome()
 		out.LobbyState(lobbyView(st, w))
+		// Another player's host says why co-op waits or is off: the
+		// session log keeps it too (the host logs its own reasons).
+		for _, m := range st.Members {
+			if m.Host && m.ID != w.Member && m.CoopStatus != hostCoop {
+				hostCoop = m.CoopStatus
+				if hostCoop != "" {
+					out.Log(log.Info, "co-op: "+hostCoop)
+				}
+			}
+		}
 		if st.Phase != network.PhaseLobby {
 			ac.OnSettings(st.Settings)
 		}
@@ -306,7 +317,7 @@ func lobbyView(st network.LobbyStateBody, w network.LobbyWelcomeBody) session.Lo
 	for _, m := range st.Members {
 		c, _ := playercolor.Parse(m.Color)
 		l.Members = append(l.Members, session.LobbyMember{ID: m.ID, Name: m.Name, Color: c, Ready: m.Ready, Host: m.Host,
-			Dolphin: m.Dolphin, File: m.File, RTT: time.Duration(m.RTTMs) * time.Millisecond, Via: m.Via, Away: m.Away})
+			Dolphin: m.Dolphin, File: m.File, CoopStatus: m.CoopStatus, RTT: time.Duration(m.RTTMs) * time.Millisecond, Via: m.Via, Away: m.Away})
 	}
 	// Our row says whether we are host now: the host's slot can pass to
 	// us after WELCOME (docs/10 §3).

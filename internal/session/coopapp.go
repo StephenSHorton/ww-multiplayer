@@ -8,7 +8,9 @@ package session
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
+	"time"
 )
 
 // FoundingPhase is where the host's founding of a new world is.
@@ -52,10 +54,27 @@ type Founding struct {
 	// open it.
 	Blocker, BlockText, BlockWhy, TagWorld string
 	TagWorldHere                           bool
+	// GiveUp is how long a Blocked founding waits for another file or
+	// the tag's removal before the session goes on without co-op.
+	GiveUp time.Duration
 	// World is the world founded (Founded).
 	World string
 	// Err is why the founding failed (Failed).
 	Err string
+}
+
+// AboutDuration is d in a sentence ("a minute", "2 minutes", "90
+// seconds"), as the founding's give-up is told.
+func AboutDuration(d time.Duration) string {
+	switch {
+	case d == time.Minute:
+		return "a minute"
+	case d >= time.Minute && d%time.Minute == 0:
+		return fmt.Sprintf("%d minutes", d/time.Minute)
+	case d >= time.Second:
+		return fmt.Sprintf("%d seconds", d/time.Second)
+	}
+	return "a moment"
 }
 
 // Request is a joiner's request to the host (State.Requests).
