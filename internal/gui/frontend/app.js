@@ -18,6 +18,7 @@ import { initMods, refreshMods } from "./mods.js";
 import { initUpdate, startUpdate, onUpdate, render as renderUpdate, renderSettings as renderUpdateSettings } from "./update.js";
 import { initDisc, startDisc, onDisc, renderDisc } from "./disc.js";
 import { initTheme } from "./theme.js";
+import { initDisplay, refreshDisplay } from "./display.js";
 import { drawMap } from "./chart.js";
 
 const LOG_MAX = 500;
@@ -126,7 +127,10 @@ function show(v, force = false) {
 	view = v;
 	for (const id of ["home", "session", "setup", "mods", "settings"]) $(id).hidden = v !== id;
 	if (v === "mods") refreshMods();
-	if (v === "settings") renderUpdateSettings();
+	if (v === "settings") {
+		renderUpdateSettings();
+		refreshDisplay();
+	}
 	renderUpdate(); // the update banner: Home, Mods and Settings only, never in a session
 	renderDisc(); // the disc update's line: Home and the Session screen
 	renderSide();
@@ -771,6 +775,7 @@ function onEv(ev) {
 			break;
 		case "settings":
 			onSettings();
+			if (view === "settings") refreshDisplay();
 			if (view === "mods") refreshMods();
 			break;
 		case "mods":
@@ -870,6 +875,7 @@ function wire() {
 	initUpdate({ view: () => view, running: () => !!(state && state.running), openSetup, onPatch });
 	initDisc({ view: () => view, openSetup });
 	initTheme();
+	initDisplay();
 	const toggleIPs = async () => {
 		try {
 			await call("SetShowIPs", !info.showIPs);
