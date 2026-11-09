@@ -457,7 +457,7 @@ func TestAdviceAndRequestDialogs(t *testing.T) {
 	// another file opens the dialog again (its own key).
 	st.Founding = &session.Founding{Phase: session.FoundingBlocked, Blocker: session.BlockBound, TagWorld: worldA, File: "file slot 0"}
 	d = coopDialog(st, true, masker{})
-	if d.Actions[0].ID != actUnbind || d.Actions[0].Arg != worldA || !strings.Contains(d.Text, worldA) || !strings.Contains(d.Text, "isn't on this computer") || strings.Contains(d.Text, "Continue that world") {
+	if d.Actions[0].ID != actUnbind || d.Actions[0].Arg != worldA || !strings.Contains(d.Text, worldA) || !strings.Contains(d.Text, "isn't in your worlds on this computer") || strings.Contains(d.Text, "Continue that world") {
 		t.Fatalf("blocked: %+v", d)
 	}
 	st.Founding.TagWorldHere = true
@@ -592,7 +592,7 @@ func TestCoopPanelView(t *testing.T) {
 		want    string
 	}{
 		{session.BlockBound, true, "Continue that world"},
-		{session.BlockBound, false, "another player hosts it"},
+		{session.BlockBound, false, "isn't in your worlds"},
 		{session.BlockForeign, false, "can't use"},
 		{session.BlockGarbage, false, "can't use"},
 		{session.BlockSecondQuest, false, "second quest"},
