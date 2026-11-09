@@ -175,8 +175,14 @@ func TestReconcile(t *testing.T) {
 
 	// Stopping with a ticket in flight waits for it.
 	g.halt.Store(true)
+	head := func() uint32 { v, _ := mem.ReadU32(g.m, mailbox.OpsAddr+mailbox.OpsCmdHeadOff); return v }
+	h0 := head()
 	view.Store(Dolphin{GFX: launch.GFXAspect{Hack: true, Mode: launch.AspectForceWide}})
-	time.Sleep(20 * time.Millisecond) // the demotion is seen twice, then sent
+	for deadline := time.Now().Add(5 * time.Second); head() == h0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the demotion was never sent")
+		}
+	}
 	cancel()
 	select {
 	case <-done:

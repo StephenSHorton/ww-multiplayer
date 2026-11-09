@@ -65,13 +65,18 @@ func newTUIEngine() *engine.Engine {
 
 // newAppEngine is the engine of the multiplayer mod the app's faces load
 // (startApp): the app's engine with co-op when the co-op mod loaded (a
-// lobby offers none without), carrying mods, the runtime's
+// lobby offers none without), and the widescreen loop when the widescreen
+// mod loaded (else C's default stays), carrying mods, the runtime's
 // (wwapi.ModsHash of its mods).
-func newAppEngine(coop bool, mods network.Mods) session.Engine {
+func newAppEngine(coop, ws bool, mods network.Mods) session.Engine {
+	c := engineConfig(nil, mods)
 	if coop {
-		return engine.NewTUIEngine(engineConfig(coopsession.App(coopEnv), mods))
+		c = engineConfig(coopsession.App(coopEnv), mods)
 	}
-	return engine.NewTUIEngine(engineConfig(nil, mods))
+	if !ws {
+		c.Widescreen = nil
+	}
+	return engine.NewTUIEngine(c)
 }
 
 // newCLIEngine is the CLI's host and join engine.

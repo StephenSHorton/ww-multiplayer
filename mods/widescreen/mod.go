@@ -18,8 +18,9 @@ import (
 //go:embed mod.json
 var manifestJSON []byte
 
-// Mod is the widescreen mod. Nothing runs in the app yet (the app's
-// writer comes with the Dolphin runner), so it embeds wwapi.NoRun.
+// Mod is the widescreen mod. The app's writer (RunDolphin) runs in the
+// engine's Dolphin runner, not under the mod runtime (no Game yet), so
+// it embeds wwapi.NoRun.
 type Mod struct {
 	wwapi.NoRun
 	env Env
