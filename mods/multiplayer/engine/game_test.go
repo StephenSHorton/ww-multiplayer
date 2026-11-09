@@ -17,6 +17,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/fakegame"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
@@ -299,6 +300,45 @@ func TestGameRunnerDolphinClosed(t *testing.T) {
 	ev := f.Events()
 	if !slices.Contains(ev, "reset 100") || !slices.Contains(ev, "reset 101") || len(f.Launches()) != 2 {
 		t.Fatalf("events %v", ev)
+	}
+}
+
+// TestGameRunnerCardTags: the co-op tags waiting for the memory card
+// are written (GameDeps.CardTags) right before each launch, when no
+// Dolphin holds the card, and once the Dolphin played on closed; never
+// while it runs.
+func TestGameRunnerCardTags(t *testing.T) {
+	f := newFakeGame()
+	deps := fakeDeps(f)
+	deps.CardTags = func(rep log.Reporter) {
+		if rep == nil {
+			t.Error("CardTags without the session's log")
+		}
+		f.Event("card tags")
+	}
+	out := &gameOut{}
+	g := NewGameRunner(deps, func() session.LaunchOptions { return optsA }, "Link", "127.0.0.1:1", out, func(string) {}, func(error) {})
+	g.Start(context.Background())
+	waitFor(t, "the pipelines", hasEvent(f, "pipelines 100 start"))
+	f.Script(100, closed)
+	waitFor(t, "closed", func() bool { return out.Last().State == session.DolphinNone })
+	waitFor(t, "the flush after the close", func() bool {
+		return len(slices.DeleteFunc(f.Events(), func(e string) bool { return e != "card tags" })) == 2
+	})
+	if err := g.launchAgain(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the pipelines again", hasEvent(f, "pipelines 101 start"))
+	g.Stop()
+	var got []string
+	for _, e := range f.Events() {
+		if e == "card tags" || strings.HasPrefix(e, "launch ") || e == "pipelines 100 stop" {
+			got = append(got, e)
+		}
+	}
+	want := []string{"card tags", "launch 100", "pipelines 100 stop", "card tags", "card tags", "launch 101"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("events %q, want %q", got, want)
 	}
 }
 

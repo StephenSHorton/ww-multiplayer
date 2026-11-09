@@ -282,6 +282,9 @@ type coopEnv struct {
 	tables func(iso string) (*stagetables.Tables, error)
 	// front is the session's front end; its zero value is the CLI's.
 	front coopFront
+	// tags records each tag write a replica made, for the memory card
+	// (the app's, mods/coop/cardtag); nil records none (the CLI).
+	tags func(w bind.Written, rep log.Reporter)
 }
 
 // coopFront is how a co-op session meets its front end: who answers its
@@ -1471,6 +1474,9 @@ func (cs *Session) newSyncClaimed(ctx context.Context, name string, m mem.Mem, r
 		Claimed:     claimed,
 		BossKill:    cs.flags.bossKill,
 		Refresh:     cs.flags.refresh,
+	}
+	if rec := cs.env.tags; rec != nil {
+		cfg.OnTagWritten = func(w bind.Written) { rec(w, rep) }
 	}
 	if !cs.flags.dryRun {
 		cfg.Apply = true

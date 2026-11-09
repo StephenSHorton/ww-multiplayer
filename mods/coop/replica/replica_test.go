@@ -281,6 +281,10 @@ func TestReplicaScrub(t *testing.T) {
 		if !rep.TagWritten || len(w) != 1 || w[0].Addr != addr.Reserve || !bytes.Equal(w[0].Data, make([]byte, bind.TagSize)) {
 			t.Fatalf("scrub wrote %+v (report %+v), want 0x30 zero bytes at 0x%08X", w, rep, addr.Reserve)
 		}
+		if len(rr.written) != 1 || rr.written[0].Kind != bind.KindScrub || rr.written[0].Bytes != [bind.TagSize]byte{} ||
+			rr.written[0].File.Tag != tg.Encode() {
+			t.Fatalf("OnTagWritten heard %+v, want the scrub of the carried tag", rr.written)
+		}
 		h, ok := find[*wire.CoHello](rr.hub.take())
 		if !ok || h.FileState != wire.FileUnbound || !h.WorldID.IsZero() {
 			t.Fatalf("after the scrub: hello %+v", h)
@@ -302,6 +306,9 @@ func TestReplicaScrub(t *testing.T) {
 		rr.settle()
 		if len(rr.offers) != 1 || len(rr.m.Writes()) != 0 {
 			t.Fatalf("after a no: %d offers, writes %+v", len(rr.offers), rr.m.Writes())
+		}
+		if len(rr.written) != 0 {
+			t.Fatalf("OnTagWritten heard %+v after a no", rr.written)
 		}
 	})
 	t.Run("V5 only, and the hub says no fresh bind", func(t *testing.T) {
@@ -569,6 +576,10 @@ func TestReplicaBind(t *testing.T) {
 		want := p.Bytes()
 		if !rep.TagWritten || len(w) != 1 || w[0].Addr != addr.Reserve || !bytes.Equal(w[0].Data, want[:]) {
 			t.Fatalf("bind wrote %+v, want the plan's tag at 0x%08X", w, addr.Reserve)
+		}
+		if len(rr.written) != 1 || rr.written[0].Kind != bind.KindBind || rr.written[0].Bytes != want || rr.written[0].Tag != p.Tag ||
+			rr.written[0].File != p.File {
+			t.Fatalf("OnTagWritten heard %+v, want the bind", rr.written)
 		}
 		h, ok := find[*wire.CoHello](rr.hub.take())
 		if !ok || h.FileState != wire.FileBound || h.BindNonce != wire.ID(p.Tag.Nonce) || proto.Feature(h.Want) != proto.FeatureImage|proto.AskUnsaved {

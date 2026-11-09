@@ -4,6 +4,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/cheats"
 	"github.com/StephenSHorton/ww-multiplayer/internal/cliutil"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
+	"github.com/StephenSHorton/ww-multiplayer/mods/coop/cardtag"
 	coopsession "github.com/StephenSHorton/ww-multiplayer/mods/coop/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/engine"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
@@ -15,16 +16,28 @@ import (
 // feedEnv, and clearMultiplayerState when the session ends.
 var sessionEnv = engine.Env{Feed: feedEnv, Clear: clearMultiplayerState}
 
+// cardTags are the co-op tags the app's lobby sessions wrote in game
+// memory, waiting for the memory card (docs/coop-just-works.md §6 A):
+// co-op records them, and the app's game side (before a launch, when its
+// Dolphin closed) and the window (at quit) write them. The CLI's host and
+// join never record any.
+var cardTags = &cardtag.Store{}
+
 // coopEnv is what co-op (mods/coop/session) takes from package main:
-// cliutil.OpenDolphin.
-var coopEnv = coopsession.Env{Open: cliutil.OpenDolphin}
+// cliutil.OpenDolphin, and cardTags for its lobby sessions.
+var coopEnv = coopsession.Env{Open: cliutil.OpenDolphin, Tags: cardTags}
 
 // engineConfig is the multiplayer engine's config from package main: the
 // sessions' Env, this build's version and cheats, co-op (the app's runs
-// lobby sessions too; the CLI never runs one) and the mods its hellos
+// lobby sessions too; the CLI never runs one), with its waiting card tags
+// written around its lobby sessions' Dolphins, and the mods its hellos
 // carry.
 func engineConfig(coop engine.CoopApp, mods network.Mods) engine.Config {
-	return engine.Config{Env: sessionEnv, Version: version, CheatsIni: cheats.GZLE01, Coop: coop, Mods: mods}
+	c := engine.Config{Env: sessionEnv, Version: version, CheatsIni: cheats.GZLE01, Coop: coop, Mods: mods}
+	if coop != nil {
+		c.CardTags = cardTags.Flush
+	}
+	return c
 }
 
 // netMods is a ModsID as the network sends it (docs/api/02-mods.md,

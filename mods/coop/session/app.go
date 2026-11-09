@@ -72,6 +72,10 @@ type appCoopDeps struct {
 	// GO went out at Start, so nobody waits on the founding, and a host
 	// who loads another file later still gets co-op.
 	giveUp time.Duration
+	// record records a co-op tag written in the game memory of the
+	// Dolphin on user folder userDir, for its memory card
+	// (cardtag.Store.Record); nil records none.
+	record func(userDir string, w bind.Written, rep log.Reporter)
 }
 
 // whyNoGame is the founding's Why while no Dolphin runs the game.
@@ -117,7 +121,7 @@ func isNoGameWhy(why string) bool {
 }
 
 func realAppCoopDeps(env Env) *appCoopDeps {
-	return &appCoopDeps{
+	d := &appCoopDeps{
 		env: appCoopEnv,
 		openMem: func(pid uint32) (mem.Mem, func(), error) {
 			d, err := env.Open(pid)
@@ -129,6 +133,31 @@ func realAppCoopDeps(env Env) *appCoopDeps {
 		tick: diag.Tick,
 		wait: time.Second,
 	}
+	if env.Tags != nil {
+		d.record = env.Tags.Record
+	}
+	return d
+}
+
+// coopEnv is deps' co-op environment for this player, with its tag
+// writes recorded for its memory card.
+func (ac *appCoop) coopEnv() coopEnv {
+	ud := ac.userDir()
+	env := ac.deps.env(ud)
+	if rec := ac.deps.record; rec != nil && ud != "" {
+		env.tags = func(w bind.Written, rep log.Reporter) { rec(ud, w, rep) }
+	}
+	return env
+}
+
+// tagRecorder records a tag write for this player's memory card; nil
+// when deps records none.
+func (ac *appCoop) tagRecorder() func(bind.Written) {
+	ud, rec := ac.userDir(), ac.deps.record
+	if rec == nil || ud == "" {
+		return nil
+	}
+	return func(w bind.Written) { rec(ud, w, ac.out) }
 }
 
 // appCoopEnv is the co-op environment of an app player: the cards of its
@@ -298,7 +327,7 @@ func (ac *appCoop) host(f Flags) (string, error) {
 		// confirmed here, with no question (docs/coop-just-works.md §4).
 		f.yes = true
 	}
-	env := ac.deps.env(ac.userDir())
+	env := ac.coopEnv()
 	env.front = ac.front(f)
 	cs := startCoopSide(ac.out, f, env, true)
 	cs.poseClient = ac.poseClient
@@ -369,7 +398,7 @@ func (ac *appCoop) OnGo(s network.LobbySettingsBody, worldID string) {
 		defer ac.wg.Done()
 		own := ac.own()
 		f := Flags{on: true, dryRun: s.DryRun || own.DryRun, iso: own.ISO, yes: own.Yes, bossKill: own.BossKill, refresh: own.Refresh}
-		env := ac.deps.env(ac.userDir())
+		env := ac.coopEnv()
 		env.front = ac.front(f)
 		cs := startCoopSession(ac.out, f, env)
 		cs.poseClient = ac.poseClient
@@ -653,7 +682,7 @@ func (ac *appCoop) foundLoop(ctx context.Context, pol *world.Policy, auto bool) 
 		}
 		select {
 		case req := <-unbind:
-			req.reply <- clearLoadedTag(ac.out, m, ac.deps.tick, req.want, "")
+			req.reply <- clearLoadedTag(ac.out, m, ac.deps.tick, req.want, "", ac.tagRecorder())
 			unblock()
 			continue
 		default:
@@ -764,7 +793,7 @@ func (ac *appCoop) UnbindFile(want string) error {
 	if m == nil {
 		return errors.New("co-op isn't looking at your game yet: try again once Dolphin runs it")
 	}
-	return clearLoadedTag(ac.out, m, ac.deps.tick, want, own)
+	return clearLoadedTag(ac.out, m, ac.deps.tick, want, own, ac.tagRecorder())
 }
 
 // SetShares changes what the host's hub allows while it runs (the app's
@@ -795,13 +824,13 @@ func (ac *appCoop) SetShares(on []string) error {
 var errFileChanged = errors.New("the loaded file changed: try again")
 
 // clearLoadedTag is `coop-tag clear --yes` for the app: it zeroes the
-// co-op tag of the file loaded in m, in memory only (the card keeps it
-// until the next in-game save), and logs what it did. The tag must name
-// world want, the one the dialog showed ("": a file shown with no
-// readable tag must still have none), and never own, the session's
-// world ("" for none yet): a dialog clicked after another file was
-// loaded unbinds nothing.
-func clearLoadedTag(rep log.Reporter, m mem.Mem, tick func(), want, own string) error {
+// co-op tag of the file loaded in m, in game memory, hands the write to
+// record (nil: none) so the memory card gets it too once no Dolphin runs
+// (mods/coop/cardtag), and logs what it did. The tag must name world
+// want, the one the dialog showed ("": a file shown with no readable tag
+// must still have none), and never own, the session's world ("" for none
+// yet): a dialog clicked after another file was loaded unbinds nothing.
+func clearLoadedTag(rep log.Reporter, m mem.Mem, tick func(), want, own string, record func(bind.Written)) error {
 	s, st, _, err := diag.GateSnapshots(m, tick)
 	if err != nil {
 		return err
@@ -832,8 +861,12 @@ func clearLoadedTag(rep log.Reporter, m mem.Mem, tick func(), want, own string) 
 	if p.Verdict.HasTag {
 		what = fmt.Sprintf("world %s, %s", p.Verdict.Tag.World, p.Verdict.State)
 	}
-	log.Logf(rep, log.OK, "co-op: cleared the co-op tag (%s) of %s at 0x%08X. Save in game to write the unbound file to the memory card; loading it from the card again brings the tag back.",
-		what, bind.Describe(p.File), addr.Reserve)
+	log.Logf(rep, log.OK, "co-op: cleared the co-op tag (%s) of %s at 0x%08X.", what, bind.Describe(p.File), addr.Reserve)
+	if record != nil {
+		record(p.Written())
+	} else {
+		rep.Log(log.Info, "co-op: save in game to write the unbound file to the memory card; loading it from the card again brings the tag back.")
+	}
 	return nil
 }
 

@@ -515,15 +515,24 @@ func TestClearLoadedTag(t *testing.T) {
 		{"", ""},                 // ... or a file with no readable tag
 		{bindtest.World.String(), bindtest.World.String()}, // the session's own world
 	} {
-		if err := clearLoadedTag(log, m, tick, c.want, c.own); err == nil {
+		var heard []bind.Written
+		if err := clearLoadedTag(log, m, tick, c.want, c.own, func(w bind.Written) { heard = append(heard, w) }); err == nil || len(heard) != 0 {
 			t.Fatalf("clear %+v removed the tag", c)
 		}
 	}
 	if s, _, _, err := diag.GateSnapshots(m, tick); err != nil || bind.Classify(bind.FileOf(s), bind.Expect{}).State != bind.Bound {
 		t.Fatalf("a refused clear changed the file (%v)", err)
 	}
-	if err := clearLoadedTag(log, m, tick, bindtest.World.String(), "0000000000000001"); err != nil {
+	var heard []bind.Written
+	if err := clearLoadedTag(log, m, tick, bindtest.World.String(), "0000000000000001", func(w bind.Written) { heard = append(heard, w) }); err != nil {
 		t.Fatal(err)
+	}
+	// The write is handed on for the memory card: zeros over the bound tag.
+	if len(heard) != 1 || heard[0].Kind != bind.KindClear || heard[0].Bytes != [bind.TagSize]byte{} {
+		t.Fatalf("recorded %+v, want one clear", heard)
+	}
+	if tg, err := bind.Decode(heard[0].File.Tag[:]); err != nil || tg.World != bindtest.World {
+		t.Fatalf("the recorded file's tag before: %+v, %v", tg, err)
 	}
 	if !log.has("co-op: cleared the co-op tag (world "+bindtest.World.String()+", bound)") || !log.has(`"Link"`) {
 		t.Fatalf("log:\n%s", log)
@@ -536,7 +545,7 @@ func TestClearLoadedTag(t *testing.T) {
 		t.Fatalf("after the clear: %+v", v)
 	}
 	log = &coLog{}
-	if err := clearLoadedTag(log, m, tick, "", ""); err != nil || !log.has("has no co-op tag") {
+	if err := clearLoadedTag(log, m, tick, "", "", nil); err != nil || !log.has("has no co-op tag") {
 		t.Fatalf("second clear: %v\n%s", err, log)
 	}
 }
