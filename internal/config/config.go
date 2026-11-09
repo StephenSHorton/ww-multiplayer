@@ -104,7 +104,13 @@ type ISO struct {
 // Coop is the host's last co-op choice (the Lobby's co-op panel), and
 // this player's own relay choices whichever side it plays.
 type Coop struct {
-	LastMode  string `json:"lastMode"` // "off", "new" or "continue"
+	// LastMode is the host's world mode: "auto" (the default: the world
+	// follows the save the host loads), "new" or "continue" (the
+	// advanced "play a specific world"). Disabled is Settings' off
+	// switch: co-op off whatever the mode. An older config's "off" mode
+	// reads as "auto" (and an empty one is replaced by the default).
+	LastMode  string `json:"lastMode"`
+	Disabled  bool   `json:"disabled,omitempty"`
 	LastWorld string `json:"lastWorld"`
 	DryRun    bool   `json:"dryRun"`
 	// Merge, LiveSwitchesOff and ISO are the panel's Advanced choices:
@@ -202,7 +208,7 @@ func Defaults() Config {
 		Version: Version,
 		Port:    DefaultPort,
 		Dolphin: Dolphin{LaunchOnStart: true, InstallCheats: true},
-		Coop:    Coop{LastMode: "off"},
+		Coop:    Coop{LastMode: "auto"},
 		UI:      UI{Window: Window{W: 1100, H: 720}},
 		Update:  Update{Check: true},
 	}
@@ -346,9 +352,10 @@ func (c *Config) validate() []string {
 		c.Name = ""
 	}
 	switch c.Coop.LastMode {
-	case "off", "new", "continue":
+	case "auto", "new", "continue":
+	case "off": // before co-op was on by default; read as "auto" (gui choiceOf)
 	default:
-		warns = append(warns, fmt.Sprintf("co-op mode %q is not off, new or continue; using off", c.Coop.LastMode))
+		warns = append(warns, fmt.Sprintf("co-op mode %q is not auto, new or continue; using auto", c.Coop.LastMode))
 		c.Coop.LastMode = d.Coop.LastMode
 	}
 	// The relay choices as the CLI takes them (replica's parsers): one it

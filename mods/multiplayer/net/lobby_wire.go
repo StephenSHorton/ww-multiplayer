@@ -126,10 +126,13 @@ const (
 const (
 	CoopOff = "off"
 	CoopNew = "new"
+	// CoopAuto is the app host's default: the world follows the save the
+	// host loads (continue it, adopt its world, or found one from it).
+	CoopAuto = "auto"
 )
 
 // LobbySettingsBody is the host's co-op settings (SETTINGS, and inside
-// STATE and START). Coop is CoopOff, CoopNew or a world ID.
+// STATE and START). Coop is CoopOff, CoopNew, CoopAuto or a world ID.
 type LobbySettingsBody struct {
 	Coop         string `json:"coop"`
 	DryRun       bool   `json:"dryRun"`

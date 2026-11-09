@@ -478,9 +478,10 @@
 					<div class="coopbox" id="coop-host">
 						<span class="label">Co-op world</span>
 						<div class="seg" role="radiogroup" aria-label="Co-op world" id="coop-seg">
-							<button type="button" role="radio" data-mode="off" aria-checked="true" title="Play together without a shared world">Off</button>
-							<button type="button" role="radio" data-mode="new" aria-checked="false" title="Found a new world from the file you load after Start">New world</button>
-							<button type="button" role="radio" data-mode="continue" aria-checked="false" title="Go on with a world on this computer">Continue</button>
+							<button type="button" role="radio" data-mode="auto" aria-checked="true" title="The world follows the save you load: its world is continued, or started here from your save">Automatic</button>
+							<button type="button" role="radio" data-mode="off" aria-checked="false" title="Play together without a shared world">Off</button>
+							<button type="button" role="radio" data-mode="new" aria-checked="false" title="Advanced: found a new world from the file you load after Start">New world</button>
+							<button type="button" role="radio" data-mode="continue" aria-checked="false" title="Advanced: go on with a specific world on this computer">Continue</button>
 						</div>
 						<small class="hint" id="coop-mode-hint"></small>
 						<ul class="worlds" id="coop-worlds" role="radiogroup" aria-label="Worlds on this computer" hidden></ul>

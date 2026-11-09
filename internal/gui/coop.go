@@ -30,7 +30,7 @@ import (
 
 // CoopRequest is the host's co-op choice.
 type CoopRequest struct {
-	Mode         string `json:"mode"` // "off", "new" or "continue"
+	Mode         string `json:"mode"` // "off", "auto", "new" or "continue"
 	World        string `json:"world"`
 	DryRun       bool   `json:"dryRun"`
 	Merge        bool   `json:"merge"`
@@ -241,6 +241,8 @@ func coopModeOf(setting string) (mode, world string) {
 		return "off", ""
 	case session.CoopWorldNew:
 		return "new", ""
+	case session.CoopWorldAuto:
+		return "auto", ""
 	}
 	return "continue", setting
 }
@@ -255,6 +257,8 @@ func settingsOf(r CoopRequest) (session.LobbySettings, error) {
 		s.Coop = "off"
 	case "new":
 		s.Coop = session.CoopWorldNew
+	case "auto":
+		s.Coop = session.CoopWorldAuto
 	case "continue":
 		w := strings.ToLower(strings.TrimSpace(r.World))
 		if !worldIDRe.MatchString(w) {
@@ -262,7 +266,7 @@ func settingsOf(r CoopRequest) (session.LobbySettings, error) {
 		}
 		s.Coop = w
 	default:
-		return s, fmt.Errorf("co-op mode %q is not off, new or continue", r.Mode)
+		return s, fmt.Errorf("co-op mode %q is not off, auto, new or continue", r.Mode)
 	}
 	return s, nil
 }
@@ -275,7 +279,14 @@ func requestOf(s session.LobbySettings, iso string) CoopRequest {
 
 // choiceOf is the host's saved choice.
 func choiceOf(c config.Coop) CoopRequest {
-	return CoopRequest{Mode: c.LastMode, World: c.LastWorld, DryRun: c.DryRun, Merge: c.Merge, LiveSwitches: !c.LiveSwitchesOff, ISO: c.ISO}
+	mode := c.LastMode
+	switch {
+	case c.Disabled:
+		mode = "off"
+	case mode == "off" || mode == "":
+		mode = "auto" // saved when Off was the default: co-op is on now
+	}
+	return CoopRequest{Mode: mode, World: c.LastWorld, DryRun: c.DryRun, Merge: c.Merge, LiveSwitches: !c.LiveSwitchesOff, ISO: c.ISO}
 }
 
 // SetCoop sets the host's co-op choice: saved for next time, and sent to
@@ -292,9 +303,11 @@ func (b *Bridge) SetCoop(r CoopRequest) (err error) {
 		return errNoCoopMod
 	}
 	b.mu.Lock()
-	b.cfg.Coop.LastMode = r.Mode
-	if r.Mode == "" {
-		b.cfg.Coop.LastMode = "off"
+	// Off is Settings' switch and leaves the mode alone, so turning co-op
+	// back on returns to what was chosen.
+	b.cfg.Coop.Disabled = r.Mode == "" || r.Mode == "off"
+	if !b.cfg.Coop.Disabled {
+		b.cfg.Coop.LastMode = r.Mode
 	}
 	if r.Mode == "continue" {
 		b.cfg.Coop.LastWorld = s.Coop
@@ -558,7 +571,7 @@ func (b *Bridge) coopView(st session.State, running bool, mk masker) *CoopView {
 		v.Setting = "off"
 	}
 	v.Mode, v.World = coopModeOf(v.Setting)
-	if st.Coop.On && st.Coop.World != "" && st.Coop.World != session.CoopWorldNew {
+	if st.Coop.On && st.Coop.World != "" && st.Coop.World != session.CoopWorldNew && st.Coop.World != session.CoopWorldAuto {
 		v.World = st.Coop.World
 	}
 	if f := st.Founding; f != nil && f.World != "" {
@@ -732,13 +745,28 @@ func coopBanner(st session.State, running bool) *BannerView {
 			b := &BannerView{Kind: "coop", Title: "File not bound.", Text: text + "."}
 			// A file bound to another world (its dialog kept): its tag can
 			// still be removed from here.
-			if (cs.FileState == "foreign" || cs.FileState == "bound") && cs.TagWorld != "" && world != "" && world != session.CoopWorldNew && cs.TagWorld != world {
+			if (cs.FileState == "foreign" || cs.FileState == "bound") && cs.TagWorld != "" && world != "" && world != session.CoopWorldNew && world != session.CoopWorldAuto && cs.TagWorld != world {
 				b.Action, b.ActionLabel, b.ActionArg = actUnbind, "Remove the tag", cs.TagWorld
 			}
 			return b
 		}
 	}
+	if f := st.Founding; f != nil && f.Phase == session.FoundingFounded && f.Outcome != "" {
+		return &BannerView{Kind: "coop", Title: "Co-op:", Text: autoFoundedText(*f)}
+	}
 	return nil
+}
+
+// autoFoundedText is the one line the auto mode leaves after it
+// decided: what the host's save did.
+func autoFoundedText(f session.Founding) string {
+	switch f.Outcome {
+	case "continued":
+		return "continuing your world " + short(f.World) + "."
+	case "adopted":
+		return "your save belongs to world " + short(f.World) + ", which wasn't on this computer, so it was started here from your save."
+	}
+	return "started a new world " + short(f.World) + " from your save."
 }
 
 // hostCoopBanner is the host's co-op status line (its lobby row's) for
@@ -794,7 +822,7 @@ func coopDialog(st session.State, running bool, mk masker) *DialogView {
 		if cs.World != "" {
 			world = cs.World
 		}
-		if (cs.FileState == "foreign" || cs.FileState == "bound") && cs.TagWorld != "" && world != "" && world != session.CoopWorldNew && cs.TagWorld != world {
+		if (cs.FileState == "foreign" || cs.FileState == "bound") && cs.TagWorld != "" && world != "" && world != session.CoopWorldNew && world != session.CoopWorldAuto && cs.TagWorld != world {
 			return &DialogView{Key: key("foreign", cs.TagWorld), Kind: dlgForeign, Live: true, Title: "This file is bound to another co-op world",
 				Text:    fmt.Sprintf("The file you loaded is bound to world %s, so it can't join this session's world. Remove its tag to bind it here instead: you'll be asked to bind it next.", short(cs.TagWorld)),
 				Detail:  "Only your game's memory changes: the file leaves world " + short(cs.TagWorld) + " at your next in-game save, and loading it from the card again brings the tag back.",
@@ -826,11 +854,17 @@ func foundingDialog(f *session.Founding, key func(...string) string) *DialogView
 	}
 	switch f.Phase {
 	case session.FoundingFounded:
+		if f.Outcome != "" {
+			return nil // the auto mode's one line (autoFoundedText) says it
+		}
 		return &DialogView{Key: key("founded"), Kind: dlgFounded, Title: "World " + short(f.World) + " founded",
 			Text:    "Your file founded co-op world " + f.World + ". Save in game so your card keeps the tag.",
 			Detail:  "Your file joins it through the Bind question (say Bind); then save in game.",
 			Actions: []DialogAction{{ID: actOK, Label: "OK", Primary: true}}}
 	case session.FoundingFailed:
+		if f.Outcome == "none" {
+			return nil // co-op is off this session: the host's row says why
+		}
 		return &DialogView{Key: key("found", "failed"), Kind: dlgFounding, Title: "No world was founded",
 			Text: "The new world couldn't be made, so this session plays without co-op.", Detail: f.Err,
 			Actions: []DialogAction{{ID: actOK, Label: "OK", Primary: true}}}

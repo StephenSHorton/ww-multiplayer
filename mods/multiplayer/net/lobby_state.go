@@ -533,8 +533,8 @@ func (m *lobbyMachine) setSettings(mb *lobbyMember, b LobbySettingsBody) []lobby
 	if b.Coop == "" {
 		b.Coop = CoopOff
 	}
-	if b.Coop != CoopOff && b.Coop != CoopNew && !coopWorldIDRe.MatchString(b.Coop) {
-		return []lobbyOut{notice(mb.conn, NoticeBadMessage, fmt.Sprintf("SETTINGS: co-op %.20q is not off, new or a world ID", b.Coop))}
+	if b.Coop != CoopOff && b.Coop != CoopNew && b.Coop != CoopAuto && !coopWorldIDRe.MatchString(b.Coop) {
+		return []lobbyOut{notice(mb.conn, NoticeBadMessage, fmt.Sprintf("SETTINGS: co-op %.20q is not off, new, auto or a world ID", b.Coop))}
 	}
 	if b.Coop != CoopOff && m.noCoop != "" {
 		return []lobbyOut{notice(mb.conn, NoticeNoCoop, m.noCoop)}

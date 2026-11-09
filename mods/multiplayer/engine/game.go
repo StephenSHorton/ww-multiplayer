@@ -248,6 +248,14 @@ func (g *GameRunner) PlayablePID() uint32 {
 	return g.info.PID
 }
 
+// DolphinState is this player's Dolphin as the game side sees it (the
+// co-op founding words an unpatched disc from it).
+func (g *GameRunner) DolphinState() session.DolphinState {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.info.State
+}
+
 // launchAgain asks for a launch of this player's Dolphin (the "Dolphin
 // closed" banner's Launch).
 func (g *GameRunner) launchAgain() error {

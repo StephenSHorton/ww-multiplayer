@@ -244,7 +244,7 @@ func TestBadFieldsKeepTheRest(t *testing.T) {
 	}
 	d := Defaults()
 	if c.Name != "Ann" || c.ISO.Patched != "p.iso" || c.Port != d.Port || c.Dolphin != d.Dolphin || c.Color != "" ||
-		c.Coop.LastMode != "off" || c.Coop.LastWorld != "ab" || c.UI.Window != d.UI.Window || len(c.RecentHosts) != 1 {
+		c.Coop.LastMode != "auto" || c.Coop.LastWorld != "ab" || c.UI.Window != d.UI.Window || len(c.RecentHosts) != 1 {
 		t.Errorf("got %+v", c)
 	}
 	if c, warns := Parse([]byte(`{"port": 70000, "name": "a\nb", "color": "red"}`)); len(warns) != 2 || c.Port != DefaultPort || c.Name != "" || c.Color != "red" {

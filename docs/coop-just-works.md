@@ -99,6 +99,19 @@ of always calling `bind.NewWorldID()`. `world.Create` already accepts any
 unused ID (`world/store.go:226`). `foundCheck` allows Bound when the tag's
 world is absent. The "World founded" dialog becomes the one-line notice.
 
+**As built (card #1173).** The lobby setting `auto` (`network.CoopAuto`,
+`session.CoopWorldAuto`) is the app host's default: `Bridge.Host` sends
+the saved choice once the lobby is up (`sendHostCoop`), `config.Coop.Disabled`
+is Settings' off switch, and `LastMode` new/continue stay as the advanced
+"play a specific world". `appCoop.decide` runs the founding loop and
+`decideAuto` (mods/coop/session/session.go) picks the row; `foundFrom`
+takes the tag's ID for an adopted world, and `openWorld` writes an
+`adopted` file in the world's folder. The host's own bind is answered yes
+(`host()` sets `yes` in auto). The window gets `Founding.Outcome`
+(continued / adopted / founded / none) as one banner line, not a dialog.
+Tests: `mods/coop/session/auto_test.go`. Not done here: moving the
+Automatic/Off/New/Continue picker from the lobby panel into Settings.
+
 ## 5. The joiner follows the host
 
 A joiner's co-op starts from the host's world, W from GO. Every binding
