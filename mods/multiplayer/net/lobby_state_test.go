@@ -803,6 +803,8 @@ func TestLobbyMachineCoopStatusFits(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("%d rows carry a co-op status, want the host's alone", n)
+	}
+}
 
 // TestLobbyMachineAppVersions: STATE carries each member's HELLO app
 // version, so every window can compare them (version-skew line).
