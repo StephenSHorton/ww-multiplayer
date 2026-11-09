@@ -140,9 +140,30 @@ var pickupRecipes = []pickupRecipe{
 		// On the PC rig Cave01 point 0 room 0 holds chest 5 (params
 		// 0xFF200280, at (4314.5, 124.3, -149.9), yaw 0xC000), created
 		// after the entry event, and two Magtails far from it (no kill).
+		// The chest stands on a burning pillar: Link warped beside it takes
+		// fire damage and the press does not open it (#1165). angular-heart
+		// is the heart piece the drive reaches.
 		Name: "cave01-heart", Stage: "Cave01", Point: 0, Room: 0,
 		Kind: pickupTbox, Table: addr.TableSubdungeon, No: 5, Derive: deriveLife,
-		Note: "needs the 16-AfterET card's save state (max life under the cap)",
+		Note: "needs the 16-AfterET card's save state (max life under the cap); the drive has not opened it (burning pillar, #1165): use angular-heart",
+	},
+	{
+		// Angular Isles (sea room 47; #1188, RP-2): the heart-piece chest
+		// on the peak, `tbox 0:0` in coop-tables --section hearts. Chest 0
+		// (params 0xFF200000, funcType 0: no switch or kill gates it) is at
+		// (99925, 1050, 320240), yaw 0x8000; the peak's top holds Link at
+		// the setup warp 90 out on its front. Sea point 0 room 47 lands
+		// Link on foot on the island. A ChuChu (proc 0xCF) sits on the
+		// peak about 240 from the chest: killed in the setup. Three
+		// Bokoblins on a lookout far off (about 28,000) are left alone.
+		// Needs a file under the life cap with the piece untaken: the CryZe
+		// 16-AfterET card (handoff fixtures/start-16aet-CACDFFF7.sav, max
+		// life 40, Link in the Earth Temple, so B stays out of table 0).
+		Name: "angular-heart", Stage: "sea", Point: 0, Room: 47,
+		Kind: pickupTbox, Table: addr.TableSea, No: 0, Derive: deriveLife,
+		KillProcs: []int16{0x00CF},
+		Hint:      &vec{99925.0, 1050.0, 320240.0},
+		Note:      "needs the 16-AfterET card's save state (max life under the cap, Angular Isles' piece untaken)",
 	},
 }
 
