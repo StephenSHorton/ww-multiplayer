@@ -1,6 +1,6 @@
 # wwapi: mods, manifests and the supervisor
 
-**Status: v0 UNSTABLE.** Phase B step B3 of [00-design.md](00-design.md), with `Context.Game` and `Context.Commands` from D3. The app compiles in two mods, `multiplayer` and `coop` (`compiledMods()`), plus the dev example `mods/example` (`devMods()`, shown with `--dev`). Its API can change in any 0.x minor version.
+**Status: v0 UNSTABLE.** Phase B step B3 of [00-design.md](00-design.md), with `Context.Game` and `Context.Commands` from D3. The app compiles in three mods, `multiplayer`, `coop` and `widescreen` (`compiledMods()`), plus the dev example `mods/example` (`devMods()`, shown with `--dev`). Its API can change in any 0.x minor version.
 
 Import paths: `github.com/StephenSHorton/ww-multiplayer/wwapi` (the runtime), `.../wwapi/semver` (versions and ranges), `.../wwapi/schema` (the manifest schema and its validator). Events are in [01-events.md](01-events.md). For a walk through a whole mod, its commands and its tests, see [03-writing-a-mod.md](03-writing-a-mod.md).
 

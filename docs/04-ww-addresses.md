@@ -23,6 +23,9 @@ is line N of `symbols.txt`. Decomp line numbers drift, so re-check them against 
 | `0x80006338` | `main01` | Main game loop function (we hook this) |
 | `0x801BB024` | `dDlst_FMAP_c::draw` | The sea chart's draw: we hook its `bl J2DScreen::draw` (`0x802D0F2C`) at `0x801BB06C` (`seachart_shim`, `inject/src/core/hooks.c`); r30 = this, r31 = the graf port |
 | `0x800F1034` | `dComIfGp_getPlayer(int idx)` | Get player pointer by index |
+| `0x8017BEB0` | `view_setup` (`d_camera.cpp:5347`) | Sets up the camera view each frame. Its `bl mDoLib_clipper::setup` (`0x800176BC`) at `0x8017BF90` (DOL file offset `0x178ED0`) is the only call; we hook it (`clip_setup_hook`, `inject/src/core/hooks.c`) to widen the cull aspect (docs/design/widescreen-culling.md section 5) |
+| `0x8017BE88` | `preparation()` store (`d_camera.cpp:5315`) | Writes `view->mAspect` every frame: `*(f32*)0x803FA998` (4/3) × `g_HIO.mAspectRatio` (0.96) = 1.28 |
+| `0x800CE5E8` | `dSnap_packet::Judge`'s `bl SetResult` (`0x800CEB80`) | Word `0x48000599`, DOL file offset `0xCB528`; r3 = the `dSnap_packet*`. We hook it (`ws_snap_setresult`, hooks.c) to scale the picto box's counted pixels in native widescreen (docs/design/native-widescreen.md 3.6) |
 
 ## Globals
 
@@ -36,6 +39,9 @@ is line N of `symbols.txt`. Decomp line numbers drift, so re-check them against 
 | `0x8038FD8C` | `g_profile_PLAYER` | Player actor profile definition |
 | `0x803ED988` | `exCallbackObject` | JUTException's crash record (size 0x14: +4 u16 OSError, +8 `OSContext*`, +0xC DSISR, +0x10 DAR; JUTException.cpp:21-27, :209-213). Context is 0 until the first caught exception. Read by `wwdev crash-context` (wwapi/addr crash.go) |
 | `0x800030C8` | `__OSModuleList` | `OSModuleQueue {head, tail}` of linked REL modules (OSLink.h:27); `OSModuleInfo` id +0, next +4, numSections +0xC, sectionInfo +0x10; section offset bit 0 = exec (OSLink.h:81-82) |
+| `0x803A570C` | `mDoLib_clipper::mClipper` | The game's one software frustum (`J3DUClipper`): fovY +0x4C, aspect +0x50 (`0x803A575C`), near +0x54, far +0x58. `setup` (`0x800176BC`) stores them (aspect: `stfs f2,0x50(r3)` at `0x800176E0`) and calls `calcViewFrustum` (`0x802566CC`). Vanilla aspect 1.28; 1.7067 (`0x3FDA740E`) with the widescreen hook in mode 1 at 4/3 |
+| `0x803FA998` | 4/3 literal (f32) | The 3D aspect `preparation()` reads, vanilla `0x3FAAAAAB`. Native widescreen's knob: WS_SET writes `(4·F)/3` in mode 2 (`0x3FE38E39` at 16:9), vanilla otherwise |
+| `0x803B9A08` | `g_HIO.mAspectRatio` (f32) | 0.96; multiplies the 4/3 above in `preparation()` |
 
 ## Actor Struct Offsets (from `fopAc_ac_c` base)
 
