@@ -1976,3 +1976,7 @@ game +4 MiB), every Dolphin launch passes the RAM override, and the mod's
 pointer bounds end at 0x83000000. Details in docs/05 "48 MB MEM1". Save
 states captured at 24 MB refuse to load: `saves/start.sav` recaptured,
 players must re-patch.
+
+---
+
+[← Wind Waker memory addresses](04-ww-addresses.md) · [Docs home](README.md) · [BetterSunshine research →](07-bettersunshine-research.md)

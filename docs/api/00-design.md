@@ -535,3 +535,7 @@ The plan above assumes that **a C mod always needs a blob rebuild and an ISO re-
 4. Is it worth the cost now, or only when an out-of-tree C mod appears? The research note itself advises not chasing Kuribo for multiplayer v1.
 
 Until this is answered, the plan stays as written: one blob, Features advertised, C mods need a re-patch.
+
+---
+
+[← UDP pose](../12-udp-pose.md) · [Docs home](../README.md) · [Modding API: events →](01-events.md)

@@ -482,3 +482,7 @@ the short version:
   4:3 under the hack by design. #1186's native mode fixes them (`native-widescreen.md`).
 - **Dolphin versions:** the hack's maths was read in tag 2603. The PC's 2609a is assumed to be the
   same. The live check above was on the Mac's 2603-342.
+
+---
+
+[← Native widescreen](native-widescreen.md) · [Docs home](../README.md)

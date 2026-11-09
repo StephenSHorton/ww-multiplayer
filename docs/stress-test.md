@@ -110,3 +110,7 @@ not repeated here: wind#16 already ran three and four remotes live on the
 Mac rig (R3-1..4, the relay scoping checks RS1-RS7, docs/TESTING.md "Three
 remotes and the soft reset"). The synthetic run adds the 4- and 8-player
 load that no rig can reach.
+
+---
+
+[← The lobby](10-lobby.md) · [Docs home](README.md) · [Setup on a new machine →](../SETUP.md)

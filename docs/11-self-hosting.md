@@ -17,7 +17,7 @@ Usually the host's own app is the server: **Host a session** starts one on the h
 
 ## 2. Where to run it: Tailscale first
 
-**Tailscale** (or another WireGuard mesh: Headscale, ZeroTier, Radmin VPN) is the easiest and the safest place:
+**Tailscale** (or another WireGuard mesh: Headscale, ZeroTier) is the easiest and the safest place:
 
 1. Install Tailscale on the server machine and on every player's machine, all in one tailnet (or share the server machine with your friends' tailnets).
 2. Run `ww-multiplayer server` on the server machine.
@@ -91,3 +91,7 @@ docker ps                  # healthy once the probe answers
 ## 7. Updating
 
 Replace the binary (or check out the new release tag and rebuild the image, with that tag as `VERSION`) when your players update: a server of another protocol turns them away at the hello with the version dialog. After the restart, apps reconnect on their own; the lobby starts empty, so the key holder joins again and presses Start.
+
+---
+
+[← Playing over the internet](online.md) · [Docs home](README.md) · [The lobby →](10-lobby.md)

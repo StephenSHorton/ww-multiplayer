@@ -490,3 +490,7 @@ Setup: run `SAVE_STATE=… ./wwdev.exe dolphin2`, then `WW_TUNIC=off ./wwdev.exe
 - `main.go`: `applyColorPrefFromArgs`, `newPlayerClient`, the `tunic-*` cases, colors in `remoteViews`, the appearance byte in broadcast-pose, `syncTunics` in puppet-sync, the `dump` block
 
 **Checks:** the check-matrix run is recorded in `TUNIC-SUMMARY.md` (untracked). `main.go` was already not gofmt-clean at the base and was left that way.
+
+---
+
+[← What is left for full co-op](coop-remaining.md) · [Docs home](README.md) · [UDP pose →](12-udp-pose.md)

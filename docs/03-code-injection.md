@@ -117,3 +117,7 @@ Superseded: `ww-multiplayer patch` now does the ISO and CISO rebuild in Go (`int
 This would eliminate our CISO patching bugs and present Dolphin with a normally-structured game image.
 
 Alternative: test on **Dolphin 5.0 Legacy** — if the JIT cache behavior differs, Gecko codes might "just work" there.
+
+---
+
+[← Dolphin memory access](02-dolphin-memory.md) · [Docs home](README.md) · [Wind Waker memory addresses →](04-ww-addresses.md)

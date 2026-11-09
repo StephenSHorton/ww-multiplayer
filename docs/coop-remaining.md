@@ -306,3 +306,7 @@ Tonight's board (2026-11-01, "Wind Waker Multiplayer", parent "Full co-op state 
 7. Rule gates (M2tower from sea r1, GanonK D2(7), GTower sw31, M_DaiMB, FF D2(2)/D3, T5b, Makar, Medli), then the overworld D2.
 
 **Then:** one REL batch if anything above needs it (with a recapture); the play-together runs, dungeon by dungeon (each slice's D5 rows); Stephen's two-machine, WAN and macOS items; the next release.
+
+---
+
+[← Co-op that just works](coop-just-works.md) · [Docs home](README.md) · [Player tunic colors →](09-player-colors.md)

@@ -148,3 +148,7 @@ results.
 - Two-Dolphin `mp-local` loopback (R12): both "in game", "Local multiplayer running."; Link A
   walked by `wwdev input` shows up in Dolphin B with its name tag; the enemy client adopted the
   host's four ChuChus (`adopted 1111`, canaries 0); no ISI/DSI or invalid access in either log.
+
+---
+
+[← Developing on macOS](mac-dev.md) · [Docs home](README.md) · [Testing →](TESTING.md)

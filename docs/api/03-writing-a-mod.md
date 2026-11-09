@@ -209,3 +209,7 @@ go run ./tools/validate_manifests
 5. Never import `internal/config`: settings come from `c.Config()`. `TestCLIReadsNoConfig` checks this for `mods/`.
 6. Tests over `wwapi/fakegame` (and `player/playertest` or `avatar/avatartest` for the C side), `go run ./tools/validate_manifests`, then the check matrix.
 7. Listing it in `compiledMods()` changes the `mods` output, so the `mods` CLI goldens change on purpose ([../TESTING.md](../TESTING.md#cli-and-help-goldens)).
+
+---
+
+[← Testing](../TESTING.md) · [Docs home](../README.md) · [Architecture →](../01-architecture.md)

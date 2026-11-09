@@ -102,3 +102,7 @@ NAT traversal: the host still needs a port forward (now TCP and UDP) or a
 VPN (docs/11-self-hosting.md). There is no forward error correction or
 redundancy (sending the last two frames per datagram). Proposing default-on
 waits for the live and netem record.
+
+---
+
+[← Player tunic colors](09-player-colors.md) · [Docs home](README.md) · [Modding API: design →](api/00-design.md)

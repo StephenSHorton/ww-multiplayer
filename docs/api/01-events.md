@@ -67,3 +67,7 @@ all, off := events.Chan[events.Event](bus, 64)                  // every event
 ## Reminder
 
 **Game events are polled snapshot edges, not in-game callbacks.** A short toggle that happens between two polls is never seen, and the order of events inside one poll tick is not defined.
+
+---
+
+[← Modding API: design](00-design.md) · [Docs home](../README.md) · [Modding API: mods →](02-mods.md)

@@ -140,7 +140,7 @@ A code is as private as the address it holds. `redact.Addr` masks a code-shaped 
 
 ### 10.2 The beacon (`internal/lan`)
 
-While the app hosts a lobby it sends one UDP datagram every 2 s (`BeaconInterval`) to port 25565 (`DefaultPort`; `WW_LAN_PORT` changes it for both sides) of the directed broadcast address of each IPv4 network on every interface that is up, can broadcast and isn't loopback (`BroadcastAddrs`: a `/24` LAN's `x.y.z.255`, Radmin VPN's `26.255.255.255`; a `/31`, a `/32` or a point-to-point interface such as Tailscale's has none). Big-endian, at most 512 bytes (`MaxBeacon`):
+While the app hosts a lobby it sends one UDP datagram every 2 s (`BeaconInterval`) to port 25565 (`DefaultPort`; `WW_LAN_PORT` changes it for both sides) of the directed broadcast address of each IPv4 network on every interface that is up, can broadcast and isn't loopback (`BroadcastAddrs`: a `/24` LAN's `x.y.z.255`, a `26.0.0.0/8` VPN network's `26.255.255.255`; a `/31`, a `/32` or a point-to-point interface such as Tailscale's has none). Big-endian, at most 512 bytes (`MaxBeacon`):
 
 | Offset | Size | Field |
 |---|---|---|
@@ -165,7 +165,7 @@ Strings are UTF-8 with printable characters only. There is no address in it (the
 While Home is shown the page asks `Bridge.LanSessions` every second. The first ask opens a listener on the beacon port, bound with `SO_REUSEADDR` (and `SO_REUSEPORT` on macOS, Linux and the BSDs) so two apps on one machine can both listen; it closes 5 s after the last ask, and at once when a session starts. Each datagram that decodes goes into the table under its instance:
 
 - the app's own instance is skipped (`NewTable(self)`);
-- a host heard from several addresses (a LAN and Radmin VPN) is one entry; its addresses are ranked LAN, Radmin VPN, Tailscale, other, then by which was heard first, and Join uses the best one heard in the last 6 s;
+- a host heard from several addresses (a LAN and a `26.x` VPN) is one entry; its addresses are ranked LAN, `26.x` VPN, Tailscale, other, then by which was heard first, and Join uses the best one heard in the last 6 s;
 - beacons merge only when they agree on the instance, the host's name, the lobby port, the app version and the protocol: a beacon that copies a host's instance but says anything else of those is its own row, so it can't change where the real row's Join goes (an exact copy from a later address merges, but the address heard first stays ahead within its rank);
 - an entry is listed until 6 s (`EntryTTL`, three beacons) after its last beacon;
 - the table keeps at most 64 hosts and 8 addresses per host, and one source address can have at most 4 hosts listed (`maxPerSource`; a real host sends one), so a flood of forged beacons from one machine can neither grow the table nor fill it and hide the real hosts. Beacons are not authenticated: a machine on the network can still announce a fake session under its own address, which is why a join always takes a click.
@@ -174,4 +174,8 @@ Home lists each entry under Join, "Sessions on your network": the host's name (m
 
 **Local checks.** `WW_LISTEN_HOST=127.0.0.1` (the lobby server's own switch) also keeps discovery on the machine: the listener binds 127.0.0.1 and the beacon goes to 127.255.255.255 and 127.0.0.1 on the beacon port, so nothing is sent to or opened on the network. The loopback broadcast reaches every app listening on the machine (on Windows a unicast datagram reaches only one of the sockets sharing the port); the unicast covers systems where a socket bound to 127.0.0.1 doesn't hear the broadcast, and a listener that hears both just refreshes its entry. `localhost` and `::1` count as 127.0.0.1; any other host name or IPv6 address turns discovery off (it is IPv4 only, and never falls back to every network when a host was named); another IPv4 address binds the listener to it and broadcasts only on its network. `WW_LAN=off` turns discovery off (no beacon, no listening). The gui package's tests run with discovery on 127.0.0.1 (`lanTestHost`, set by `TestMain`).
 
-**Not verified yet:** whether Radmin VPN's virtual network delivers a directed broadcast to `26.255.255.255` between two machines. The beacon is sent there; if it doesn't arrive, the host's Radmin join code or address still works.
+**Not verified yet:** whether a `26.0.0.0/8` virtual network delivers a directed broadcast to `26.255.255.255` between two machines. The beacon is sent there; if it doesn't arrive, the host's join code or address still works.
+
+---
+
+[← Self-hosting a dedicated server](11-self-hosting.md) · [Docs home](README.md) · [Server stress test →](stress-test.md)

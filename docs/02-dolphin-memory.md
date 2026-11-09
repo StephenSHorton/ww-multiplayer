@@ -77,3 +77,7 @@ For most game data, these point to the same physical memory — writes propagate
 ## Performance
 
 Pose and position reads run every 16 ms (~60 Hz, since v0.1.7; 50 ms before) with no measurable overhead. broadcast-pose reads the whole 2016-byte pose each tick, not just the position.
+
+---
+
+[← Architecture](01-architecture.md) · [Docs home](README.md) · [Code injection →](03-code-injection.md)

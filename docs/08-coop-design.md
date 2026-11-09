@@ -2261,3 +2261,6 @@ Also needed from the owner, and not a decision: capture the fixture save states 
     - Not changed: the pose feed's PRESENCE stage gate (`feed.PartnerFor`), a fallback for remotes without the place trailer, which every schema-2 build sends; the hub's stores, SCOPED and GAINS.
     - Tests: wire goldens and rejects (`PRESENCE relayed`, origin 0, no name, a short name, control characters, not UTF-8), `TestPresenceNamesSender` (three peers each hear the other two by name; a newcomer hears all three), `TestPartnersInScope`, `TestPartnersReconnect`, `TestPartnersStatus`, `TestWarpToNamedPartner`, the console's `/warp to` parsing and fuzz, `TestCoopPartnerPos` with two others, `TestMemberCoop` with three, `TestCoopButtons` (`WarpTo`). Live: docs/TESTING.md "Co-op for three or more".
 
+---
+
+[← BetterSunshine research](07-bettersunshine-research.md) · [Docs home](README.md) · [Co-op that just works →](coop-just-works.md)

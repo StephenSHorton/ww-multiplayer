@@ -84,3 +84,7 @@ codesign -d -vvv ~/Applications/Dolphin.app/Contents/MacOS/Dolphin 2>&1 | comman
 Dolphin before 2609 doesn't size MEM1 from the disc. The app and
 `wwdev dolphin2` pass the 48 MB override on the command line, so a 2603
 build works when you launch it through them.
+
+---
+
+[← Releases, code signing and the website](releasing.md) · [Docs home](README.md) · [The macOS test rig →](mac-rig.md)

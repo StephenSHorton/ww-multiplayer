@@ -267,3 +267,7 @@ Dolphin's dual memory mapping, see `docs/02`). Use the C-side
 `input_enable=1`, then `JUTGamePad::read()`'s downstream derivations
 pick up the synthetic values cleanly. See `inject/src/core/hooks.c`
 and the `wwdev.exe input` subcommand (cmd/wwdev/commands.go).
+
+---
+
+[← Code injection](03-code-injection.md) · [Docs home](README.md) · [Project history →](06-history.md)

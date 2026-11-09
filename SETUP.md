@@ -102,8 +102,12 @@ back if it doesn't).
 
 ## See also
 - `CLAUDE.md` — context for AI sessions
-- `docs/01` through `docs/10` — architecture, memory, injection, addresses, known issues, history, research, co-op, player colors, lobby
+- [docs/README.md](docs/README.md) — the docs hub: every doc, grouped Play / Host / Build / Internals
 - `docs/api/` — the modding API and how to write a mod
 - `docs/TESTING.md` — the pre-push check matrix and live checks
 - [GitHub issues](https://github.com/StephenSHorton/ww-multiplayer/issues) — open work, grouped by epic
 - `docs/05-known-issues.md` — known pitfalls and workarounds (memory layout, Freighter clobbers, render pipeline)
+
+---
+
+[← Server stress test](docs/stress-test.md) · [Docs home](docs/README.md) · [Building from source →](docs/building.md)
