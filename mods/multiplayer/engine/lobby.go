@@ -188,11 +188,10 @@ func (e *Engine) runLobby(ctx context.Context, cancel context.CancelFunc, addr, 
 		lc.OnStart = func(b network.LobbyStartBody) {
 			out.LobbyStart(lobbySettings(b.Settings))
 			startGame()
+			goIfHost(gctx, lc, b.Settings, hasCoop, out)
 			if CoopOn(b.Settings) && hasCoop && isHost(lc) {
-				ac.OnStart(b.Settings) // GO once the world is open
-				return
+				ac.OnStart(b.Settings) // the world is announced (a second GO) once it is open
 			}
-			goIfHost(lc, b.Settings, out)
 		}
 	} else {
 		lc.OnStart = func(b network.LobbyStartBody) { out.LobbyStart(lobbySettings(b.Settings)) }
@@ -249,19 +248,50 @@ func linkTracker(report func(session.LobbyLink), now func() time.Time) func(up b
 	}
 }
 
-// goIfHost sends GO for the host once its START came back, while co-op
-// is off (no world to open first: design §2.6 step 4). A START replayed
-// after the lobby is in game sends nothing.
-func goIfHost(lc *network.LobbyClient, s network.LobbySettingsBody, out session.LobbyOutput) {
+// goIfHost sends GO for the host once its START came back: at once, with
+// no world, even when co-op is on (the world is announced with a second
+// GO once it is founded: the app's co-op side, appCoop.sendGo). A START
+// replayed after the lobby is in game sends nothing. The send runs beside
+// the lobby connection's reads and is retried (SendGo).
+func goIfHost(ctx context.Context, lc *network.LobbyClient, s network.LobbySettingsBody, hasCoop bool, out session.LobbyOutput) {
 	st, ok := lc.State()
 	if !ok || st.Phase != network.PhaseStarting || !isHost(lc) {
 		return
 	}
-	if CoopOn(s) {
+	if CoopOn(s) && !hasCoop {
 		log.Logf(out, log.Warn, "co-op: this build has no co-op side here; the session goes on without co-op.")
 	}
-	if err := lc.Go(""); err != nil {
-		log.Logf(out, log.Warn, "Couldn't tell the players to go: %v", err)
+	go SendGo(ctx, lc, "", out, nil)
+}
+
+// goRetryMax is the longest SendGo waits between two tries.
+const goRetryMax = 4 * time.Second
+
+// SendGo sends the host's GO (world "" for none) and tries again until
+// the lobby connection took it or ctx ends: a send fails while the
+// connection is down (a reconnect is on its way), and a lost GO would
+// leave every window on "Starting". The server accepts a repeat. sleep
+// waits between tries (nil: a real wait that ctx ends).
+func SendGo(ctx context.Context, lc *network.LobbyClient, world string, out log.Reporter, sleep func(context.Context, time.Duration) error) {
+	if sleep == nil {
+		sleep = network.SleepCtx
+	}
+	wait := 250 * time.Millisecond
+	for tries := 0; ; tries++ {
+		if ctx.Err() != nil {
+			return
+		}
+		err := lc.Go(world)
+		if err == nil {
+			return
+		}
+		if tries == 0 {
+			log.Logf(out, log.Warn, "Couldn't tell the players to go: %v (trying again)", err)
+		}
+		sleep(ctx, wait)
+		if wait *= 2; wait > goRetryMax {
+			wait = goRetryMax
+		}
 	}
 }
 

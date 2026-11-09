@@ -318,3 +318,23 @@ func TestSessionEngine_JoinLobbyOwnerKey(t *testing.T) {
 		t.Fatal("START from the keyed host never reached the lobby")
 	}
 }
+
+// TestSendGoRetries: a GO that can't be sent (the lobby connection is
+// down) is tried again, with a growing wait, until it goes or ctx ends.
+func TestSendGoRetries(t *testing.T) {
+	lc := network.NewLobbyClient("Host", network.LobbyHelloBody{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var waits []time.Duration
+	out := &recOutput{}
+	SendGo(ctx, lc, "0123456789abcdef", out, func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		if len(waits) == 6 {
+			cancel()
+		}
+		return nil
+	})
+	if len(waits) != 6 || waits[1] <= waits[0] || waits[5] > goRetryMax {
+		t.Fatalf("waits %v", waits)
+	}
+}
