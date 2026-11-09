@@ -1,10 +1,10 @@
 # Co-op that just works
 
-Plan from card #1166 (2026-11-08). Status: **proposed**. It needs the
-owner's answers to the choices in §8. After that it splits into the doing
-cards in §9. It supersedes #1163 and #1164, and it builds on what they
-landed or are landing: #1163's co-op status line and no-world GO, and
-#1164's stale-disc gate (PR #328).
+Plan from card #1166 (2026-11-08). Status: **agreed** by the owner on
+2026-11-08, with every choice in §8 answered as recommended. It is split
+into the doing cards in §9. It supersedes #1163 and #1164, and it builds
+on what they landed or are landing: #1163's co-op status line and
+no-world GO, and #1164's stale-disc gate (PR #328).
 
 The target, in the owner's words: "They just want to play. We need to
 rethink how we're doing multiplayer to make it just work for people
@@ -193,30 +193,25 @@ Saving in game keeps working as it always has.
   truly fresh player can't bind. With no card there is nothing to back
   up, so the app allows tags and takes the backup once a card exists.
 
-## 8. Choices for the owner
+## 8. Owner decisions (2026-11-08)
 
-Each choice is a separate question on card #1166. The recommendation
-comes first.
+Asked as separate questions on card #1166. Each was answered with the
+recommended option:
 
-- **A. Persisting the tag:** the app writes it into the memory card (GCI;
-  raw falls back) **(recommended)**, or the app never writes cards and
-  re-binds each session (§6).
+- **A. Persisting the tag:** the app writes it into the memory card: a
+  GCI folder, with a backup first and a read-back check. A raw card falls
+  back to the RAM path (§6 A).
 - **B. A save tied to a world that isn't on this PC:** found that world
-  here under the same ID, marked adopted **(recommended)**: no write,
-  and the save keeps its tag. Or found a new ID and re-tag the save: the
-  save leaves its old world, and rejoining that world's host later is
-  refused.
-- **C. Joiners whose progress differs from the host's world:** merge on
-  by default **(recommended)**: the joiner's unique progress joins the
-  host's world, and a new-game file catches up to it. Or no co-op for
-  that joiner, with one line saying why.
+  here under the same ID, from this save, and mark it adopted. Nothing is
+  written to the save.
+- **C. Joiners whose progress differs from the host's world:** merge is
+  on by default. The joiner's unique progress joins the host's world, and
+  a new-game file catches up to it.
 - **D. A joiner's save tied to the joiner's own world on its PC:** follow
-  the host anyway; the joiner's world stays on disk **(recommended)**.
-  Or keep the save in its own world and play without co-op, with one
-  line saying why.
-- **The plan as a whole:** agreed, so it splits into the cards below.
+  the host. The joiner's world stays on disk, untouched.
+- **The plan as a whole:** agreed.
 
-Decided here without a question (say so if not):
+Decided in the plan without a question:
 - The app may close a Dolphin it launched that isn't in game. Any other
   Dolphin gets a status line.
 - Co-op on by default, with an off switch in Settings.
