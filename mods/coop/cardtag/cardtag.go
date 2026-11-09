@@ -469,6 +469,7 @@ func (s *Store) Record(userDir string, w bind.Written, rep log.Reporter) {
 		s.logf(rep, log.Warn, "co-op: could not keep the pending co-op tag: %v. Save in game so your memory card keeps it.", err)
 		return
 	}
+	s.unforget(keyOf(w)) // this newest write is what the card should hold now
 	switch {
 	case cardErr == nil && p.Kind == KindBind:
 		s.logf(rep, log.Info, "co-op: the tag goes onto your memory card (file %d, %s) as soon as no Dolphin runs: no in-game save needed.", n+1, p.Card)
@@ -484,7 +485,9 @@ func (s *Store) Record(userDir string, w bind.Written, rep log.Reporter) {
 // Forget drops the pending tags of the file w wrote to, in every user
 // folder: a newer write to it that can't be recorded (its Dolphin's user
 // folder can't be told) makes an older pending tag of it wrong for the
-// card.
+// card. Since the folder is unknown, a file of the same slot, name and
+// clear count in another folder loses its pending tag too: the safe side,
+// as that file's tag then waits for its in-game save.
 func (s *Store) Forget(w bind.Written, rep log.Reporter) {
 	k := keyOf(w)
 	s.mu.Lock()
@@ -507,6 +510,13 @@ func (s *Store) Forget(w bind.Written, rep log.Reporter) {
 		}
 		s.logf(rep, log.Info, "co-op: dropped the earlier pending co-op tag of file %d: a newer change to it can't reach the card.", k.slot+1)
 	}
+	s.unforget(k)
+}
+
+// unforget takes k off the forget list: the store now holds what the card
+// should get for that file.
+func (s *Store) unforget(k fileKey) {
+	s.forget = slices.DeleteFunc(s.forget, func(f fileKey) bool { return f == k })
 }
 
 // Flush writes the pending tags into their cards, if no Dolphin runs, and

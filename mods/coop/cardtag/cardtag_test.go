@@ -643,4 +643,16 @@ func TestLockAndForget(t *testing.T) {
 		t.Fatal("Forget kept the file's pending tag")
 	}
 	r.log.has(t, "dropped the earlier pending co-op tag")
+
+	// A write queued for forgetting (the lock was busy) is overruled by a
+	// newer write recorded once the lock is free.
+	unlock, _, _ = tryLock(filepath.Join(r.store.Dir, lockName))
+	held.Record(r.ud, b, nil)
+	unlock()
+	r.store.Record(r.ud, b, nil) // another Store: its own forget list
+	held.Record(r.ud, b, nil)
+	held.Flush(&r.log)
+	if !bytes.Equal(tagOf(t, r.readCard(), 0), b.Bytes[:]) {
+		t.Fatalf("a newer recorded write was forgotten: %v", r.log)
+	}
 }
