@@ -6,7 +6,6 @@ import (
 	"math"
 
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
-	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
 )
 
 // The widescreen block in the mailbox slack (inject/include/wwws.h, whose
@@ -83,7 +82,9 @@ func DecodeWidescreen(b []byte) Widescreen {
 
 // ReadWidescreen reads and decodes the block (Present false when the blob
 // has none or has not run main01_init).
-func ReadWidescreen(m mem.Reader) (Widescreen, error) {
+func ReadWidescreen(m interface {
+	Read(addr uint32, n int) ([]byte, error)
+}) (Widescreen, error) {
 	b, err := m.Read(WsAddr, int(WsSize))
 	if err != nil {
 		return Widescreen{}, err
