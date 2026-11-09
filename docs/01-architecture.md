@@ -19,7 +19,7 @@ mods on the wwapi runtime                         mods on the wwapi runtime
         │            │                                    │          │
         │      server (TCP 25565):  ◄──── TCP ────────────┘          │
         │      lobby, player (pose)       (LAN, VPN such as          │
-        │      and co-op connections       Tailscale, or a            │
+        │      and co-op connections       Tailscale or Toru, or a    │
         │                                  forwarded port;           │
         │                                  LAN beacons on UDP 25565) │
         ▼                                                            ▼

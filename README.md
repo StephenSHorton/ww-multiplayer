@@ -29,8 +29,9 @@ original is never changed.
    **Host** and the others **Join** (a session on your network shows up by itself, or paste
    the host's join code). When everyone is Ready the host presses **Start**.
 
-Friends across the internet? Put everyone on [Tailscale](https://tailscale.com) (free, no
-router setup) and join the host's Tailscale address: see
+Friends across the internet? A VPN is optional, but it's the easy way: put everyone on
+[Tailscale](https://tailscale.com) or [Toru](https://stephenshorton.github.io/toru/) (Windows), both free with no router setup,
+and join the host's address on it: see
 [Playing over the internet](docs/online.md).
 
 ## Read more
