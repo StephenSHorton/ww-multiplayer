@@ -12,6 +12,7 @@ bwd-probe
 coop-probe
 coop-watch
 crash-context
+cull-probe
 disasm
 dolphin2
 dump

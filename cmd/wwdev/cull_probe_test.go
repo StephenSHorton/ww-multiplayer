@@ -1,0 +1,114 @@
+package main
+
+import (
+	"math"
+	"strings"
+	"testing"
+
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/actors"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
+)
+
+// The live clipper of section 3.2: fovY 60, aspect 1.28, far 20500.
+var testClip = cullClip{FovY: 60, Aspect: 1.28, Near: 1, Far: 20500}
+
+// testView looks down -z from (100, 0, 50): an identity rotation.
+var testView = [12]float32{1, 0, 0, -100, 0, 1, 0, 0, 0, 0, 1, -50}
+
+func TestCullClipTans(t *testing.T) {
+	if got := testClip.tanH(); math.Abs(got-0.739) > 0.0005 {
+		t.Errorf("side-plane tan %.4f, want 0.739", got)
+	}
+	if got := testClip.tanH() * 4 / 3; math.Abs(got-cullBandHi) > 0.0005 {
+		t.Errorf("visible edge %.4f, want %.3f", got, cullBandHi)
+	}
+	// mode 1's widened clipper, 0x3FDA740E: its side plane is the visible edge.
+	wide := cullClip{FovY: 60, Aspect: math.Float32frombits(0x3FDA740E)}
+	if got := wide.tanH(); math.Abs(got-cullBandHi) > 0.0005 {
+		t.Errorf("widened side-plane tan %.4f, want %.3f", got, cullBandHi)
+	}
+}
+
+func TestCullXform(t *testing.T) {
+	// A 90° yaw: view x = world z, view z = -world x, plus a translation.
+	m := [12]float32{0, 0, 1, 10, 0, 1, 0, 20, -1, 0, 0, 30}
+	if got := cullXform(m, [3]float32{1, 2, 3}); got != [3]float64{13, 22, 29} {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestCullJudge(t *testing.T) {
+	act := func(x, y, z float32, status uint32) actors.Actor {
+		return actors.Actor{Pos: [3]float32{x + 100, y, z + 50}, Status: status}
+	}
+	for _, c := range []struct {
+		name   string
+		a      actors.Actor
+		cond   uint32
+		band   bool
+		nodraw bool
+	}{
+		{"centre", act(0, 0, -1000, cullStatusCull), cullCondNoDraw, false, true},
+		{"band right", act(870, 0, -1000, cullStatusCull), cullCondNoDraw, true, true},
+		{"band left, drawn", act(-900, 0, -1000, cullStatusCull), 0, true, false},
+		{"not CULL", act(870, 0, -1000, 0), cullCondNoDraw, false, true},
+		{"past the visible edge", act(990, 0, -1000, cullStatusCull), cullCondNoDraw, false, true},
+		{"above the screen", act(870, 600, -1000, cullStatusCull), cullCondNoDraw, false, true},
+		{"past far", act(870*21, 0, -21000, cullStatusCull), cullCondNoDraw, false, true},
+		{"behind", act(-870, 0, 1000, cullStatusCull), cullCondNoDraw, false, true},
+	} {
+		r := cullJudge(testClip, testView, c.a, c.cond)
+		if r.Band != c.band || r.NoDraw != c.nodraw {
+			t.Errorf("%s: band %v nodraw %v (tanH %.3f tanV %.3f z %.0f), want %v %v", c.name, r.Band, r.NoDraw, r.TanH, r.TanV, r.View[2], c.band, c.nodraw)
+		}
+	}
+}
+
+// TestCullProbe runs the probe over a fake game's actor queue: one band
+// actor culled while visible fails it, and it prints the summary line.
+func TestCullProbe(t *testing.T) {
+	_, m, _ := moblinRoom(t)
+	w, err := actors.Read(m, 0)
+	if err != nil || len(w.Actors) < 3 {
+		t.Fatalf("walk: %d actors, %v", len(w.Actors), err)
+	}
+	store(t, m, cullClipper+cullClipOffFovY, f32b(testClip.FovY, testClip.Aspect, testClip.Near, testClip.Far))
+	store(t, m, cullViewMtx, f32b(testView[:]...))
+	store(t, m, mailbox.WsKnobAddr, u32b(mailbox.WsKnobVanilla))
+	put := func(a actors.Actor, x, z float32, nodraw bool) {
+		store(t, m, a.Addr+addr.ActorOffCurPos, f32b(x+100, 0, z+50))
+		store(t, m, a.Addr+addr.ActorOffStatus, u32b(cullStatusCull))
+		var c uint32
+		if nodraw {
+			c = cullCondNoDraw
+		}
+		store(t, m, a.Addr+cullOffCondition, u32b(c))
+	}
+	for _, a := range w.Actors {
+		put(a, 0, -1000, false) // the rest sit drawn in the middle
+	}
+	put(w.Actors[0], 870, -1000, false)
+	put(w.Actors[1], -1760, -2000, false)
+
+	var out strings.Builder
+	bad, err := cullProbe(&out, m, 0, func() {})
+	if err != nil || bad != 0 {
+		t.Fatalf("all drawn: bad %d, %v\n%s", bad, err, out.String())
+	}
+	if !strings.Contains(out.String(), "band: 2 actors, 0 NODRAW") {
+		t.Errorf("no summary:\n%s", out.String())
+	}
+
+	put(w.Actors[1], -1760, -2000, true)
+	out.Reset()
+	bad, err = cullProbe(&out, m, 1, func() {})
+	if err != nil || bad != 2 {
+		t.Fatalf("one culled, two samples: bad %d, %v\n%s", bad, err, out.String())
+	}
+	for _, s := range []string{"band: 2 actors, 1 NODRAW", "culled while visible", "side-plane tan 0.739", "no widescreen block"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("no %q:\n%s", s, out.String())
+		}
+	}
+}

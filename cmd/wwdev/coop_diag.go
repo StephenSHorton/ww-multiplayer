@@ -56,7 +56,7 @@ var coopDiagUsage = map[string]string{
 	"heap-free":         "heap-free",
 	"blob-verify-live":  "blob-verify-live",
 	"region-probe":      "region-probe arm --yes [--force] | region-probe check",
-	"stage-hop":         "stage-hop <stage> [point=0] [room=first with the point] [layer=-1] [--no-check] --yes",
+	"stage-hop":         "stage-hop <stage> [point=0] [room=first with the point] [layer=-1] [--wipe N] [--no-check] --yes",
 }
 
 // coopDiagFlags is the --flags each diagnostic accepts.
@@ -70,6 +70,13 @@ var coopDiagFlags = map[string][]string{
 // runCoopDiag runs co-op diagnostic cmd with the arguments after it.
 func runCoopDiag(cmd string, args []string) {
 	usage := coopDiagUsage[cmd]
+	wipe := int8(stageHopWipe)
+	if cmd == "stage-hop" {
+		var werr error
+		if args, wipe, werr = cutStageHopWipe(args); werr != nil {
+			exitUsage(werr, usage)
+		}
+	}
 	pos, flags, err := diag.SplitFlags(args, coopDiagFlags[cmd]...)
 	if err != nil {
 		exitUsage(err, usage)
@@ -170,6 +177,7 @@ func runCoopDiag(cmd string, args []string) {
 		if perr != nil {
 			exitUsage(perr, usage)
 		}
+		h.Wipe = wipe
 		// Checked before --yes is looked at, so a hop the disc says
 		// would halt the game is refused either way.
 		if flags["no-check"] {
@@ -1280,6 +1288,7 @@ type stageHop struct {
 	Point int16
 	Room  int8
 	Layer int8
+	Wipe  int8 // mWipe, an index into l_wipeType
 }
 
 // Bounds on a stage-hop request.
@@ -1288,11 +1297,43 @@ const (
 	// (d_com_inf_game.cpp:268) and it indexes the 12-entry
 	// l_layerFuncTable_p unchecked (d_stage.cpp:2144-2150).
 	stageHopLayerMax = 11
-	// stageHopWipe is the wipe written: 0, setNextStage's default
-	// (d_com_inf_game.h:2247-2249). dScnPly_Draw asserts wipe < 12
-	// (d_s_play.cpp:292-308).
-	stageHopWipe = 0
+	// stageHopWipe is the default wipe: 0, setNextStage's default
+	// (d_com_inf_game.h:2247-2249). --wipe picks another: dScnPly_Draw
+	// indexes the 12-entry l_wipeType with it and asserts it is below 12
+	// (d_s_play.cpp:292-308); 2 is OVERLAP2, 4 OVERLAP4.
+	stageHopWipe    = 0
+	stageHopWipeMax = 11
 )
+
+// cutStageHopWipe takes "--wipe N" or "--wipe=N" out of args and returns
+// the rest and N (stageHopWipe without one).
+func cutStageHopWipe(args []string) ([]string, int8, error) {
+	rest := make([]string, 0, len(args))
+	wipe, seen := int8(stageHopWipe), false
+	for i := 0; i < len(args); i++ {
+		v, ok := strings.CutPrefix(args[i], "--wipe=")
+		if !ok {
+			if args[i] != "--wipe" {
+				rest = append(rest, args[i])
+				continue
+			}
+			if i+1 >= len(args) {
+				return nil, 0, errors.New("--wipe needs a number")
+			}
+			i++
+			v = args[i]
+		}
+		if seen {
+			return nil, 0, errors.New("--wipe given twice")
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > stageHopWipeMax {
+			return nil, 0, fmt.Errorf("wipe must be a number from 0 to %d, not %q", stageHopWipeMax, v)
+		}
+		wipe, seen = int8(n), true
+	}
+	return rest, wipe, nil
+}
 
 // parseStageHop parses `<stage> [point] [room] [layer]`.
 func parseStageHop(pos []string) (stageHop, error) {
@@ -1354,13 +1395,13 @@ func (h stageHop) bytes() [addr.StageSize]byte {
 
 func (h stageHop) warning() string {
 	return fmt.Sprintf(`WARNING: stage-hop WRITES GAME RAM. It writes mNextStage (0x%08X-0x%08X) to ask for
-stage %q point %d room %d layer %d. It is a raw write, so it skips what
+stage %q point %d room %d layer %d wipe %d. It is a raw write, so it skips what
 dComIfGp_setNextStage also does (Link's last-scene speed and mode, and the restart point,
 d_com_inf_game.cpp:671-690): a death or a restart after the hop can put Link somewhere odd.
 Unless --no-check was given or no disc was found, the stage, room and start point were
 checked against the disc above; one the stage lacks halts the game (d_stage.cpp:1463).
 Debug sessions only.
-`, addr.NextStage, addr.NextStage+addr.NextStageSize, h.Name, h.Point, h.Room, h.Layer)
+`, addr.NextStage, addr.NextStage+addr.NextStageSize, h.Name, h.Point, h.Room, h.Layer, h.Wipe)
 }
 
 // applyStageHop writes h into mNextStage if the gates allow it: STABLE
@@ -1382,7 +1423,7 @@ func applyStageHop(m mem.Mem, h stageHop, st gate.Status) error {
 	if err := m.Write(addr.NextStage, b[:]); err != nil {
 		return err
 	}
-	if err := mem.WriteU8(m, addr.NextStage+addr.NextOffWipe, stageHopWipe); err != nil {
+	if err := mem.WriteU8(m, addr.NextStage+addr.NextOffWipe, uint8(h.Wipe)); err != nil {
 		return err
 	}
 	return mem.WriteU8(m, addr.NextStageEnable, 1)
@@ -1398,7 +1439,7 @@ func stageHopRun(w io.Writer, m mem.Mem, h stageHop, tick func()) error {
 	if err := applyStageHop(m, h, st); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "mNextStage set: %q point %d room %d layer %d\n", h.Name, h.Point, h.Room, h.Layer)
+	fmt.Fprintf(w, "mNextStage set: %q point %d room %d layer %d wipe %d\n", h.Name, h.Point, h.Room, h.Layer, h.Wipe)
 	for range 100 {
 		tick()
 		s, err := state.Read(m, state.Options{})
