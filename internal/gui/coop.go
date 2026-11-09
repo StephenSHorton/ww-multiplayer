@@ -450,7 +450,8 @@ func (b *Bridge) SetMerge(on bool) (err error) {
 }
 
 // UnbindFile removes the co-op tag of the file loaded in this player's
-// game (in memory: the card keeps it until a save), so a file bound to
+// game (in game memory, and on the memory card once no Dolphin runs:
+// mods/coop/cardtag), so a file bound to
 // another world can found or join this one. world is the tag's world the
 // dialog showed (the action's Arg): a file loaded since, with another
 // tag, is left alone.
@@ -825,7 +826,7 @@ func coopDialog(st session.State, running bool, mk masker) *DialogView {
 		if (cs.FileState == "foreign" || cs.FileState == "bound") && cs.TagWorld != "" && world != "" && world != session.CoopWorldNew && world != session.CoopWorldAuto && cs.TagWorld != world {
 			return &DialogView{Key: key("foreign", cs.TagWorld), Kind: dlgForeign, Live: true, Title: "This file is bound to another co-op world",
 				Text:    fmt.Sprintf("The file you loaded is bound to world %s, so it can't join this session's world. Remove its tag to bind it here instead: you'll be asked to bind it next.", short(cs.TagWorld)),
-				Detail:  "Only your game's memory changes: the file leaves world " + short(cs.TagWorld) + " at your next in-game save, and loading it from the card again brings the tag back.",
+				Detail:  "The file leaves world " + short(cs.TagWorld) + " in your game now, and on your memory card once Dolphin is closed (a raw .raw card waits for your next in-game save).",
 				Actions: []DialogAction{{ID: actUnbind, Arg: cs.TagWorld, Label: "Remove the tag", Primary: true}, {ID: actOK, Label: "Keep it"}}}
 		}
 	}
@@ -858,8 +859,8 @@ func foundingDialog(f *session.Founding, key func(...string) string) *DialogView
 			return nil // the auto mode's one line (autoFoundedText) says it
 		}
 		return &DialogView{Key: key("founded"), Kind: dlgFounded, Title: "World " + short(f.World) + " founded",
-			Text:    "Your file founded co-op world " + f.World + ". Save in game so your card keeps the tag.",
-			Detail:  "Your file joins it through the Bind question (say Bind); then save in game.",
+			Text:    "Your file founded co-op world " + f.World + ". The app puts the tag on your memory card once Dolphin is closed: no in-game save needed.",
+			Detail:  "Your file joins it through the Bind question (say Bind).",
 			Actions: []DialogAction{{ID: actOK, Label: "OK", Primary: true}}}
 	case session.FoundingFailed:
 		if f.Outcome == "none" {
@@ -880,7 +881,7 @@ func foundingDialog(f *session.Founding, key func(...string) string) *DialogView
 			} else {
 				d.Text = fmt.Sprintf("Co-op is not running yet. This file is bound to world %s, which isn't in your worlds on this computer (an old or deleted world, or one another player hosts). Remove its tag to found a new world from this file, or load another file.", f.TagWorld)
 			}
-			d.Detail = "Removing the tag changes only your game's memory: the file leaves world " + short(f.TagWorld) + " at your next in-game save."
+			d.Detail = "Removing the tag takes the file out of world " + short(f.TagWorld) + ": in your game now, and on your memory card once Dolphin is closed."
 			d.Actions = []DialogAction{{ID: actUnbind, Arg: f.TagWorld, Label: "Remove the tag", Primary: true}, {ID: actOK, Label: "Close"}}
 		case session.BlockGarbage, session.BlockForeign:
 			d.Text = "This file holds a tag this version can't use, so it can't found a world. Remove it to found the world from this file, or load another file."
@@ -929,7 +930,7 @@ func questionDialog(q session.Question, st session.State, key func(...string) st
 	}
 	d.Kind = dlgBind
 	d.Title = fmt.Sprintf("Bind %s to world %s?", file, short(q.World))
-	d.Text = "Binding ties this save file to the co-op world: from then on the world's progress is written into it, and its progress joins the world. The app writes a small tag into the file, which reaches your memory card at your next in-game save; nothing else in the file is written."
+	d.Text = "Binding ties this save file to the co-op world: from then on the world's progress is written into it, and its progress joins the world. The app writes a small tag into the file, in your game now and on your memory card once Dolphin is closed (a raw .raw card waits for your next in-game save); nothing else in the file is written."
 	switch {
 	case q.MaybeFresh:
 		d.Text += fmt.Sprintf(" Its current tag, of world %s, may be a fresh bind to that world that only its host can tell from a leak; binding replaces it.", short(q.TagWorld))

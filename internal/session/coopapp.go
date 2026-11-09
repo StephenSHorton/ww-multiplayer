@@ -108,7 +108,8 @@ type CoopOutput interface {
 // the tag", as `coop-tag clear --yes` does).
 type CoopFileEngine interface {
 	// UnbindFile zeroes the co-op tag of the file loaded in this
-	// player's game (in its memory: the card keeps it until a save),
+	// player's game (in its memory, and on its memory card once no
+	// Dolphin runs),
 	// when that tag still names world, the one the window showed ("" for
 	// a file the window showed with no readable tag): a stale dialog
 	// unbinds nothing else.

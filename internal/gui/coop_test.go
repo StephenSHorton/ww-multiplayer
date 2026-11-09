@@ -474,7 +474,7 @@ func TestAdviceAndRequestDialogs(t *testing.T) {
 		t.Fatalf("founded with a question open: %+v", d)
 	}
 	st.Questions, st.Requests, st.Advice = nil, nil, nil
-	if d := coopDialog(st, true, masker{}); d.Kind != dlgFounded || !strings.Contains(d.Text, "Save in game so your card keeps the tag") {
+	if d := coopDialog(st, true, masker{}); d.Kind != dlgFounded || !strings.Contains(d.Text, "puts the tag on your memory card once Dolphin is closed") {
 		t.Fatalf("founded: %+v", d)
 	}
 	if d := coopDialog(st, false, masker{}); d != nil {

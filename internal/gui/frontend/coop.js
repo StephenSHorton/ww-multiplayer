@@ -622,7 +622,7 @@ export async function coopAction(id, arg, d) {
 	};
 	switch (id) {
 		case "answer-yes":
-			await run(() => call("Answer", arg, true), d && d.kind === "bind" ? "Bound. Save in game so your card keeps the tag." : "");
+			await run(() => call("Answer", arg, true), d && d.kind === "bind" ? "Bound. The tag reaches your memory card once Dolphin is closed." : "");
 			return true;
 		case "answer-no":
 			try {
@@ -655,7 +655,7 @@ export async function coopAction(id, arg, d) {
 			await run(() => call("SetMerge", true), "Merging is on for this session.");
 			return true;
 		case "unbind":
-			await run(() => call("UnbindFile", arg), "Removed the file's co-op tag (in your game's memory).");
+			await run(() => call("UnbindFile", arg), "Removed the file's co-op tag. It leaves your memory card once Dolphin is closed.");
 			return true;
 		case "open-backups":
 		case "open-userdir":
