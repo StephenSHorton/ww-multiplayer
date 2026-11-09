@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/playercolor"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
 
@@ -130,11 +132,23 @@ func newTestBridge(t *testing.T) (*Bridge, *fakeEngine, string) {
 	e := newFakeEngine()
 	path := filepath.Join(t.TempDir(), "config.json")
 	b := NewBridge(Options{Version: "v9.9.9", Controller: session.New(e, session.Options{}), ConfigPath: path})
+	// No real Dolphin is ever seen or closed by a test: a test that needs
+	// one fakes these.
+	b.procs = func() []launch.Process { return nil }
+	b.closeProc = func(pid uint32) error { return fmt.Errorf("a test closed real pid %d", pid) }
+	b.waitGone = func(uint32, time.Duration) bool { return false }
 	t.Cleanup(b.close)
 	// Co-op is on by default (a host's lobby gets "auto" sent once it is
 	// up, TestHostSendsCoopAuto); the other tests count the lobby commands.
 	b.cfg.Coop.Disabled = true
 	return b, e, path
+}
+
+// commands is a copy of the lobby commands so far.
+func (e *fakeEngine) commands() []session.LobbyCommand {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]session.LobbyCommand(nil), e.cmds...)
 }
 
 // TestHostSendsCoopAuto: a host's lobby gets co-op "auto" as soon as it

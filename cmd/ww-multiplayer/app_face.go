@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/applog"
 	"github.com/StephenSHorton/ww-multiplayer/internal/gui"
 	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/internal/tui"
@@ -383,7 +384,7 @@ func runGUI(mf modFlags) {
 // the CLI's (the co-op tables). The Mods page reads the runtime.
 func guiOptions(a *app) gui.Options {
 	return gui.Options{Version: version, Controller: a.ctrl, Getenv: os.Getenv, PostPatch: patchSteps(runtimeMods(a.rt)), SeaChart: true,
-		HostIPs: engine.ListHostIPs, Mods: a.rt, ModFlag: a.flags.enabled, DevMods: a.flags.dev, Args: os.Args[1:]}
+		HostIPs: engine.ListHostIPs, ProbeDolphin: engine.ProbeDolphin, SearchDiscs: true, AppLogDir: applog.DefaultDir, Mods: a.rt, ModFlag: a.flags.enabled, DevMods: a.flags.dev, Args: os.Args[1:]}
 }
 
 // runTUI runs the Bubble Tea TUI (what no arguments opened before the app

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
@@ -645,8 +647,14 @@ func runningDolphins() []session.RunningDolphin {
 	return out
 }
 
+// ProbeDolphin is probeDolphin for the app window, which looks at a
+// Dolphin outside a session (whether the app may close it to update the
+// disc: never while Link is in the world, InGame, whatever the disc).
+func ProbeDolphin(pid uint32) session.Probe { return probeDolphin(pid) }
+
 // probeDolphin looks at Dolphin pid: running, its game, this build's mod
-// in its memory, Link in the world.
+// in its memory, Link in the world (InGame is read on an unpatched game
+// too).
 func probeDolphin(pid uint32) session.Probe {
 	pids, _ := emu.ListPIDs()
 	if !slices.Contains(pids, pid) {
@@ -669,7 +677,23 @@ func probeDolphin(pid uint32) session.Probe {
 	defer d.Close()
 	p.Patched = hasThisMod(d)
 	p.InGame = player.NewLink(d).Ready()
+	p.AtTitle = atTitle(d)
 	return p
+}
+
+// atTitle says the game is on the title screen: the current stage is
+// sea_T and no stage change is pending (a read error says no).
+func atTitle(m modMem) bool {
+	n := int(addr.NextStageEnable-addr.CurStageName) + 1
+	b, err := m.Read(addr.CurStageName, n)
+	if err != nil || len(b) != n || b[len(b)-1] != 0 {
+		return false
+	}
+	name := b[:addr.StageNameLen]
+	if i := bytes.IndexByte(name, 0); i >= 0 {
+		name = name[:i]
+	}
+	return string(name) == addr.StageTitle
 }
 
 // modMem reads emulated RAM; *emu.Dolphin implements it.

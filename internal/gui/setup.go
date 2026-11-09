@@ -62,7 +62,7 @@ type SetupView struct {
 	Patched   string `json:"patched"`
 	PatchedOK bool   `json:"patchedOK"`
 	// PatchedStale says the patched disc is there but was patched by
-	// another version: the update plan (diskPlan) is "repatch" or "pick",
+	// another version: the disc check (discCheck) plans "repatch" or "pick",
 	// so it is not OK, and Setup says it needs patching again rather than
 	// that it is gone.
 	PatchedStale bool   `json:"patchedStale"`
@@ -218,7 +218,9 @@ func (b *Bridge) Setup() SetupView {
 		Patch: b.PatchStatus(), Mac: b.macViewOf(st, macErr),
 	}
 	if v.PatchedOK {
-		if plan := b.diskPlan(); plan == "repatch" || plan == "pick" {
+		in := b.discCheck()
+		b.setPlan(in.Plan)
+		if in.Plan == "repatch" || in.Plan == "pick" {
 			v.PatchedOK, v.PatchedStale = false, true
 		}
 	}

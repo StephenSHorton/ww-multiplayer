@@ -54,6 +54,12 @@ type Probe struct {
 	Patched bool
 	// InGame says Link is in the world (player.Link.Ready).
 	InGame bool
+	// AtTitle is a positive read, for the app's disc update, which may
+	// close a Dolphin it launched only when no save is in play: Wind Waker
+	// is on the title screen (stage sea_T, no stage change pending). A
+	// failed read says no. (No game found is no such read: emu.DiscID
+	// finds nothing, too, when it can't read the game's memory.)
+	AtTitle bool
 }
 
 // DolphinStateOf is what probe p of a Dolphin means. launching says the
