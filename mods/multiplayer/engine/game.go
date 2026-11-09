@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/net"
 	"github.com/StephenSHorton/ww-multiplayer/mods/multiplayer/vissync"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/avatar"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
@@ -653,6 +655,7 @@ func probeDolphin(pid uint32) session.Probe {
 	p := session.Probe{Running: true}
 	id, err := emu.DiscID(pid)
 	if err != nil || id == "" {
+		p.NoGame = err == nil
 		return p
 	}
 	p.GameID = id
@@ -667,7 +670,23 @@ func probeDolphin(pid uint32) session.Probe {
 	defer d.Close()
 	p.Patched = hasThisMod(d)
 	p.InGame = player.NewLink(d).Ready()
+	p.AtTitle = atTitle(d)
 	return p
+}
+
+// atTitle says the game is on the title screen: the current stage is
+// sea_T and no stage change is pending (a read error says no).
+func atTitle(m modMem) bool {
+	n := int(addr.NextStageEnable-addr.CurStageName) + 1
+	b, err := m.Read(addr.CurStageName, n)
+	if err != nil || len(b) != n || b[len(b)-1] != 0 {
+		return false
+	}
+	name := b[:addr.StageNameLen]
+	if i := bytes.IndexByte(name, 0); i >= 0 {
+		name = name[:i]
+	}
+	return string(name) == addr.StageTitle
 }
 
 // modMem reads emulated RAM; *emu.Dolphin implements it.

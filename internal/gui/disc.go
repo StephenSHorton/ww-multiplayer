@@ -16,6 +16,7 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/internal/applog"
 	"github.com/StephenSHorton/ww-multiplayer/internal/config"
 	"github.com/StephenSHorton/ww-multiplayer/internal/patch"
+	"github.com/StephenSHorton/ww-multiplayer/internal/session"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 )
@@ -33,9 +34,12 @@ import (
 //
 // Only a Dolphin holding the disc stops it. The app closes one only when
 // it launched it (this run's session says so, or its command line is the
-// one Launch builds, on this player's folder and disc) and Link isn't in
-// the world (ProbeDolphin, asked several times: a scene's reload reads
-// "not in the world" for a moment). Any other Dolphin gets the line "Close
+// one Launch builds, on this player's folder and disc) and no save is in
+// play: every look (ProbeDolphin, several) reads its memory and finds no
+// game, or Wind Waker on the title screen with no stage change pending.
+// A read that fails, a stage load, a cutscene, another game: never
+// closed (Link's pointer alone isn't enough: it is null during every
+// stage load). Any other Dolphin gets the line "Close
 // Dolphin to update your disc", Start is refused, and the update starts by
 // itself once it closes (watchHolders). PR #328's gate (checkDiscVersion)
 // stays the last refusal when the disc could not be updated.
@@ -98,15 +102,16 @@ type discInfo struct {
 	// found it (Setup saved another, or none).
 	Vanilla string
 	Found   bool
+	// EnvSet says ISO_PATH names the patched disc: not updated by the app.
+	EnvSet bool
 }
 
 // errDiscHeld refuses a Start while a Dolphin the app may not close has
 // the disc open that is being updated.
 var errDiscHeld = errors.New("close Dolphin to update your disc: it has your patched disc open, and this version needs it updated. The update starts by itself once Dolphin closes; then press Start")
 
-// probeSamples is how many looks at a Dolphin must all say Link isn't in
-// the world before the app closes it, probeGap apart: the reload between
-// scenes and world-map cutscenes read "not in the world" for a moment.
+// probeSamples is how many looks at a Dolphin must all say no save is in
+// play (closable) before the app closes it, probeGap apart.
 const (
 	probeSamples = 3
 	probeGap     = 400 * time.Millisecond
@@ -134,6 +139,13 @@ func (b *Bridge) discCheck() discInfo {
 		return in // missing: Setup's business
 	}
 	in.Plan = discPlanOf(c, in.State, in.Err, isFile, after)
+	if (in.Plan == "repatch" || in.Plan == "pick") && strings.TrimSpace(b.getenv("ISO_PATH")) != "" {
+		// ISO_PATH names the disc (a test rig's): the update would write
+		// patch.DefaultOut(vanilla) and leave it stale. Start keeps PR
+		// #328's refusal.
+		in.Plan, in.EnvSet = "", true
+		return in
+	}
 	switch in.Plan {
 	case "repatch":
 		in.Vanilla = c.ISO.Vanilla
@@ -304,8 +316,8 @@ func (b *Bridge) discHolders() []holder {
 	return hs
 }
 
-// closable says the app may close h: it launched it, and Link isn't in
-// the world, in every one of probeSamples looks.
+// closable says the app may close h: it launched it, and every one of
+// probeSamples looks reads no save in play (notPlaying).
 func (b *Bridge) closable(h holder) bool {
 	if !h.launched || b.probe == nil {
 		return false
@@ -314,12 +326,27 @@ func (b *Bridge) closable(h holder) bool {
 		if i > 0 {
 			time.Sleep(probeGap)
 		}
-		p := b.probe(h.p.PID)
-		if p.Running && p.InGame {
+		if !notPlaying(b.probe(h.p.PID)) {
 			return false
 		}
 	}
 	return true
+}
+
+// notPlaying is a positive read of a Dolphin with no save in play: gone,
+// no game running, or Wind Waker on the title screen with no stage change
+// pending. Anything else (a read that failed, a stage load, a cutscene,
+// file select, another game) says no.
+func notPlaying(p session.Probe) bool {
+	switch {
+	case !p.Running:
+		return true
+	case p.NoGame:
+		return true
+	case p.GameID == session.GameID && p.AtTitle:
+		return true
+	}
+	return false
 }
 
 // repatch starts the update of a disc to patch again (ensureDisc holds
@@ -417,9 +444,10 @@ func (b *Bridge) watchHolders() {
 				return
 			}
 			if len(b.discHolders()) == 0 {
-				stop()
+				// It may find a patch (or an update) running and change
+				// nothing: the loop then checks again next second, until
+				// the line is no longer "blocked".
 				b.ensureDisc("Dolphin closed")
-				return
 			}
 		}
 	}()
@@ -543,6 +571,9 @@ func (b *Bridge) logPlan(why string, in discInfo) {
 	switch plan {
 	case "":
 		plan = "nothing to do"
+		if in.EnvSet {
+			plan = "ISO_PATH names it: not updated by the app"
+		}
 	case "repatch":
 		plan = "patch it again from " + in.Vanilla
 		if in.Found {
@@ -552,7 +583,7 @@ func (b *Bridge) logPlan(why string, in discInfo) {
 		plan = "no vanilla disc to patch from: ask for it"
 	}
 	msg := fmt.Sprintf("disc check (%s): %s; %s", why, what, plan)
-	if in.Plan == "repatch" || in.Plan == "pick" {
+	if in.Plan == "repatch" || in.Plan == "pick" || in.EnvSet {
 		b.logDisc(log.Info, "%s", msg)
 		return
 	}
@@ -623,8 +654,8 @@ func samePath(a, b string) bool {
 // The vanilla search's limits.
 const (
 	vanillaMinSize    = 16 << 20 // a GameCube disc image is far bigger
-	vanillaMaxEntries = 256      // per folder
-	vanillaMaxInspect = 16       // disc reads in all
+	vanillaMaxEntries = 256      // disc images (and subfolders) per folder
+	vanillaMaxInspect = 16       // Wind Waker discs read in full, in all
 	vanillaDeadline   = 5 * time.Second
 )
 
@@ -705,21 +736,23 @@ func (s *vanillaSearch) dir(d string, sub bool) bool {
 	if err != nil {
 		return false
 	}
-	if len(es) > vanillaMaxEntries {
-		es = es[:vanillaMaxEntries]
-	}
 	var subs []string
+	n := 0
 	for _, e := range es {
-		if s.done() {
-			return false
+		if s.done() || n >= vanillaMaxEntries {
+			break
 		}
 		p := filepath.Join(d, e.Name())
 		if e.IsDir() {
-			if sub {
+			if sub && len(subs) < vanillaMaxEntries {
 				subs = append(subs, p)
 			}
 			continue
 		}
+		if !vanillaExts[strings.ToLower(filepath.Ext(e.Name()))] {
+			continue
+		}
+		n++
 		if s.try(p) {
 			return true
 		}
@@ -754,8 +787,12 @@ func (s *vanillaSearch) try(p string) bool {
 	if samePath(p, s.patched) {
 		return false
 	}
-	s.reads++
-	if st, err := s.inspect(p); err == nil && st == patch.Vanilla {
+	st, err := s.inspect(p)
+	if err != nil {
+		return false // not a Wind Waker disc: refused at its header, cheap
+	}
+	s.reads++ // a Wind Waker disc read in full (its DOL)
+	if st == patch.Vanilla {
 		s.found = p
 		return true
 	}

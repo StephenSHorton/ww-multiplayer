@@ -48,10 +48,11 @@ func TestISOPaths(t *testing.T) {
 		t.Fatalf("no ini: %q %v", d, r)
 	}
 	os.MkdirAll(filepath.Join(u, "Config"), 0o755)
-	ini := "[Core]\nISOPath0 = /not/general\n[General]\nISOPaths = 3\nISOPath1 = Games/GC\nISOPath0 = /home/p/Roms\nISOPath2 =\nRecursiveISOPaths = True\nISOPathX = /bad\n"
+	roms := t.TempDir() // absolute on every system (a Windows path needs its drive)
+	ini := "[Core]\nISOPath0 = /not/general\n[General]\nISOPaths = 3\nISOPath1 = Games/GC\nISOPath0 = " + filepath.ToSlash(roms) + "\nISOPath2 =\nRecursiveISOPaths = True\nISOPathX = /bad\n"
 	os.WriteFile(filepath.Join(u, "Config", "Dolphin.ini"), []byte(ini), 0o644)
 	d, r := ISOPaths(u)
-	want := []string{filepath.Clean("/home/p/Roms"), filepath.Join(u, "Games", "GC")}
+	want := []string{filepath.Clean(roms), filepath.Join(u, "Games", "GC")}
 	if !slices.Equal(d, want) || !r {
 		t.Fatalf("got %q %v, want %q true", d, r, want)
 	}

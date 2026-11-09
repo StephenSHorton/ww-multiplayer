@@ -238,21 +238,33 @@ func (b *Bridge) StartPatch(r PatchRequest) (err error) {
 	// The disc line's Choose (or a patch while it says the update failed)
 	// is the update: the line shows it.
 	b.disc.mu.Lock()
-	prev := b.disc.view
+	prev, busy := b.disc.view, b.disc.busy != nil
 	b.disc.mu.Unlock()
-	auto := !r.Patched && (prev.State == "pick" || prev.State == "failed")
-	if !auto {
+	if busy {
+		return errors.New("your disc is being updated (the app is closing its Dolphin first): wait until the Play page says it's done")
+	}
+	if r.Patched || (prev.State != "pick" && prev.State != "failed") {
 		_, err = b.startPatch(r, false)
 		return err
 	}
-	// The line first: a patch that ends at once must not leave it behind.
-	b.setDisc(DiscView{State: "patching", Title: "Updating your disc for " + b.version + "…",
-		Text: "Patching the disc you chose with this version. Start waits for it.", Started: b.now().UTC().Format(time.RFC3339)})
-	if _, err = b.startPatch(r, true); err != nil {
-		b.setDisc(prev)
-		return err
+	// The disc line's Choose (or a patch while it says the update failed)
+	// is the update: it takes the update's way, Dolphins holding the disc
+	// included (repatch), and the line shows it. A vanilla disc chosen is
+	// saved first, so an update that waits for Dolphin to close finds it.
+	in := cleanPath(r.Path)
+	if st, ierr := b.inspect(in); ierr == nil && st == patch.Vanilla {
+		b.mu.Lock()
+		b.cfg.ISO.Vanilla = in
+		b.mu.Unlock()
+		b.save()
 	}
-	b.logDisc(log.Info, "disc update: patching %s, the disc the player chose", cleanPath(r.Path))
+	b.logDisc(log.Info, "disc update: the player chose %s", in)
+	b.disc.ensure.Lock()
+	b.repatch(discInfo{Plan: "repatch", Vanilla: in})
+	b.disc.ensure.Unlock()
+	if v := b.discStatus(); v.State == "failed" {
+		return errors.New(v.Error)
+	}
 	return nil
 }
 

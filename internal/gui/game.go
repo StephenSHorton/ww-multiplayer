@@ -305,14 +305,15 @@ func (b *Bridge) Start(anyway bool) (err error) {
 		return nil // a Start already waits for the disc
 	}
 	b.emitState() // Start's button is off while it waits
+	sess := b.ctrl.Snapshot().Session
 	waited, err := b.discReady("start")
 	b.disc.starting.Store(false)
 	b.emitState()
 	if err != nil {
 		return err
 	}
-	if st := b.ctrl.Snapshot(); waited && !canStart(st.Lobby, st.Session != 0 && st.Phase != session.Ended && st.Phase != session.Idle) {
-		return nil // left (or started) while the disc was updated
+	if st := b.ctrl.Snapshot(); waited && (st.Session != sess || !canStart(st.Lobby, st.Session != 0 && st.Phase != session.Ended && st.Phase != session.Idle)) {
+		return nil // left (or started, or hosted anew) while the disc was updated
 	}
 	if anyway {
 		return b.ctrl.StartAnyway()

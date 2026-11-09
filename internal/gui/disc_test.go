@@ -203,7 +203,7 @@ func TestRepatchClosesAppLaunchedDolphinAtTitle(t *testing.T) {
 	var mu sync.Mutex
 	var closed []uint32
 	r.b.probe = func(pid uint32) session.Probe {
-		return session.Probe{Running: true, GameID: session.GameID, Patched: false}
+		return session.Probe{Running: true, GameID: session.GameID, InGame: true, AtTitle: true} // Link exists on the title stage
 	}
 	r.b.closeProc = func(pid uint32) error {
 		mu.Lock()
@@ -234,23 +234,28 @@ func TestRepatchClosesAppLaunchedDolphinAtTitle(t *testing.T) {
 // says "Close Dolphin", Start is off and refused, and the update starts by
 // itself once it closes.
 func TestRepatchWaitsForAnotherDolphin(t *testing.T) {
+	atTitle := session.Probe{Running: true, GameID: session.GameID, AtTitle: true}
 	for _, c := range []struct {
-		name   string
-		proc   func(r *discRig) launch.Process
-		inGame bool
+		name  string
+		proc  func(r *discRig) launch.Process
+		probe session.Probe
 	}{
 		{"the player's own", func(r *discRig) launch.Process {
 			return launch.Process{PID: 51, ArgsKnown: true, Args: []string{"-u", r.userDir}}
-		}, false},
-		{"the app's, in game", func(r *discRig) launch.Process { return r.launched(52) }, true},
-		{"unreadable", func(r *discRig) launch.Process { return launch.Process{PID: 53} }, false},
+		}, atTitle},
+		{"the app's, in game", func(r *discRig) launch.Process { return r.launched(52) },
+			session.Probe{Running: true, GameID: session.GameID, InGame: true}},
+		// Link's pointer is null during a stage load: still a save in play.
+		{"the app's, loading a stage", func(r *discRig) launch.Process { return r.launched(54) },
+			session.Probe{Running: true, GameID: session.GameID}},
+		{"the app's, memory unreadable", func(r *discRig) launch.Process { return r.launched(55) },
+			session.Probe{Running: true}},
+		{"unreadable command line", func(r *discRig) launch.Process { return launch.Process{PID: 53} }, atTitle},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := newDiscRig(t, true)
 			r.procs.Store(&[]launch.Process{c.proc(r)})
-			r.b.probe = func(uint32) session.Probe {
-				return session.Probe{Running: true, GameID: session.GameID, InGame: c.inGame}
-			}
+			r.b.probe = func(uint32) session.Probe { return c.probe }
 			r.b.closeProc = func(pid uint32) error { t.Errorf("closed pid %d", pid); return nil }
 			r.host(t)
 			st := r.b.State()
@@ -272,6 +277,27 @@ func TestRepatchWaitsForAnotherDolphin(t *testing.T) {
 			}
 			r.logged(t, "waiting: Dolphin", "disc update: done")
 		})
+	}
+}
+
+// TestNotPlaying: only a positive read of no save in play lets the app
+// close a Dolphin it launched.
+func TestNotPlaying(t *testing.T) {
+	for _, c := range []struct {
+		p    session.Probe
+		want bool
+	}{
+		{session.Probe{}, true}, // gone
+		{session.Probe{Running: true, NoGame: true}, true},
+		{session.Probe{Running: true, GameID: session.GameID, AtTitle: true, InGame: true}, true},
+		{session.Probe{Running: true}, false},                                       // a read that failed
+		{session.Probe{Running: true, GameID: session.GameID}, false},               // a stage load, file select, a cutscene
+		{session.Probe{Running: true, GameID: session.GameID, InGame: true}, false}, // in the world
+		{session.Probe{Running: true, GameID: "GALE01", AtTitle: true}, false},      // another game
+	} {
+		if got := notPlaying(c.p); got != c.want {
+			t.Errorf("%+v: %v", c.p, got)
+		}
 	}
 }
 
@@ -318,6 +344,26 @@ func TestStaleDiscFindsVanillaNearby(t *testing.T) {
 	r2.host(t)
 	if err := r2.b.Start(true); !errors.Is(err, ErrStaleDisc) {
 		t.Fatalf("Start with a stale disc and no vanilla: %v", err)
+	}
+	// The line's Choose takes the update's way: a Dolphin the player
+	// started holds the disc, so it waits, with the chosen disc saved;
+	// once Dolphin closes the update runs from it.
+	chosen := discFile(t, filepath.Join(t.TempDir(), "Wind Waker.iso"), "vanilla")
+	r2.procs.Store(&[]launch.Process{{PID: 71, ArgsKnown: true, Args: []string{"-u", r2.userDir}}})
+	if err := r2.b.StartPatch(PatchRequest{Path: chosen}); err != nil {
+		t.Fatal(err)
+	}
+	if d := r2.b.discStatus(); d.State != "blocked" {
+		t.Fatalf("chosen while Dolphin holds the disc: %+v", d)
+	}
+	if c := loadCfg(t, r2.path); c.ISO.Vanilla != chosen {
+		t.Fatalf("the chosen disc wasn't saved: %q", c.ISO.Vanilla)
+	}
+	r2.procs.Store(&[]launch.Process{})
+	<-r2.fp.started
+	close(r2.fp.hold)
+	if pv := waitPatchDone(t, r2.b); pv.In != chosen || pv.Stage != "done" {
+		t.Fatalf("%+v", pv)
 	}
 }
 

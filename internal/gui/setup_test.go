@@ -352,6 +352,14 @@ func waitPatchDone(t *testing.T, b *Bridge) PatchView {
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if v := b.PatchStatus(); !v.Running {
+			// The last event goes out after Running turns false; done
+			// closes after it.
+			b.jobMu.Lock()
+			j := b.job
+			b.jobMu.Unlock()
+			if j != nil {
+				<-j.done
+			}
 			return v
 		}
 		time.Sleep(5 * time.Millisecond)
