@@ -90,6 +90,16 @@ scripts/mac-rig.sh stop <rig>         # end this rig's Dolphins by PID; then rel
   logs it ("Server listening on localhost:<port>"); pass that address to `pose-fake-loop`.
 - **Don't use bare `wwdev dolphin2` on the shared Mac**: it adopts any running Dolphin as Dolphin 1, which is another agent's. `mac-rig.sh pair` launches both itself and finds each by its own `-u` argument.
 - **Pass `--coop-iso ~/ww-shared/disc/WW-mp.iso`** to `mp-local --coop` and every `join --coop`: without it co-op takes its stage tables from "the disc last patched", one setting for the whole Mac user that any agent's `patch` moves (once it named another agent's deleted scratch ISO, and the session ran with room puzzles, memory switches, keys and kills off; `docs/live/wind9-c3-mac.md`).
+- **Widescreen and extra Dolphin words**: `WW_WIDESCREEN=16:9 scripts/mac-rig.sh pair <rig>` adds
+  `launch.WidescreenArgs`' `-C` pair, as `wwdev dolphin2` does: 16:9 is `-C
+  Graphics.Settings.wideScreenHack=False -C Graphics.Settings.AspectRatio=1`, another `W:H` is
+  `AspectRatio=4` with `CustomAspectRatioWidth=W` and `CustomAspectRatioHeight=H`, and `off` (or
+  4:3 and below) adds nothing. `MAC_RIG_DOLPHIN_ARGS` adds its words after that, split on spaces
+  (no quoting), for example `MAC_RIG_DOLPHIN_ARGS="-C Dolphin.Movie.DumpFrames=True"` for frame
+  dumps. Both apply to `pair` and `one`, not to `recapture` (docs/design/native-widescreen.md).
+  They only shape Dolphin's picture: set the game's mode with `wwdev ops ws <mode> <aspect>`, and
+  check side-band culling with `wwdev cull-probe` (exit 1 when an actor in the 16:9 band is
+  culled while visible).
 - **Always pin `MP_LOCAL_PIDS`** (the script does): other agents' Dolphins run on the same Mac and
   enumeration order would otherwise pick theirs. For one Dolphin use `WW_DOLPHIN_PID=<pid>`.
 - **Co-op on the rig** (`mac-rig.sh mp-local <rig> --coop=new ...`): the script exports the rig's

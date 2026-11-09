@@ -13,7 +13,8 @@
 #
 # Take an Irori lease ww/dolphin-slot-<n> before `pair`/`one`; release it after `stop`.
 # Env: WW_SHARED (default ~/ww-shared), WWDEV (default $WW_SHARED/bin/wwdev),
-# DOLPHIN_APP (default ~/Applications/Dolphin.app, the copy scripts/setup-mac-dolphin.sh makes).
+# DOLPHIN_APP (default ~/Applications/Dolphin.app, the copy scripts/setup-mac-dolphin.sh makes),
+# WW_WIDESCREEN (off, 16:9, W:H: the -C pair `pair`/`one` add) and MAC_RIG_DOLPHIN_ARGS (more Dolphin words).
 set -euo pipefail
 
 WW_SHARED=${WW_SHARED:-$HOME/ww-shared}
@@ -47,8 +48,31 @@ open(p, 'w').write(s)
 PY
 }
 
+# widescreen_args <setting>: WS_ARGS = launch.WidescreenArgs for a
+# WW_WIDESCREEN setting (off, 16:9, 16:10, 21:9 or W:H). 16:9 forces 16:9
+# with the hack off, any other aspect is Custom; off or an aspect at or
+# below 4:3 adds nothing. Dolphin's -C system name is Graphics.
+widescreen_args() {
+	local s w h p=Graphics.Settings.
+	WS_ARGS=()
+	s=$(printf '%s' "${1:-}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+	case "$s" in "" | off) return 0 ;; esac
+	[[ "$s" =~ ^([0-9]+):([0-9]+)$ ]] || die "WW_WIDESCREEN=$1: want off, 16:9, 16:10, 21:9 or W:H"
+	w=$((10#${BASH_REMATCH[1]})) h=$((10#${BASH_REMATCH[2]}))
+	[ "$w" -gt 0 ] && [ "$h" -gt 0 ] || die "WW_WIDESCREEN=$1: W and H must be whole numbers above 0"
+	[ "$w" -le $((4 * h)) ] || die "WW_WIDESCREEN=$1: aspect above 4:1 is not supported"
+	[ $((3 * w)) -gt $((4 * h)) ] || return 0
+	WS_ARGS=(-C "${p}wideScreenHack=False")
+	if [ $((w * 9)) -eq $((h * 16)) ]; then
+		WS_ARGS+=(-C "${p}AspectRatio=1")
+	else
+		WS_ARGS+=(-C "${p}AspectRatio=4" -C "${p}CustomAspectRatioWidth=$w" -C "${p}CustomAspectRatioHeight=$h")
+	fi
+}
+
 # launch_on <userdir> <save|none>: one Dolphin on that user dir (48 MB MEM1,
 # no panic popups, dev log); prints its PID, found by its own -u argument.
+# WW_WIDESCREEN's -C pair and the words of MAC_RIG_DOLPHIN_ARGS go last.
 launch_on() {
 	local u=$1 save=$2 pid=""
 	pgrep -f -- "-u $u " >/dev/null && die "a Dolphin already runs on $u (stop it first)"
@@ -58,6 +82,9 @@ launch_on() {
 		-C Logger.Options.WriteToFile=True -C Logger.Options.Verbosity=4 -C Logger.Logs.OSREPORT=True
 		-C Logger.Logs.MI=True -C Logger.Logs.MASTER=True)
 	[ "$save" = none ] || args+=("--save_state=$save")
+	# bash 3.2 under set -u: an empty "${a[@]}" is unbound, so guard both
+	[ ${#WS_ARGS[@]} -eq 0 ] || args+=("${WS_ARGS[@]}")
+	[ ${#EXTRA_ARGS[@]} -eq 0 ] || args+=("${EXTRA_ARGS[@]}")
 	/usr/bin/open -n -a "$DOLPHIN_APP" --args "${args[@]}"
 	for _ in $(seq 1 60); do pid=$(pgrep -f -- "-u $u " | head -1 || true); [ -n "$pid" ] && break; sleep 0.25; done
 	[ -n "$pid" ] || die "no Dolphin appeared on $u"
@@ -68,6 +95,10 @@ env_for() {
 	local r; r=$(rigdir "$1")
 	export DOLPHIN_EXE=$DOLPHIN_APP/Contents/MacOS/Dolphin ISO_PATH=$ISO USER_DIR_1=$r/u1 USER_DIR_2=$r/u2 WW_DOLPHIN_DEVLOG=1
 }
+
+widescreen_args "${WW_WIDESCREEN:-}"
+EXTRA_ARGS=()
+[ -z "${MAC_RIG_DOLPHIN_ARGS:-}" ] || read -r -a EXTRA_ARGS <<<"$MAC_RIG_DOLPHIN_ARGS"
 
 cmd=${1:-}; shift || true
 case "$cmd" in
