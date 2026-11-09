@@ -27,7 +27,8 @@ import (
 //     per-class signatures of the plan (dr actions, the Stalfos split,
 //     the Armos Knight's 44-47 and the rest) stay off until the live check
 //     P1 confirms each, so a class whose death never lowers its health
-//     (the Armos Knight, d_a_am.cpp:1217-1218) sends nothing yet;
+//     (the Armos Knight, d_a_am.cpp:1217-1218) sends nothing yet. The
+//     Boko Baba's passed P1 (wind#87): its mode 2, combat.DeathMode;
 //   - the receiver keeps each PKILL bit for Link's stage, table and room,
 //     with the partner there, as a pending kill with a cutoff (the process
 //     ID counter, addr.ProcessIDCounter, when it is first seen: an enemy
@@ -191,13 +192,14 @@ func (r *Replica) onPlaced(m *wire.Scoped) {
 	}
 }
 
-// placedSig reads a's death signature: dying (health <= 0 or the light
-// shrink timer runs) or frozen (ice mode 2 or 3).
+// placedSig reads a's death signature: dying (health <= 0, the light
+// shrink timer runs, or its class's own death mode, combat.DeathMode: the
+// Boko Baba's) or frozen (ice mode 2 or 3).
 func placedSig(a *actors.Actor) (dying, frozen bool) {
 	if a.Ice.Read && (a.Ice.Mode == 2 || a.Ice.Mode == 3) {
 		return false, true
 	}
-	return a.Health <= 0 || a.Ice.Read && a.Ice.Timer != 0, false
+	return a.Health <= 0 || a.Ice.Read && a.Ice.Timer != 0 || combat.DeathMode(a), false
 }
 
 // placedMatch returns the class of unkeyed placed enemy a in room, or nil:

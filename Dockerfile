@@ -33,6 +33,8 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/ww-multiplayer /ww-multiplayer
 USER nonroot:nonroot
 EXPOSE 25565/tcp
+# The UDP pose transport (WW_UDP=1, docs/12-udp-pose.md): the TCP port + 1.
+EXPOSE 25566/udp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD ["/ww-multiplayer", "status", "--timeout", "3s", "127.0.0.1:25565"]
 # `docker stop` sends SIGTERM: the server stops cleanly (RunServer).

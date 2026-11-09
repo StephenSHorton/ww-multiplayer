@@ -8,7 +8,7 @@ Usually the host's own app is the server: **Host a session** starts one on the h
 
 ## 1. What a dedicated server does and doesn't do
 
-- **The transport is raw TCP**, one port (25565 by default), the same protocol as an app-hosted session. No HTTP, no WebSockets, no UDP. Anything that forwards a TCP port works; an HTTP reverse proxy (Caddy, nginx's `http` block) does not.
+- **The transport is raw TCP**, one port (25565 by default), the same protocol as an app-hosted session. No HTTP, no WebSockets. UDP only with `WW_UDP=1` (docs/12-udp-pose.md): positions and poses then also use UDP on the TCP port + 1, and fall back to TCP when it can't be reached. Anything that forwards a TCP port works; an HTTP reverse proxy (Caddy, nginx's `http` block) does not.
 - **Plain multiplayer works**: every player's Link in everyone's game, chat, tunic colors, and the enemy mirror, which follows the lobby host's game (the host's app runs the enemy host).
 - **The app's lobby is run by whoever has the owner key** (§4). A dedicated server always has one: the one you configure, or one it makes and prints once at start. Until a player joins with the key the lobby has no host and nobody can press Start. CLI players (`join`) play as before either way. (An app-hosted session has no owner key and is unchanged: the host is the player on that machine.)
 - **No co-op.** A co-op world lives in the hosting app's own server process. A dedicated server refuses co-op in the lobby's settings (`no_coop`, docs/10-lobby.md §3 "Owner key"), and the keyed host plays plain multiplayer.
@@ -29,7 +29,7 @@ Nothing is exposed to the internet and no router changes are needed. Tailscale e
 
 Without a VPN the server's TCP port must be reachable from the internet:
 
-- **A home server:** forward **TCP 25565** on the router to the machine. Only TCP; nothing uses UDP.
+- **A home server:** forward **TCP 25565** on the router to the machine. With `WW_UDP=1` (the UDP pose transport, docs/12-udp-pose.md; off by default) also forward **UDP 25566**, the TCP port + 1; without it, players' poses stay on TCP.
 - **A VPS:** allow inbound TCP 25565 in the provider's firewall (its security group or cloud firewall) and in the machine's own (`ufw allow 25565/tcp`).
 - **Windows:** the first start asks whether `ww-multiplayer.exe` may accept connections; allow it on the networks players come from.
 - **Docker and ufw:** a published port (`-p 25565:25565`) bypasses ufw. To keep it to one address, publish on it: `-p 100.101.102.103:25565:25565` (a Tailscale IP).

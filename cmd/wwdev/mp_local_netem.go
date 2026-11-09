@@ -48,6 +48,7 @@ func mpLocalNetem(ctx context.Context, rep log.Reporter, addr string) (string, f
 			log.Logf(r, log.Err, "proxy stopped: %v", err)
 		}
 	}()
+	upx := netemUDPBeside(pctx, px.Addr().String(), addr, p, func(f string, a ...any) { log.Logf(r, log.Warn, f, a...) })
 	go func() {
 		t := time.NewTicker(netemStatsEvery)
 		defer t.Stop()
@@ -57,6 +58,9 @@ func mpLocalNetem(ctx context.Context, rep log.Reporter, addr string) (string, f
 				return
 			case <-t.C:
 				log.Logf(r, log.Info, "%v", px.Stats())
+				if upx != nil {
+					log.Logf(r, log.Info, "%v", upx.Stats())
+				}
 			}
 		}
 	}()
@@ -65,6 +69,9 @@ func mpLocalNetem(ctx context.Context, rep log.Reporter, addr string) (string, f
 		cancel()
 		<-done
 		log.Logf(r, log.Info, "final: %v", px.Stats())
+		if upx != nil {
+			log.Logf(r, log.Info, "final: %v", upx.Stats())
+		}
 	}
 	return px.Addr().String(), stop, nil
 }
@@ -92,6 +99,7 @@ func cmdNetem(_ string, args []string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	fmt.Printf("netem: %s -> %s, %v\n", px.Addr(), args[1], p)
+	upx := netemUDPBeside(ctx, px.Addr().String(), args[1], p, func(f string, a ...any) { fmt.Printf("netem: "+f+"\n", a...) })
 	go func() {
 		t := time.NewTicker(netemStatsEvery)
 		defer t.Stop()
@@ -101,6 +109,9 @@ func cmdNetem(_ string, args []string) {
 				return
 			case <-t.C:
 				fmt.Printf("netem: %v\n", px.Stats())
+				if upx != nil {
+					fmt.Printf("netem: %v\n", upx.Stats())
+				}
 			}
 		}
 	}()
@@ -109,4 +120,29 @@ func cmdNetem(_ string, args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("netem: final: %v\n", px.Stats())
+	if upx != nil {
+		fmt.Printf("netem: final: %v\n", upx.Stats())
+	}
+}
+
+// netemUDPBeside starts the UDP side of a shaped link (wind#91): a proxy at
+// the TCP proxy's port + 1 toward the server's port + 1, where a WW_UDP
+// server keeps its pose socket (docs/12-udp-pose.md), shaped by the same
+// params with real drops. The client finds it by the welcome's offset. A
+// failure is logged and leaves the clients on TCP, as a blocked UDP port
+// would; it returns nil then. It stops with ctx.
+func netemUDPBeside(ctx context.Context, proxyTCP, serverTCP string, p netem.Params, warn func(string, ...any)) *netem.UDPProxy {
+	listen, err := netem.UDPBeside(proxyTCP)
+	if err == nil {
+		var to string
+		if to, err = netem.UDPBeside(serverTCP); err == nil {
+			var upx *netem.UDPProxy
+			if upx, err = netem.ListenUDP(listen, to, p); err == nil {
+				go upx.Serve(ctx)
+				return upx
+			}
+		}
+	}
+	warn("no UDP proxy beside %s (WW_UDP clients stay on TCP): %v", proxyTCP, err)
+	return nil
 }

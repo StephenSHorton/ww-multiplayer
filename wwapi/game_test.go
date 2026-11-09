@@ -20,6 +20,8 @@ import (
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/gate"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mem"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/ops"
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/ops/opstest"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/save"
 	wwstate "github.com/StephenSHorton/ww-multiplayer/wwapi/state"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/write"
@@ -87,7 +89,7 @@ func TestStrictAttach(t *testing.T) {
 	if got, want := info.Features.String(), wwapi.BlobFeatures().String(); got != want || !info.Features.Known() {
 		t.Errorf("features %q, want %q", got, want)
 	}
-	if got := wwapi.BlobFeatures().String(); got != "avatar,eyefix,face,input,tunic,warp" {
+	if got := wwapi.BlobFeatures().String(); got != "avatar,eyefix,face,input,ops,tunic,warp" {
 		t.Errorf("this blob's features %q", got)
 	}
 	if miss := info.Features.Missing([]string{"avatar", "face", "tunic", "input"}); miss != nil {
@@ -284,19 +286,102 @@ func TestContractRecheckedOnSaveState(t *testing.T) {
 	}
 }
 
-// TestActorCommandsUnsupported: actor.kill and actor.spawn exist and say
-// they are not supported until the C op ring does.
+// TestActorCommandsUnsupported: actor.spawn exists and says it is not
+// supported until a SPAWN op does; on a blob without the "ops" feature
+// actor.kill says so too.
 func TestActorCommandsUnsupported(t *testing.T) {
 	m, _ := bootedRAM(t)
 	g := newGame(t, m)
-	for _, name := range []string{wwapi.CmdActorKill, wwapi.CmdActorSpawn} {
-		res, err := g.Commands().Execute(context.Background(), name, map[string]int{"pid": 1})
-		if !errors.Is(err, commands.ErrUnsupported) || res.OK || res.Code != "unsupported" {
-			t.Errorf("%s: %+v, %v", name, res, err)
-		}
+	res, err := g.Commands().Execute(context.Background(), wwapi.CmdActorSpawn, map[string]int{"pid": 1})
+	if !errors.Is(err, commands.ErrUnsupported) || res.OK || res.Code != "unsupported" {
+		t.Errorf("%s: %+v, %v", wwapi.CmdActorSpawn, res, err)
 	}
 	if got := g.Commands().Names(); !slices.Equal(got, []string{wwapi.CmdActorKill, wwapi.CmdActorSpawn, wwapi.CmdPlayerWarp}) {
 		t.Errorf("core commands %v", got)
+	}
+
+	old := mem.NewFakeMem()
+	if err := fakegame.Boot(old); err != nil {
+		t.Fatal(err)
+	}
+	h := fakegame.ThisHeader()
+	h.Features &^= mailbox.WwFeatOps
+	if err := mailbox.WriteHeader(old, h); err != nil {
+		t.Fatal(err)
+	}
+	g2, err := wwapi.NewGame(old, wwapi.GameOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g2.Close()
+	res, err = g2.Commands().Execute(context.Background(), wwapi.CmdActorKill, map[string]int{"pid": 1})
+	if !errors.Is(err, commands.ErrUnsupported) || res.Code != "unsupported" {
+		t.Errorf("kill without the ops feature: %+v, %v", res, err)
+	}
+}
+
+// TestActorKill: core.actor.kill runs the KILL op through the command
+// queue with the pid, proc and setID it was given, and maps the result.
+func TestActorKill(t *testing.T) {
+	m, _ := bootedRAM(t)
+	g := newGame(t, m)
+	// No runtime up yet: the queue says so.
+	res, err := g.Commands().Execute(context.Background(), wwapi.CmdActorKill, wwapi.KillArgs{PID: 5, Proc: 0x1D5, TimeoutMS: 50})
+	if !errors.Is(err, ops.ErrNoRuntime) || res.Code != "kill_failed" {
+		t.Fatalf("kill before boot: %+v, %v", res, err)
+	}
+
+	type call struct{ a, b, c uint32 }
+	var got []call
+	rt := opstest.New(m)
+	rt.Boot(func(a, b, c uint32) uint8 {
+		got = append(got, call{a, b, c})
+		switch a {
+		case 5:
+			return mailbox.OpsROK
+		case 6:
+			return mailbox.OpsRMismatch
+		}
+		return mailbox.OpsRNotFound
+	})
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(time.Millisecond):
+				rt.Frame()
+			}
+		}
+	}()
+	set := uint16(3)
+	for _, c := range []struct {
+		args wwapi.KillArgs
+		ok   bool
+		code string
+	}{
+		{wwapi.KillArgs{PID: 5, Proc: 0x1D5, SetID: &set}, true, ""},
+		{wwapi.KillArgs{PID: 6, Proc: -2}, false, "mismatch"},
+		{wwapi.KillArgs{PID: 7, Proc: 0x10}, false, "not_found"},
+	} {
+		res, err := g.Commands().Execute(context.Background(), wwapi.CmdActorKill, c.args)
+		if res.OK != c.ok || res.Code != c.code || (err == nil) != c.ok {
+			t.Errorf("kill %+v: %+v, %v", c.args, res, err)
+		}
+	}
+	close(stop)
+	<-done
+	want := []call{{5, 0x1D5, 3}, {6, 0xFFFE, 0xFFFFFFFF}, {7, 0x10, 0xFFFFFFFF}}
+	if !slices.Equal(got, want) {
+		t.Errorf("KILL saw %+v, want %+v", got, want)
+	}
+	for _, bad := range []any{wwapi.KillArgs{PID: 0xFFFFFFFF}, wwapi.KillArgs{PID: 1, TimeoutMS: -1}, "x"} {
+		if res, _ := g.Commands().Execute(context.Background(), wwapi.CmdActorKill, bad); res.Code != "bad_args" {
+			t.Errorf("kill %v: %+v", bad, res)
+		}
 	}
 }
 
@@ -599,3 +684,30 @@ func mustRead(t *testing.T, m mem.Reader) *snapshot {
 type probe struct{ events.Base }
 
 func (probe) EventName() string { return "core.test_probe" }
+
+// TestRuntimeEvents: each Tick drains the C runtime's event ring onto the
+// bus as core.runtime_event, in order.
+func TestRuntimeEvents(t *testing.T) {
+	m, _ := bootedRAM(t)
+	g := newGame(t, m)
+	ch, off := events.Chan[events.RuntimeEvent](g.Events(), 32)
+	defer off()
+	rt := opstest.New(m)
+	rt.Boot(nil)
+	rt.Push(ops.EvModFirst, 1, 2, 3)
+	_ = g.Tick()
+	rt.Push(ops.EvModFirst+1, 4, 5, 6)
+	_ = g.Tick()
+	var got []events.RuntimeEvent
+	for len(got) < 3 {
+		select {
+		case e := <-ch:
+			got = append(got, e)
+		case <-time.After(time.Second):
+			t.Fatalf("got %d events: %+v", len(got), got)
+		}
+	}
+	if got[0].Kind != ops.EvBoot || got[1].Kind != ops.EvModFirst || got[1].A != 1 || got[2].Kind != ops.EvModFirst+1 || got[2].N != 2 {
+		t.Errorf("events %+v", got)
+	}
+}

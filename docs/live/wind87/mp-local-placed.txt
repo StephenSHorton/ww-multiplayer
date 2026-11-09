@@ -1,0 +1,23 @@
+[coop-A] co-op: PlayerA:   placed kills: on; 0 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   placed kills: on; 0 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-A] co-op: PlayerA:   placed kills: on; 0 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   placed kills: on; 0 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-A] co-op: PlayerA:   placed kills: on; 4 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   placed kills: on; 4 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-A] co-op: PlayerA:   placed kills: on; 4 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   placed kills: on; 4 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-A] co-op: PlayerA:   placed kills: on; 4 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   placed kills: on; 4 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-A] co-op: PlayerA:   placed kills: on; 4 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   placed kills: on; 4 tracked, 0 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: placed: light-shrunk the partner's kill of Siren room 8 ordinal 0 (table 5): actor 0x80AA4354 (pid 730, proc 0x00CC am2, setID none, room 8)
+[coop-A] co-op: PlayerA:   placed kills: on; 3 tracked, 1 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   placed kills: on; 3 tracked, 0 sent, not sent: echo 1; 0 pending, 1 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-A] co-op: PlayerA:   placed kills: on; 5 tracked, 1 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   placed kills: on; 5 tracked, 0 sent, not sent: echo 1; 0 pending, 1 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: placed: light-shrunk the partner's kill of kindan room 1 ordinal 0 (table 4): actor 0x80A8BD74 (pid 814, proc 0x00D7 bo, setID none, room 1)
+[coop-A] co-op: PlayerA:   placed kills: on; 4 tracked, 2 sent, not sent: none; 0 pending, 0 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   placed kills: on; 4 tracked, 0 sent, not sent: echo 2; 0 pending, 2 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-A] co-op: placed: light-shrunk the partner's kill of kindan room 1 ordinal 5 (table 4): actor 0x80A79734 (pid 1098, proc 0x00D7 bo, setID none, room 1)
+[coop-A] co-op: PlayerA:   placed kills: on; 3 tracked, 2 sent, not sent: echo 1; 0 pending, 1 taken, 0 gone, 0 expired, 0 dropped, 0 refused
+[coop-B] co-op: PlayerB:   placed kills: on; 3 tracked, 1 sent, not sent: echo 2; 0 pending, 2 taken, 0 gone, 0 expired, 0 dropped, 0 refused

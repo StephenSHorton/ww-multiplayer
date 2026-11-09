@@ -18,6 +18,7 @@ import (
 // committed blob.go to what those sources say it should look like.
 const (
 	mailboxH      = "../../inject/include/mailbox_core.h"
+	wwopsH        = "../../inject/include/wwops.h"
 	buildPy       = "../../inject/build.py"
 	hooksC        = "../../inject/src/core/hooks.c"
 	osInitT1Load  = 0x800056E0 // build.py T1_LOAD
@@ -142,6 +143,15 @@ func TestT2EndsBelowMailbox(t *testing.T) {
 	if err := checkBudget(T2Address, len(T2Bytes), mailbox, arenaLo); err != nil {
 		t.Fatal(err)
 	}
+	// Since wind#90 the API region (wwops.h) sits between T2 and the
+	// mailbox: T2's own budget ends at its start.
+	ops := define(t, wwopsH, "WWAP_ADDR")
+	if end := T2Address + uint32(len(T2Bytes)); end > ops {
+		t.Fatalf("T2 0x%08X..0x%08X runs past the API region at 0x%08X by 0x%X bytes", T2Address, end, ops, end-ops)
+	}
+	if ops != mbox.OpsAddr || ops+define(t, wwopsH, "WWAP_SIZE") != mailbox {
+		t.Errorf("API region 0x%08X (Go 0x%08X) does not end at the mailbox 0x%08X", ops, mbox.OpsAddr, mailbox)
+	}
 	// Go's copies (wwapi/mailbox, the canaries and region-probe use
 	// them) must agree with the C side.
 	if mbox.Mailbox != mailbox || mbox.PatchedArenaLo != arenaLo || mbox.T2Base != T2Address {
@@ -149,7 +159,7 @@ func TestT2EndsBelowMailbox(t *testing.T) {
 			mbox.T2Base, mbox.Mailbox, mbox.PatchedArenaLo, T2Address, mailbox, arenaLo)
 	}
 	end := T2Address + uint32(len(T2Bytes))
-	t.Logf("T2 0x%08X..0x%08X, 0x%X bytes free below the mailbox (0x%08X); arena at 0x%08X", T2Address, end, mailbox-end, mailbox, arenaLo)
+	t.Logf("T2 0x%08X..0x%08X, 0x%X bytes free below the API region (0x%08X); mailbox 0x%08X, arena at 0x%08X", T2Address, end, ops-end, ops, mailbox, arenaLo)
 }
 
 // TestCheckBudget: the rule rejects an over-budget blob and a mailbox at
