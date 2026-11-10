@@ -3,10 +3,12 @@
 // T2 latches; never writes it.
 //
 // Stage 2: relws_2d_factor for the name tags and the lobby line
-// (visuals.c). Stage 3: relws_shift and the cannon game's widgets: the
+// (visuals.c). Stage 3: relws_shift and the minigames' widgets: the
 // vtable slots of dDlst_2DObject_c::draw (the bomb and ship icons, and
-// Sploosh Kaboom's squid icons) and dDlst_2DBattery_c::draw (the angle
-// and shot battery) point at wrappers here while the module is linked.
+// Sploosh Kaboom's bomb and squid icons), dDlst_2DBattery_c::draw (the
+// angle and shot battery) and dDlst_2DNumber_c::draw (Sploosh Kaboom's
+// shot count beside its bombs) point at wrappers here while the module
+// is linked.
 // Each wrapper moves the widget's x by the latched shift S around the
 // vanilla draw and puts it back; with S = 0 it is the vanilla draw.
 #include "mailbox_core.h"
@@ -37,8 +39,10 @@ f32 relws_shift(void) {
 // the DOL (d_2dnumber.cpp; plan H-12).
 #define SLOT_2DOBJECT   ((volatile u32*)0x80389100)
 #define SLOT_2DBATTERY  ((volatile u32*)0x80389110)
+#define SLOT_2DNUMBER   ((volatile u32*)0x80389130)
 #define DRAW_2DOBJECT   0x800C946C
 #define DRAW_2DBATTERY  0x800C90F0
+#define DRAW_2DNUMBER   0x800C8644
 typedef void (*dl_draw_fn)(void* self);
 
 // dDlst_2DObject_c (d_2dnumber.h): mPos.x at +0x0C, the top-left x. Left
@@ -67,6 +71,31 @@ void relws_battery_draw(u8* self) {
     *n = n0;
 }
 
+// dDlst_2DNumber_c: mPos[4] (cXy) at +0x14, mDigitNum (u8) at +0x41.
+// Only Sploosh Kaboom (d_a_mgameboard) draws these: its shot count sits
+// above the bombs at the left, so a number whose ones digit is left of the
+// centre moves left with them; the high score's digits sit on the plate
+// (dDlst_2DMinigame_c, not moved) and stay. Live check WS3-8 (PC rig,
+// 2026-11-09): without this the count stayed inside while its bombs moved
+// out to the band.
+void relws_num_draw(u8* self) {
+    f32 s = relws_shift();
+    f32* x = (f32*)(self + 0x14);
+    u8 n = self[0x41];
+    f32 x0[4];
+    int i;
+    if (n > 4)
+        n = 4;
+    for (i = 0; i < n; i++)
+        x0[i] = x[i * 2];
+    if (s != 0.0f && n != 0 && x0[0] < 320.5f)
+        for (i = 0; i < n; i++)
+            x[i * 2] = x0[i] - s;
+    ((dl_draw_fn)DRAW_2DNUMBER)(self);
+    for (i = 0; i < n; i++)
+        x[i * 2] = x0[i];
+}
+
 // Only a slot that holds the vanilla draw is taken, and only a slot that
 // holds ours is given back.
 void relws_link(void) {
@@ -74,6 +103,8 @@ void relws_link(void) {
         *SLOT_2DOBJECT = (u32)relws_obj_draw;
     if (*SLOT_2DBATTERY == DRAW_2DBATTERY)
         *SLOT_2DBATTERY = (u32)relws_battery_draw;
+    if (*SLOT_2DNUMBER == DRAW_2DNUMBER)
+        *SLOT_2DNUMBER = (u32)relws_num_draw;
 }
 
 void relws_unlink(void) {
@@ -81,4 +112,6 @@ void relws_unlink(void) {
         *SLOT_2DOBJECT = DRAW_2DOBJECT;
     if (*SLOT_2DBATTERY == (u32)relws_battery_draw)
         *SLOT_2DBATTERY = DRAW_2DBATTERY;
+    if (*SLOT_2DNUMBER == (u32)relws_num_draw)
+        *SLOT_2DNUMBER = DRAW_2DNUMBER;
 }

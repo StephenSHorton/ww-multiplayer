@@ -85,7 +85,7 @@ REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shan
 # R-D2: bosskill.c's fopAcIt_Judge callbacks, bk_bst_judge under
 # WWBOSS_WITH_BST and bk_bpw_judge under WWBOSS_WITH_BPW).
 REL_TEXT_CALLBACKS = ["bk_bst_judge", "bk_bpw_judge", "wwvis_draw_hook", "wwvis_seachart_draw", "vis_tag_draw", "fx_cannon_judge",
-                      "bt_jnt_cb", "bt_sail_draw", "relws_obj_draw", "relws_battery_draw"]
+                      "bt_jnt_cb", "bt_sail_draw", "relws_obj_draw", "relws_battery_draw", "relws_num_draw"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")

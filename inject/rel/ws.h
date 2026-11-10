@@ -15,7 +15,7 @@ f32 relws_2d_factor(void);
 // relws_2d_factor() != 1, else 0.
 f32 relws_shift(void);
 
-// Stage 3 (H-12): _prolog points the cannon game's 2D draw-list vtable
+// Stage 3 (H-12): _prolog points the minigames' 2D draw-list vtable
 // slots at ws.c's wrappers (relws_link, before the exec hook word) and
 // _epilog puts the vanilla draws back first thing (relws_unlink).
 void relws_link(void);
