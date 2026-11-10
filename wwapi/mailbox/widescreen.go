@@ -95,12 +95,29 @@ func ReadWidescreen(m interface {
 // WsFactorValid reports whether WS_SET would accept f (NaN fails).
 func WsFactorValid(f float32) bool { return f >= WsFactorMin && f <= WsFactorMax }
 
-// Pending2D reports that the 2D does not yet follow the live mode: 2D
-// compression is asked for and not latched, or latched and no longer
-// asked for. The 2D latch moves only when a stage or the file select
-// loads (native-widescreen.md sections 3.3 and 5).
+// Pending2D reports that the 2D does not yet follow the live mode: the
+// next latch would differ from the current one. 2D compression is asked
+// for and not latched, or latched and no longer asked for, or latched with
+// another factor or HUD shift (a mid-stage aspect or WsFHUD change). The
+// 2D latch moves only when a stage or the file select loads
+// (native-widescreen.md sections 3.3 and 5).
 func (w Widescreen) Pending2D() bool {
-	return w.Present && w.Wants2D() != (w.UIMode == WsModeNative)
+	if !w.Present {
+		return false
+	}
+	if !w.Wants2D() {
+		return w.UIMode == WsModeNative
+	}
+	return w.UIMode != WsModeNative || w.UIFactor != w.Factor || w.UIShift != w.wantShift()
+}
+
+// wantShift is ws_latch's ui_shift for a block that Wants2D:
+// 329.5*(F-1) in f32 with WsFHUD, else 0.
+func (w Widescreen) wantShift() float32 {
+	if w.Flags&WsFHUD == 0 {
+		return 0
+	}
+	return float32(329.5) * (w.Factor - 1)
 }
 
 // Wants2D is ws_latch's test (widescreen.c): the next latch compresses the

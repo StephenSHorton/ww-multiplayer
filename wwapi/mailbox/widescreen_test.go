@@ -80,7 +80,11 @@ func TestPending2D(t *testing.T) {
 		want bool
 	}{
 		{"asked, not latched", Widescreen{Present: true, Mode: WsModeNative, Factor: f169, Flags: WsF2D}, true},
-		{"asked and latched", Widescreen{Present: true, Mode: WsModeNative, Factor: f169, Flags: WsF2D, UIMode: WsModeNative}, false},
+		{"asked and latched", Widescreen{Present: true, Mode: WsModeNative, Factor: f169, Flags: WsF2D, UIMode: WsModeNative, UIFactor: f169}, false},
+		{"HUD asked and latched", Widescreen{Present: true, Mode: WsModeNative, Factor: f169, Flags: WsF2D | WsFHUD, UIMode: WsModeNative, UIFactor: f169, UIShift: 329.5 * (f169 - 1)}, false},
+		{"HUD asked, latched without it", Widescreen{Present: true, Mode: WsModeNative, Factor: f169, Flags: WsF2D | WsFHUD, UIMode: WsModeNative, UIFactor: f169}, true},
+		{"HUD latched, no longer asked", Widescreen{Present: true, Mode: WsModeNative, Factor: f169, Flags: WsF2D, UIMode: WsModeNative, UIFactor: f169, UIShift: 329.5 * (f169 - 1)}, true},
+		{"latched at another factor", Widescreen{Present: true, Mode: WsModeNative, Factor: 1.75, Flags: WsF2D, UIMode: WsModeNative, UIFactor: f169}, true},
 		{"latched, mode 0 now", Widescreen{Present: true, Mode: WsModeOffVal, Factor: 1, UIMode: WsModeNative}, true},
 		{"latched, mode 1 now", Widescreen{Present: true, Mode: WsModeClip, Factor: f169, Flags: WsF2D, UIMode: WsModeNative}, true},
 		{"latched, flags 0 now", Widescreen{Present: true, Mode: WsModeNative, Factor: f169, UIMode: WsModeNative}, true},
