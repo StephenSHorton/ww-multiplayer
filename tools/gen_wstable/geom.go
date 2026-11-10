@@ -191,21 +191,8 @@ func GeomHitsFromDisc(discPath string) ([]string, int, error) {
 			if err != nil {
 				return nil, 0, err
 			}
-			arc, err := stage.ParseArchive(b)
-			if err != nil {
-				continue // not a RARC
-			}
-			for _, af := range arc.Files() {
-				if !strings.HasSuffix(strings.ToLower(af.Path), ".blo") {
-					continue
-				}
-				ab, err := arc.Read(af)
-				if err != nil {
-					return nil, 0, fmt.Errorf("%s/%s: %w", f.Path, af.Path, err)
-				}
-				if err := add(af.Path, ab); err != nil {
-					return nil, 0, err
-				}
+			if err := walkArc(f.Path, b, add); err != nil {
+				return nil, 0, err
 			}
 		}
 	}
@@ -215,4 +202,33 @@ func GeomHitsFromDisc(discPath string) ([]string, int, error) {
 	}
 	sort.Strings(out)
 	return out, screens, nil
+}
+
+// walkArc hands every .blo in a RARC archive to add, and walks the
+// archives inside it (the file select's dat/file_select.arc sits in
+// res/Stage/Name/Stage.arc). A file that is no RARC is skipped.
+func walkArc(name string, b []byte, add func(string, []byte) error) error {
+	arc, err := stage.ParseArchive(b)
+	if err != nil {
+		return nil
+	}
+	for _, af := range arc.Files() {
+		lower := strings.ToLower(af.Path)
+		if !strings.HasSuffix(lower, ".blo") && !strings.HasSuffix(lower, ".arc") {
+			continue
+		}
+		ab, err := arc.Read(af)
+		if err != nil {
+			return fmt.Errorf("%s/%s: %w", name, af.Path, err)
+		}
+		if strings.HasSuffix(lower, ".arc") {
+			err = walkArc(name+"/"+af.Path, ab, add)
+		} else {
+			err = add(af.Path, ab)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

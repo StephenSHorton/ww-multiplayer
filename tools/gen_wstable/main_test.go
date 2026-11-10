@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/StephenSHorton/ww-multiplayer/internal/inject"
 	"github.com/StephenSHorton/ww-multiplayer/internal/vanillatest"
 )
 
@@ -264,17 +266,19 @@ func TestBloNamesFromDisc(t *testing.T) {
 
 // geomAccepted: screens outside the plan's GEOM list whose only GEOM panes
 // are 'BACK', the layout tool's reference picture, whose texture is in no
-// archive on the disc (back.bti, baton3.bti, shiprace.bti, bg_proro.bti;
-// checked 2026-11-09 against the vanilla disc), so it draws nothing and
+// archive on the disc, nested ones included (back.bti, baton3.bti,
+// shiprace.bti, bg_proro.bti, sky_cloth.bti; checked 2026-11-09 against
+// the vanilla disc), so it draws nothing and
 // widening it changes nothing. geomKept: screens with a row that turns
 // GEOM off, and why.
 var (
 	geomAccepted = []string{"baton_input", "file_error", "hukidashi_00", "hukidashi_14_1", "hukidashi_d00",
-		"name_input", "opening", "ship_race1", "ship_race2", "title_logo_e", "wipe_01_02"}
+		"file_select", "name_input", "opening", "ship_race1", "ship_race2", "title_logo_e", "wipe_01_02"}
 	geomKept = map[string]string{
-		"wipe_01_01": "the picto album's paper b1 and strip b2, drawn uncompressed",
-		"auction1":   "BACK (back_auction_00.bti, not on the disc) moves with the screen (SCR_L)",
-		"auction2":   "BACK (back_auction_00.bti, not on the disc)",
+		"wipe_01_01":            "the picto album's paper b1 and strip b2, drawn uncompressed",
+		"auction1":              "BACK (back_auction_00.bti, not on the disc) moves with the screen (SCR_L)",
+		"auction2":              "BACK (back_auction_00.bti, not on the disc)",
+		"main_parts_fileselect": "BACK (back.bti, not on the disc); an ALL_R row",
 	}
 )
 
@@ -406,5 +410,75 @@ func TestParseBlo(t *testing.T) {
 	hits := GeomHits("t.blo", root)
 	if len(hits) != 1 || hits[0].String() != "t.blo full -15 -20 665 500" {
 		t.Errorf("hits %v, want [t.blo full -15 -20 665 500]", hits)
+	}
+}
+
+// TestRuleTagsOnDisc: every rule's tag is a pane of its screen on the
+// vanilla disc (a mistyped tag would silently do nothing), and every L/R
+// rule's pane is a direct child of the screen's anchor ('ROOT', else the
+// screen), where the walker's shifts belong (plan 3.3). Skipped without a
+// vanilla disc.
+func TestRuleTagsOnDisc(t *testing.T) {
+	p := vanillatest.Path()
+	if p == "" {
+		t.Skipf("no vanilla disc: set %s", vanillatest.EnvVar)
+	}
+	d, err := inject.OpenDisc(p)
+	if err != nil {
+		t.Skipf("vanilla disc %s: %v", p, err)
+	}
+	defer d.Close()
+	screens := map[string]*bloPane{}
+	for _, f := range d.Files() {
+		if !strings.HasSuffix(strings.ToLower(f.Path), ".arc") {
+			continue
+		}
+		b, err := d.ReadFile(f.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := walkArc(f.Path, b, func(name string, blo []byte) error {
+			root, err := ParseBlo(blo)
+			if err == nil {
+				screens[strings.ToLower(path.Base(name))] = root
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, r := range tableRows() {
+		root := screens[strings.ToLower(r.name)+".blo"]
+		if root == nil {
+			t.Errorf("%s.blo: not on the disc", r.name)
+			continue
+		}
+		anchor := root
+		for _, c := range root.children {
+			if tagString(c.tag) == "ROOT" {
+				anchor = c
+			}
+		}
+		top := map[string]bool{}
+		for _, c := range anchor.children {
+			top[tagString(c.tag)] = true
+		}
+		all := map[string]bool{}
+		var walk func(p *bloPane)
+		walk = func(p *bloPane) {
+			for _, c := range p.children {
+				all[tagString(c.tag)] = true
+				walk(c)
+			}
+		}
+		walk(root)
+		for _, ru := range r.rules {
+			switch {
+			case !all[ru.tag]:
+				t.Errorf("%s.blo: no pane %q", r.name, ru.tag)
+			case (ru.act == actL || ru.act == actR) && !top[ru.tag]:
+				t.Errorf("%s.blo: %s rule on %q, not a child of the anchor", r.name, actionNames[ru.act], ru.tag)
+			}
+		}
 	}
 }

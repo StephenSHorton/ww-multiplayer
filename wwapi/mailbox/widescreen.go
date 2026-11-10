@@ -35,7 +35,7 @@ const (
 	WsF2D  = 0x01 // flags: compress 2D in mode 2 (stage 2)
 	WsFHUD = 0x02 // flags: anchor the HUD to the edges (stage 3)
 
-	WsFlagsSupported = 0x00 // the flags the stage-1 blob supports
+	WsFlagsSupported = 0x01 // the flags the blob supports (stage 2: WsF2D)
 
 	WsKnobAddr    uint32 = 0x803FA998 // the 4/3 literal preparation() reads for view->mAspect
 	WsKnobVanilla uint32 = 0x3FAAAAAB // 4/3 as an f32
@@ -95,9 +95,25 @@ func ReadWidescreen(m interface {
 // WsFactorValid reports whether WS_SET would accept f (NaN fails).
 func WsFactorValid(f float32) bool { return f >= WsFactorMin && f <= WsFactorMax }
 
+// Pending2D reports that the 2D does not yet follow the live mode: 2D
+// compression is asked for (mode 2 with WsF2D) and not latched, or
+// latched and no longer asked for. The 2D latch moves only when a stage
+// or the file select loads (native-widescreen.md sections 3.3 and 5).
+func (w Widescreen) Pending2D() bool {
+	return w.Present && (w.Mode == WsModeNative && w.Flags&WsF2D != 0) != (w.UIMode == WsModeNative)
+}
+
+// Pending2DNote is what the Play page and the CLI show while Pending2D.
+const Pending2DNote = "2D pending until the next stage load"
+
 func (w Widescreen) String() string {
 	if !w.Present {
 		return "no widescreen block"
 	}
-	return fmt.Sprintf("mode %d factor %.4f flags 0x%02X", w.Mode, w.Factor, w.Flags)
+	s := fmt.Sprintf("mode %d factor %.4f flags 0x%02X; 2D mode %d factor %.4f shift %.2f",
+		w.Mode, w.Factor, w.Flags, w.UIMode, w.UIFactor, w.UIShift)
+	if w.Pending2D() {
+		s += " (" + Pending2DNote + ")"
+	}
+	return s
 }

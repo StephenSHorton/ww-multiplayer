@@ -36,6 +36,28 @@ C_SOURCES = [
     "src/ws/widescreen.c",
 ]
 
+# Game functions T2 calls by name (a plain `bl`, 4 bytes, instead of a
+# lis/ori/mtctr/bctrl through a cast pointer): each becomes an absolute
+# symbol at link time (ld --defsym). All are in the DOL's text section 1,
+# within a bl's 32 MB reach of T2. C declares them extern (src/core/hooks.c,
+# src/ws/widescreen.c). Addresses: ~/projects/tww symbols.txt, checked
+# against the vanilla DOL's call sites (native-widescreen.md section 8;
+# internal/inject/t2_budget_test.go TestGameSymbols).
+GAME_SYMBOLS = {
+    "mDoLib_project": 0x80017748,
+    "dMap_calcScissor": 0x8004A3A4,
+    "dPb_shutterLineDraw": 0x8022A09C,
+    "JKRFileLoader_getGlbResource": 0x802B68F0,
+    "J2DOrthoGraph_setPort": 0x802CDCB4,
+    "J2DOrthoGraph_setOrtho": 0x802CDD14,
+    "J2DFillBox": 0x802CDF3C,
+    "J2DPane_add": 0x802D05C8,
+    "J2DPane_setBasePosition": 0x802D0800,
+    "J2DScreen_set_stream": 0x802D0CE0,
+    "J2DScreen_draw": 0x802D0F2C,
+    "C_MTXPerspective": 0x8030DB78,
+}
+
 DEFAULT_DEVKITPRO = r"C:\devkitpro"
 DEFAULT_DEVKITPPC = os.path.join(DEFAULT_DEVKITPRO, "devkitPPC")
 MSYS_DEVKITPRO = "/opt/devkitpro"
@@ -50,13 +72,13 @@ SYMBOL_MAP = os.path.join("build", "WWMultiplayer.map")
 # embeds REL_ELF as is and the Go converter (wwapi/rel) makes the REL.
 REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c", "rel/fullbody.c", "rel/shanm.c", "rel/bosskill.c",
                "rel/refresh.c", "rel/em_mt.c", "rel/visuals.c", "rel/fx.c",
-               "rel/boats.c"]
+               "rel/boats.c", "rel/ws.c"]
 # The headers the module's build id also covers (rel_build_id): its own
-# and the five slack layouts it reads and writes.
+# and the slack layouts it reads and writes.
 REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shanm.h", "rel/dapy.h", "rel/bosskill.h",
-               "rel/refresh.h", "rel/em_mt.h", "rel/visuals.h", "rel/fx.h", "rel/boats.h",
+               "rel/refresh.h", "rel/em_mt.h", "rel/visuals.h", "rel/fx.h", "rel/boats.h", "rel/ws.h",
                "include/wwrel.h", "include/wwenemy.h", "include/wwenemy_kinds.h", "include/wwremote.h", "include/wwboss.h",
-               "include/wwrefresh.h", "include/wwvis.h", "include/wwfx.h", "include/wwboat.h"]
+               "include/wwrefresh.h", "include/wwvis.h", "include/wwfx.h", "include/wwboat.h", "include/wwws.h"]
 # The module's functions DOL code calls back through a pointer the module
 # hands it at run time (not the profile tables, which ww_rel.ld places):
 # each, when compiled in, must be a .text symbol of the linked ELF (batch D
@@ -463,6 +485,43 @@ def main():
     # factor (mode 2 only), so photos judge the same as on a 4:3 screen.
     proj.hook_branchlink("ws_snap_setresult", 0x800CE5E8)
 
+    # Native widescreen stages 2-3 (docs/design/native-widescreen.md
+    # sections 3.2-3.6 and 8; src/core/hooks.c). Each line replaces a `bl`
+    # whose callee the hook calls itself; all pass through when the
+    # latched 2D factor is 1. Pinned in internal/inject/t2_budget_test.go.
+    # 2D compression: the four `bl J2DOrthoGraph::setOrtho` (0x802CDD14).
+    proj.hook_branchlink("ws_ortho_hook", 0x8000B06C)
+    proj.hook_branchlink("ws_ortho_hook", 0x8000BA30)
+    proj.hook_branchlink("ws_ortho_hook", 0x80223CF4)
+    proj.hook_branchlink("ws_ortho_hook", 0x8003EADC)
+    # 2D at projected points: seven `bl mDoLib_project` (0x80017748).
+    proj.hook_branchlink("ws_project_2d", 0x800E1624)
+    proj.hook_branchlink("ws_project_2d", 0x80129550)
+    proj.hook_branchlink("ws_project_2d", 0x801F8104)
+    proj.hook_branchlink("ws_project_2d", 0x801F9910)
+    proj.hook_branchlink("ws_project_2d", 0x8020DF5C)
+    proj.hook_branchlink("ws_project_2d", 0x802229D0)
+    proj.hook_branchlink("ws_project_2d", 0x80222ADC)
+    # J2DScreen::set(name, archive): A = its `bl getGlbResource` (0x802B68F0),
+    # B = its `bl set(stream)` (0x802D0CE0).
+    proj.hook_branchlink("ws_set_name_hook", 0x802D0968)
+    proj.hook_branchlink("ws_set_stream_hook", 0x802D09DC)
+    # The minimap's `bl calcScissor` (0x8004A3A4).
+    proj.hook_branchlink("ws_map_scissor", 0x8004A64C)
+    # The file select's two `bl C_MTXPerspective` (0x8030DB78).
+    proj.hook_branchlink("ws_persp", 0x802306A0)
+    proj.hook_branchlink("ws_persp", 0x802324A8)
+    # The picto box: four `bl J2DScreen::draw` (0x802D0F2C) and two
+    # `bl shutterLineDraw` (0x8022A09C) drawn uncompressed.
+    proj.hook_branchlink("ws_screen_draw_full", 0x8022B510)
+    proj.hook_branchlink("ws_screen_draw_full", 0x8022B538)
+    proj.hook_branchlink("ws_screen_draw_full", 0x8022B778)
+    proj.hook_branchlink("ws_screen_draw_full", 0x8022B9B8)
+    proj.hook_branchlink("ws_shutter_draw_full", 0x8022B524)
+    proj.hook_branchlink("ws_shutter_draw_full", 0x8022B9CC)
+    # The opening's `bl J2DScreen::draw` (0x802D0F2C), then the band fills.
+    proj.hook_branchlink("ws_opening_draw", 0x8023452C)
+
     # Set entry function (required for linker)
     proj.set_entry_function("main01_init")
 
@@ -488,6 +547,8 @@ def main():
     # sections from there, internal/inject TestBlobContract). Addressing
     # is unchanged: nothing here uses r13/r2-relative small data.
     proj.common_args.append("-G0")
+    for name, addr in GAME_SYMBOLS.items():
+        proj.ld_args.append(f"--defsym={name}=0x{addr:08X}")
 
     # Build
     input_dol = "original.dol"

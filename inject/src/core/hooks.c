@@ -106,6 +106,166 @@ __attribute__((optimize("Os"))) void ws_snap_setresult(void* pkt) {
     dSnap_packet_SetResult(pkt);
 }
 
+// --- Native widescreen, stages 2-3 (docs/design/native-widescreen.md) ---
+// Every hook below replaces one `bl` (build.py; each site pinned in
+// internal/inject/t2_budget_test.go), calls the vanilla callee itself and
+// reads the latched 2D factor F = ws_2d_factor() (src/ws): 1.0 unless 2D
+// is compressed, and then each one does exactly what the vanilla call
+// did. The game functions are build.py's GAME_SYMBOLS (plain `bl`s).
+// Built for size (T2 budget, section 6).
+#pragma GCC push_options
+#pragma GCC optimize("Os")
+
+typedef struct { f32 x0, y0, x1, y1; } WsBox;
+extern void J2DOrthoGraph_setOrtho(void* graf, const WsBox* box, f32 far_, f32 near_);
+extern void J2DOrthoGraph_setPort(void* graf);
+extern void mDoLib_project(cXyz* src, cXyz* dst);
+extern void* JKRFileLoader_getGlbResource(const char* name, void* loader);
+extern int J2DScreen_set_stream(void* scrn, void* stream);
+extern void J2DScreen_draw(void* scrn, f32 x, f32 y, void* graf);
+extern void dMap_calcScissor(void);
+extern void C_MTXPerspective(void* m, f32 fovy, f32 aspect, f32 near_, f32 far_);
+extern void dPb_shutterLineDraw(void* pb, u8 alpha);
+extern void J2DFillBox(f32 x, f32 y, f32 w, f32 h, const u32* rgba);
+
+// x' = 320.5 + (x - 320.5) * F: a 2D x widened (or a box edge pushed out)
+// about the 2D centre.
+static f32 ws_wx(f32 x, f32 F) {
+    return 320.5f + (x - 320.5f) * F;
+}
+
+// 3.2: the four `bl J2DOrthoGraph::setOrtho` (0x8000B06C, 0x8000BA30 in
+// mDoGph_Painter; 0x80223CF4 dOvlpFd2; 0x8003EADC drawDvdCondition): the
+// box's x widened about its centre by F, so after Dolphin's stretch all
+// game 2D has its true proportions. setOrtho only stores the box.
+void ws_ortho_hook(void* graf, const WsBox* box, f32 far_, f32 near_) {
+    WsBox b = *box;
+    f32 F = ws_2d_factor();
+    if (F != 1.0f) {
+        f32 c = 0.5f * (b.x0 + b.x1);
+        b.x0 = c + (b.x0 - c) * F;
+        b.x1 = c + (b.x1 - c) * F;
+    }
+    J2DOrthoGraph_setOrtho(graf, &b, far_, near_);
+}
+
+// 3.4: 2D drawn at a projected 3D point (7 sites: boomerang and aim
+// reticles, the enemy HP bar, the magic bar's flight, the talk box's
+// start, the baton sparkle). mDoLib_project returns EFB px, which follow
+// the widened 3D; the 2D x that lands on the same pixel is ws_wx(p).
+void ws_project_2d(cXyz* src, cXyz* dst) {
+    f32 F;
+    mDoLib_project(src, dst);
+    F = ws_2d_factor();
+    if (F != 1.0f)
+        dst->x = ws_wx(dst->x, F);
+}
+
+// 3.3 hook A (0x802D0968, J2DScreen::set(name, archive)'s `bl
+// JKRFileLoader::getGlbResource`): stash the name for hook B. Returns the
+// resource unchanged (the caller tests it; on NULL it never reaches B and
+// the next set overwrites the stash).
+void* ws_set_name_hook(const char* name, void* loader) {
+    ws_screen_name = name;
+    return JKRFileLoader_getGlbResource(name, loader);
+}
+
+// 3.3 hook B (0x802D09DC, the only `bl J2DScreen::set(stream)`): build the
+// panes, then apply the screen's row (ws_screen_loaded). Returns set's
+// result unchanged: it becomes set(name)'s own.
+int ws_set_stream_hook(u8* scrn, void* stream) {
+    int ok = J2DScreen_set_stream(scrn, stream);
+    ws_screen_loaded(scrn, ok);
+    return ok;
+}
+
+// 2D-7: the minimap's icon scissor (dMap_c::calcScissor's only `bl`,
+// 0x8004A64C). Vanilla maps the map's 2D x to EFB px with the vanilla box
+// (x -9 over 659 units, 640 px) and a 116 px width; with the compressed
+// box L' = ws_wx(-9) over 659F units, and 116/F px. Then the vanilla
+// clamp (left only). Y and height stay.
+#define MAP_DISP_X    (*(volatile s16*)0x803F6AD8)   // mDispPosLeftUpX
+#define MAP_SCISSOR_X (*(volatile s32*)0x803F6AE4)
+#define MAP_SCISSOR_W (*(volatile s32*)0x803F6AE8)
+void ws_map_scissor(void) {
+    f32 F;
+    dMap_calcScissor();
+    F = ws_2d_factor();
+    if (F != 1.0f) {
+        s32 x = (s32)(((f32)MAP_DISP_X - ws_wx(-9.0f, F)) * 640.0f / (659.0f * F));
+        s32 w = (s32)(116.0f / F + 0.5f);
+        if (x < 0) {
+            w += x;
+            if (w < 0)
+                w = 0;
+            x = 0;
+        }
+        MAP_SCISSOR_X = x;
+        MAP_SCISSOR_W = w;
+    }
+}
+
+// 3D-12: the file select's camera (dScnName_c::setView, 0x802306A0) and
+// cloth panel (0x802324A8) `bl C_MTXPerspective`: their aspect follows the
+// 2D, which they sit behind (their own 0.96 * w/h, never the 3D knob).
+void ws_persp(void* m, f32 fovy, f32 aspect, f32 near_, f32 far_) {
+    C_MTXPerspective(m, fovy, aspect * ws_2d_factor(), near_, far_);
+}
+
+// 3.6 (option A): the picto box's viewfinder and album (wipe_01_01,
+// wipe_01_02) and its shutter lines draw uncompressed, so the frame
+// matches the EFB rectangle the capture copies. While 2D is compressed the
+// graf's box (+0xBC, which setPort reads) is set to the vanilla -9..650 x
+// -21..503 around the draw and put back.
+#define CURRENT_GRAF (*(void**)0x803CA908)
+#define GRAF_BOX(g)  ((WsBox*)((u8*)(g) + 0xBC))
+static const WsBox ws_vanilla_box = { -9.0f, -21.0f, 650.0f, 503.0f };
+static void ws_full_draw(void* scrn, void* graf, void* pb, u8 alpha) {
+    WsBox save;
+    int wide = ws_2d_factor() != 1.0f;
+    if (wide) {
+        save = *GRAF_BOX(graf);
+        *GRAF_BOX(graf) = ws_vanilla_box;
+        J2DOrthoGraph_setPort(graf);
+    }
+    if (pb)
+        dPb_shutterLineDraw(pb, alpha);
+    else
+        J2DScreen_draw(scrn, 0.0f, 0.0f, graf);
+    if (wide) {
+        *GRAF_BOX(graf) = save;
+        J2DOrthoGraph_setPort(graf);
+    }
+}
+// dJle_Pb_c::draw's four `bl J2DScreen::draw` (0x8022B510, 0x8022B538,
+// 0x8022B778, 0x8022B9B8; each passes x = y = 0, verified in the DOL).
+void ws_screen_draw_full(void* scrn, f32 x, f32 y, void* graf) {
+    ws_full_draw(scrn, graf, 0, 0);
+}
+// Its two `bl shutterLineDraw` (0x8022B524, 0x8022B9CC): no graf
+// argument, it draws with the current one.
+void ws_shutter_draw_full(void* pb, u8 alpha) {
+    ws_full_draw(0, CURRENT_GRAF, pb, alpha);
+}
+
+// 3.5: the opening storybook (dScnOpen's `bl J2DScreen::draw`, 0x8023452C)
+// is 660 units wide and stops at the 4:3 edges: after its draw, black
+// fills over the bands, x L'..-9 and 650..R' (y -21..503). setPort first:
+// J2DFillBox draws in whatever projection and vertex state is current.
+void ws_opening_draw(void* scrn, f32 x, f32 y, void* graf) {
+    f32 F, l;
+    J2DScreen_draw(scrn, x, y, graf);
+    F = ws_2d_factor();
+    if (F != 1.0f) {
+        u32 black = 0x000000FF;
+        l = ws_wx(-9.0f, F);
+        J2DOrthoGraph_setPort(graf);
+        J2DFillBox(l, -21.0f, -9.0f - l, 524.0f, &black);
+        J2DFillBox(650.0f, -21.0f, -9.0f - l, 524.0f, &black);   // R' - 650 = -9 - L'
+    }
+}
+#pragma GCC pop_options
+
 // Hooked to main01 (0x80006338) via hook_branchlink. Runs once.
 // Publishes multiplayer_update's address for frame_shim to find.
 void main01_init(void) {

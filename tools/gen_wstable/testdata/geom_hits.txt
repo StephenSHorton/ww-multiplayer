@@ -8,6 +8,7 @@ f_map.blo cl -10 -22 650 503
 f_map.blo fd2l -10 -22 650 503
 f_map.blo wts1 -10 -21 650 503
 file_error.blo BACK 0 0 640 480
+file_select.blo BACK 0 0 640 480
 g_map_01.blo ms01 -56 -56 694 544
 g_map_01.blo ms02 -56 -56 694 544
 gameover.blo BACK 0 0 640 480
@@ -21,6 +22,7 @@ hukidashi_14_1.blo BACK 0 0 640 480
 hukidashi_d00.blo BACK 0 0 640 480
 ir_map_1.blo ms01 -56 -56 694 544
 ir_map_1.blo ms02 -56 -56 694 544
+main_parts_fileselect.blo BACK 0 0 640 480
 menu_collect_01.blo msk0 -12 -24 653 506
 menu_explanation.blo msk0 -16 -20 644 500
 menu_item_02.blo blak -10 -25 650 505

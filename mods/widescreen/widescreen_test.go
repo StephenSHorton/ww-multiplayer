@@ -3,6 +3,7 @@ package widescreen
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -142,7 +143,7 @@ func TestApply(t *testing.T) {
 	if out, err = drive(t, m, c, []string{"auto"}); err != nil || !strings.Contains(out, "mode 1 factor 1.5000") || !strings.Contains(out, "auto: Widescreen Hack, test") {
 		t.Fatalf("auto: %q %v", out, err)
 	}
-	if out, err = drive(t, m, c, []string{"native", "16:9", "--flags", "3"}); err != nil || !strings.Contains(out, "mode 2 factor 1.3333 flags 0x00") {
+	if out, err = drive(t, m, c, []string{"native", "16:9", "--flags", "3"}); err != nil || !strings.Contains(out, fmt.Sprintf("mode 2 factor 1.3333 flags 0x%02X", 3&mailbox.WsFlagsSupported)) {
 		t.Fatalf("native: %q %v", out, err)
 	}
 	if _, err = drive(t, m, c, []string{"native", "off"}); err == nil {

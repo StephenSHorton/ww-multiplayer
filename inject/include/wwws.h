@@ -45,7 +45,7 @@
 #define WWWS_MODE_NATIVE      2           // mode: the camera's aspect, through the 3D knob
 #define WWWS_F_2D             0x01        // flags: compress 2D in mode 2 (stage 2)
 #define WWWS_F_HUD            0x02        // flags: anchor the HUD to the edges (stage 3)
-#define WWWS_FLAGS_SUPPORTED  0x00        // the flags this build supports (stage 1: none)
+#define WWWS_FLAGS_SUPPORTED  0x01        // the flags this build supports (stage 2: WWWS_F_2D)
 #define WWWS_KNOB_ADDR        0x803FA998  // the 4/3 literal preparation() reads for view->mAspect
 #define WWWS_KNOB_VANILLA     0x3FAAAAAB  // 4/3 as an f32
 #define WWWS_FACTOR_MAX_BITS  0x40400000  // 3.0f

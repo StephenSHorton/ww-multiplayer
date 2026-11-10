@@ -422,3 +422,119 @@ func checkHookSite(t *testing.T, fn string, site, fileOff, vanilla uint32) {
 		t.Errorf("%s bl lands at 0x%08X, outside T2 0x%08X..0x%08X", fn, target, T2Address, T2End)
 	}
 }
+
+// wsSite is one native-widescreen stage 2-3 hook site (docs/design/
+// native-widescreen.md section 8): build.py hooks fn at site, whose
+// vanilla word (at DOL file offset fileOff) is a bl to callee.
+type wsSite struct {
+	fn      string
+	site    uint32
+	fileOff uint32
+	vanilla uint32
+	callee  uint32
+}
+
+// wsStage2Sites: every stage-2 hook site, its vanilla bl and its callee
+// (read from the vanilla DOL, md5 757ce8cb...).
+var wsStage2Sites = []wsSite{
+	{"ws_ortho_hook", 0x8000B06C, 0x007FAC, 0x482C2CA9, 0x802CDD14},
+	{"ws_ortho_hook", 0x8000BA30, 0x008970, 0x482C22E5, 0x802CDD14},
+	{"ws_ortho_hook", 0x80223CF4, 0x220C34, 0x480AA021, 0x802CDD14},
+	{"ws_ortho_hook", 0x8003EADC, 0x03BA1C, 0x4828F239, 0x802CDD14},
+	{"ws_project_2d", 0x800E1624, 0x0DE564, 0x4BF36125, 0x80017748},
+	{"ws_project_2d", 0x80129550, 0x126490, 0x4BEEE1F9, 0x80017748},
+	{"ws_project_2d", 0x801F8104, 0x1F5044, 0x4BE1F645, 0x80017748},
+	{"ws_project_2d", 0x801F9910, 0x1F6850, 0x4BE1DE39, 0x80017748},
+	{"ws_project_2d", 0x8020DF5C, 0x20AE9C, 0x4BE097ED, 0x80017748},
+	{"ws_project_2d", 0x802229D0, 0x21F910, 0x4BDF4D79, 0x80017748},
+	{"ws_project_2d", 0x80222ADC, 0x21FA1C, 0x4BDF4C6D, 0x80017748},
+	{"ws_set_name_hook", 0x802D0968, 0x2CD8A8, 0x4BFE5F89, 0x802B68F0},
+	{"ws_set_stream_hook", 0x802D09DC, 0x2CD91C, 0x48000305, 0x802D0CE0},
+	{"ws_map_scissor", 0x8004A64C, 0x04758C, 0x4BFFFD59, 0x8004A3A4},
+	{"ws_persp", 0x802306A0, 0x22D5E0, 0x480DD4D9, 0x8030DB78},
+	{"ws_persp", 0x802324A8, 0x22F3E8, 0x480DB6D1, 0x8030DB78},
+	{"ws_screen_draw_full", 0x8022B510, 0x228450, 0x480A5A1D, 0x802D0F2C},
+	{"ws_screen_draw_full", 0x8022B538, 0x228478, 0x480A59F5, 0x802D0F2C},
+	{"ws_screen_draw_full", 0x8022B778, 0x2286B8, 0x480A57B5, 0x802D0F2C},
+	{"ws_screen_draw_full", 0x8022B9B8, 0x2288F8, 0x480A5575, 0x802D0F2C},
+	{"ws_shutter_draw_full", 0x8022B524, 0x228464, 0x4BFFEB79, 0x8022A09C},
+	{"ws_shutter_draw_full", 0x8022B9CC, 0x22890C, 0x4BFFE6D1, 0x8022A09C},
+	{"ws_opening_draw", 0x8023452C, 0x23146C, 0x4809CA01, 0x802D0F2C},
+}
+
+// blTarget decodes a bl at site (opcode 18, LK = 1, AA = 0).
+func blTarget(t *testing.T, w, site uint32) uint32 {
+	t.Helper()
+	if w>>26 != 18 || w&3 != 1 {
+		t.Fatalf("0x%08X at 0x%08X is not a bl", w, site)
+	}
+	li := int32(w&0x03FFFFFC) << 6 >> 6
+	return uint32(int64(site) + int64(li))
+}
+
+// TestWidescreenStage2HookSites: each stage-2 site's vanilla word is a bl
+// to the callee the hook forwards to, the site lies in DOL text section 1
+// at its file offset (address - 0x800030C0), build.py hooks it and the
+// committed blob turns it into a bl into T2.
+func TestWidescreenStage2HookSites(t *testing.T) {
+	for _, s := range wsStage2Sites {
+		if got := blTarget(t, s.vanilla, s.site); got != s.callee {
+			t.Errorf("%s 0x%08X: vanilla 0x%08X calls 0x%08X, want 0x%08X", s.fn, s.site, s.vanilla, got, s.callee)
+		}
+		if s.site-0x800030C0 != s.fileOff {
+			t.Errorf("%s 0x%08X: file offset 0x%X, want 0x%X", s.fn, s.site, s.fileOff, s.site-0x800030C0)
+		}
+		checkHookSite(t, s.fn, s.site, s.fileOff, s.vanilla)
+	}
+}
+
+// TestGameSymbols: build.py's GAME_SYMBOLS (the game functions T2 calls
+// by name through ld --defsym) hold the addresses of the plan, and each
+// stage-2 hook's callee is among them.
+func TestGameSymbols(t *testing.T) {
+	want := map[string]uint32{
+		"mDoLib_project":               0x80017748,
+		"dMap_calcScissor":             0x8004A3A4,
+		"dPb_shutterLineDraw":          0x8022A09C,
+		"JKRFileLoader_getGlbResource": 0x802B68F0,
+		"J2DOrthoGraph_setPort":        0x802CDCB4,
+		"J2DOrthoGraph_setOrtho":       0x802CDD14,
+		"J2DFillBox":                   0x802CDF3C,
+		"J2DPane_add":                  0x802D05C8,
+		"J2DPane_setBasePosition":      0x802D0800,
+		"J2DScreen_set_stream":         0x802D0CE0,
+		"J2DScreen_draw":               0x802D0F2C,
+		"C_MTXPerspective":             0x8030DB78,
+	}
+	py, err := os.ReadFile(buildPy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := regexp.MustCompile(`(?s)GAME_SYMBOLS = \{(.*?)\n\}`).FindSubmatch(py)
+	if block == nil {
+		t.Fatal("build.py has no GAME_SYMBOLS = { ... }")
+	}
+	got := map[string]uint32{}
+	for _, m := range regexp.MustCompile(`"(\w+)":\s*0x([0-9A-Fa-f]{8})`).FindAllSubmatch(block[1], -1) {
+		v, _ := strconv.ParseUint(string(m[2]), 16, 32)
+		got[string(m[1])] = uint32(v)
+	}
+	if len(got) != len(want) {
+		t.Errorf("GAME_SYMBOLS has %d entries, want %d", len(got), len(want))
+	}
+	callees := map[uint32]bool{}
+	for n, a := range want {
+		if got[n] != a {
+			t.Errorf("GAME_SYMBOLS %s = 0x%08X, want 0x%08X", n, got[n], a)
+		}
+		callees[a] = true
+	}
+	for _, s := range wsStage2Sites {
+		if !callees[s.callee] {
+			t.Errorf("%s: callee 0x%08X is not in GAME_SYMBOLS", s.fn, s.callee)
+		}
+	}
+	if !regexp.MustCompile(`proj\.ld_args\.append\(f"--defsym=\{name\}=0x\{addr:08X\}"\)`).Match(py) {
+		t.Error("build.py does not pass GAME_SYMBOLS to the linker as --defsym")
+	}
+}

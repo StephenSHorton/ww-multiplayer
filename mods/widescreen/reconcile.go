@@ -1,11 +1,13 @@
 package widescreen
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/host"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
@@ -73,23 +75,40 @@ func (r *Reconciler) Run(ctx context.Context) error {
 }
 
 type reconcileState struct {
-	pending  *ops.Ticket
-	applied  bool // the block held what was wanted once: slow polls from then
-	view     Dolphin
-	viewOK   bool
-	viewAt   time.Time
-	demote   bool // a mode-2 block wanted lower once: twice submits (a torn read can't flap it)
-	warned   string
-	said     string
-	refused  bool
-	lastWant Request
-	reboot   bool // the block said mode 2 with the knob vanilla once (a reboot mid-load)
+	pending   *ops.Ticket
+	applied   bool // the block held what was wanted once: slow polls from then
+	view      Dolphin
+	viewOK    bool
+	viewAt    time.Time
+	demote    bool // a mode-2 block wanted lower once: twice submits (a torn read can't flap it)
+	warned    string
+	said      string
+	refused   bool
+	lastWant  Request
+	reboot    bool // the block said mode 2 with the knob vanilla once (a reboot mid-load)
+	pending2D bool // the last tick saw the 2D latch behind the live mode
+	// The boot-timing marks (native-widescreen.md section 8 stage 2, check
+	// 11), each logged once with its time: the first Ready() probe, the
+	// first WS_SET answered OK, the first probe on the title screen.
+	sawReady, sawOK, sawTitle bool
+}
+
+// mark logs a boot-timing mark once, with the wall-clock time.
+func (r *Reconciler) mark(seen *bool, what string) {
+	if !*seen {
+		*seen = true
+		log.Logf(r.Rep, log.Info, "widescreen: %s at %s", what, time.Now().Format("15:04:05.000"))
+	}
 }
 
 func (r *Reconciler) tick(s *reconcileState, slow time.Duration) {
 	if err := r.Q.Ready(); err != nil {
 		s.pending = nil // a reboot cleared the queue
 		return
+	}
+	r.mark(&s.sawReady, "first ready probe")
+	if !s.sawTitle && atTitle(r.M) {
+		r.mark(&s.sawTitle, "first probe on the title screen")
 	}
 	if s.pending != nil {
 		res, done, err := r.Q.Result(*s.pending)
@@ -108,11 +127,20 @@ func (r *Reconciler) tick(s *reconcileState, slow time.Duration) {
 				return
 			}
 			s.refused = false
+			r.mark(&s.sawOK, "first WS_SET OK")
 		}
 	}
 	blk, err := mailbox.ReadWidescreen(r.M)
 	if err != nil || !blk.Present {
 		return
+	}
+	if p := blk.Pending2D(); p != s.pending2D {
+		s.pending2D = p
+		if p {
+			log.Logf(r.Rep, log.Info, "widescreen: %s", mailbox.Pending2DNote)
+		} else {
+			log.Logf(r.Rep, log.Info, "widescreen: 2D follows the setting")
+		}
 	}
 	knob, err1 := mem.ReadU32(r.M, mailbox.WsKnobAddr)
 	painter, err2 := mem.ReadU32(r.M, PainterAddr)
@@ -217,4 +245,17 @@ func dolphinProc(pid uint32) (string, []string, bool) {
 		return dir, p.Args, ok
 	}
 	return "", nil, false
+}
+
+// atTitle says the game is on the title screen: the current stage is
+// sea_T (a read error says no).
+func atTitle(m mem.Reader) bool {
+	b, err := m.Read(addr.CurStageName, addr.StageNameLen)
+	if err != nil || len(b) != addr.StageNameLen {
+		return false
+	}
+	if i := bytes.IndexByte(b, 0); i >= 0 {
+		b = b[:i]
+	}
+	return string(b) == addr.StageTitle
 }
