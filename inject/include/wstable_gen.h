@@ -38,7 +38,7 @@
 #define WST_F_SCR_L     0x08 // move the J2DScreen itself left
 #define WST_F_SCR_R     0x10 // move the J2DScreen itself right
 #define WST_F_EPOCH     0x20 // ws_latch() before applying
-#define WST_ACT_NONE    0    // the pane stays (and is not walked into)
+#define WST_ACT_NONE    0    // the pane stays: no shift (plan 3.3)
 #define WST_ACT_L       1    // shift left
 #define WST_ACT_R       2    // shift right
 #define WST_ACT_EDGE    3    // move an edge at abs x <= 0 or >= 640
