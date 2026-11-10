@@ -117,20 +117,18 @@ func TestTable(t *testing.T) {
 			}
 		}
 	}
-	if len(rows) != 34 || nRules != 39 || nEdge != 12 {
-		t.Errorf("rows %d rules %d EDGE %d, plan: 34, 39, 12", len(rows), nRules, nEdge)
+	// 12 of the plan's rows plus wipe_01_01: the 22 GEOM-only rows went
+	// to the global GEOM rule (section 6, lever 1; TestGeomGlobalRule).
+	if len(rows) != 13 || nRules != 39 || nEdge != 12 {
+		t.Errorf("rows %d rules %d EDGE %d, want 13, 39, 12", len(rows), nRules, nEdge)
 	}
-	if got := len(rows)*8 + nRules*5; got != 0x1D3 {
-		t.Errorf("data 0x%X bytes, plan 0x1D3", got)
+	if got := len(rows)*8 + nRules*5; got != 0x12B {
+		t.Errorf("data 0x%X bytes, want 0x12B", got)
 	}
-	geom := 0
 	for _, r := range rows {
 		if r.flags == flagGeom && r.kind == kindNone && len(r.rules) == 0 {
-			geom++
+			t.Errorf("%s: a GEOM-only row; the global rule covers it", r.name)
 		}
-	}
-	if geom != 22 {
-		t.Errorf("%d GEOM-only rows, plan 22", geom)
 	}
 
 	mp1, _ := rowByName(t, "main_parts1")
@@ -162,6 +160,7 @@ func TestTable(t *testing.T) {
 		"wipe_00":               {0, "wp04:EDGE wp05:EDGE wp06:EDGE wp07:EDGE"},
 		"wipe_00_2":             {0, "wp04:EDGE wp05:EDGE wp06:EDGE wp07:EDGE"},
 		"main_parts_fileselect": {kindAllR | flagEpoch, ""},
+		"wipe_01_01":            {0, ""},
 	}
 	for name, w := range want {
 		r, _ := rowByName(t, name)
@@ -260,5 +259,152 @@ func TestBloNamesFromDisc(t *testing.T) {
 	}
 	if strings.Join(got, "\n") != strings.Join(bloNames(t), "\n") {
 		t.Errorf("%s differs from the disc's: run go run ./tools/gen_wstable -names <disc>", NamesPath)
+	}
+}
+
+// geomAccepted: screens outside the plan's GEOM list whose only GEOM panes
+// are 'BACK', the layout tool's reference picture, whose texture is in no
+// archive on the disc (back.bti, baton3.bti, shiprace.bti, bg_proro.bti;
+// checked 2026-11-09 against the vanilla disc), so it draws nothing and
+// widening it changes nothing. geomKept: screens with a row that turns
+// GEOM off, and why.
+var (
+	geomAccepted = []string{"baton_input", "file_error", "hukidashi_00", "hukidashi_14_1", "hukidashi_d00",
+		"name_input", "opening", "ship_race1", "ship_race2", "title_logo_e", "wipe_01_02"}
+	geomKept = map[string]string{
+		"wipe_01_01": "the picto album's paper b1 and strip b2, drawn uncompressed",
+		"auction1":   "BACK (back_auction_00.bti, not on the disc) moves with the screen (SCR_L)",
+		"auction2":   "BACK (back_auction_00.bti, not on the disc)",
+	}
+)
+
+// TestGeomGlobalRule: the global GEOM rule (a screen with no row gets
+// GEOM; plan section 6, lever 1) widens exactly the panes the plan meant,
+// over every .blo on the vanilla disc (testdata/geom_hits.txt): each of
+// the plan's 22 GEOM screens and menu_save has a hit and gets GEOM; every
+// other screen with a hit is either a BACK-only screen in geomAccepted or
+// has a row that turns GEOM off (geomKept).
+func TestGeomGlobalRule(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(root(t), filepath.FromSlash(GeomHitsPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowFlags := map[uint32]uint8{}
+	for _, r := range tableRows() {
+		rowFlags[NameHash(r.name+".blo")] = r.flags
+	}
+	geomOn := func(screen string) bool {
+		f, ok := rowFlags[NameHash(screen+".blo")]
+		return !ok || f&flagGeom != 0
+	}
+	tagsOf := map[string][]string{}
+	for _, line := range strings.Split(strings.TrimSpace(strings.ReplaceAll(string(b), "\r\n", "\n")), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 6 || !strings.HasSuffix(f[0], ".blo") {
+			t.Fatalf("geom_hits.txt line %q", line)
+		}
+		s := strings.ToLower(strings.TrimSuffix(f[0], ".blo"))
+		tagsOf[s] = append(tagsOf[s], f[1])
+	}
+	want := map[string]bool{"menu_save": true}
+	for _, s := range geomScreens {
+		want[strings.ToLower(s)] = true
+	}
+	for s := range want {
+		if len(tagsOf[s]) == 0 {
+			t.Errorf("%s.blo: a GEOM screen of the plan with no GEOM pane on the disc", s)
+		}
+		if !geomOn(s) {
+			t.Errorf("%s.blo: a GEOM screen of the plan, but its row turns GEOM off", s)
+		}
+	}
+	accepted := map[string]bool{}
+	for _, s := range geomAccepted {
+		accepted[s] = true
+	}
+	for s, tags := range tagsOf {
+		switch {
+		case want[s]:
+		case geomKept[s] != "":
+			if geomOn(s) {
+				t.Errorf("%s.blo: GEOM must stay off (%s)", s, geomKept[s])
+			}
+		case accepted[s]:
+			for _, tag := range tags {
+				if tag != "BACK" {
+					t.Errorf("%s.blo: GEOM pane %s is not the BACK reference picture", s, tag)
+				}
+			}
+		default:
+			t.Errorf("%s.blo: GEOM panes %v the plan does not list: add a row without GEOM or accept them", s, tags)
+		}
+	}
+}
+
+// TestGeomHitsFromDisc: testdata/geom_hits.txt is what the disc gives
+// (skipped without a vanilla disc).
+func TestGeomHitsFromDisc(t *testing.T) {
+	p := vanillatest.Path()
+	if p == "" {
+		t.Skipf("no vanilla disc: set %s", vanillatest.EnvVar)
+	}
+	got, _, err := GeomHitsFromDisc(p)
+	if err != nil {
+		t.Skipf("vanilla disc %s: %v", p, err)
+	}
+	b, err := os.ReadFile(filepath.Join(root(t), filepath.FromSlash(GeomHitsPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, "\n")+"\n" != strings.ReplaceAll(string(b), "\r\n", "\n") {
+		t.Errorf("%s differs from the disc's: run go run ./tools/gen_wstable -geom <disc>", GeomHitsPath)
+	}
+}
+
+// TestParseBlo: a hand-made screen with a full-screen childless PIC1
+// under a PAN1 at (5, 0), a full-screen PIC1 with a child, and a PIC1
+// short of the right edge: only the first is a GEOM hit, at absolute x.
+func TestParseBlo(t *testing.T) {
+	var b []byte
+	u16 := func(v int) { b = append(b, byte(v>>8), byte(v)) }
+	u32 := func(v uint32) { b = append(b, byte(v>>24), byte(v>>16), byte(v>>8), byte(v)) }
+	block := func(magic string, body []byte) {
+		b = append(b, magic...)
+		u32(uint32(8 + len(body)))
+		b = append(b, body...)
+	}
+	pane := func(tag string, x, y, w, h int) []byte {
+		s := []byte{6, 1, 0, 0}
+		v, _ := TagValue(tag)
+		s = append(s, byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+		for _, n := range []int{x, y, w, h} {
+			s = append(s, byte(n>>8), byte(n))
+		}
+		return s
+	}
+	b = append(b, "SCRNblo1"...)
+	b = append(b, make([]byte, 0x18)...)
+	b = append(b, "INF1"...)
+	u32(0x10)
+	u16(640)
+	u16(480)
+	u32(0)
+	block("PAN1", pane("ROOT", 5, 0, 640, 480))
+	block("BGN1", nil)
+	block("PIC1", pane("full", -20, -20, 680, 520))
+	block("PIC1", pane("par", -20, -20, 680, 520))
+	block("BGN1", nil)
+	block("PIC1", pane("kid", 0, 0, 8, 8))
+	block("END1", nil)
+	block("PIC1", pane("shrt", -20, -20, 600, 520))
+	block("END1", nil)
+	block("EXT1", nil)
+	root, err := ParseBlo(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits := GeomHits("t.blo", root)
+	if len(hits) != 1 || hits[0].String() != "t.blo full -15 -20 665 500" {
+		t.Errorf("hits %v, want [t.blo full -15 -20 665 500]", hits)
 	}
 }

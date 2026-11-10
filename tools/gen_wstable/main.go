@@ -5,6 +5,7 @@
 //	go run ./tools/gen_wstable                  # write the header
 //	go run ./tools/gen_wstable -check           # exit 1 if it is stale
 //	go run ./tools/gen_wstable -names <disc>    # rewrite testdata/blo_names.txt from a vanilla disc (read only)
+//	go run ./tools/gen_wstable -geom <disc>     # rewrite testdata/geom_hits.txt: every pane the GEOM test matches (read only)
 //
 // The header is C data only (no blob change until a C unit includes it).
 // Its tests: the header is fresh, no two .blo name strings of the vanilla
@@ -141,8 +142,8 @@ func flagNames(r row) string {
 			parts = append(parts, f.name)
 		}
 	}
-	if len(parts) == 0 {
-		return "rules only"
+	if r.flags&flagGeom == 0 && r.kind == kindNone && r.flags&(flagScrL|flagScrR) == 0 {
+		parts = append(parts, "no GEOM")
 	}
 	return strings.Join(parts, " ")
 }
@@ -186,7 +187,10 @@ func Generate(rows []row) ([]byte, error) {
 // The widescreen J2D screen table (docs/design/native-widescreen.md 3.3;
 // section 8 stage 2 item 4, stage 3 item 3). Hook A (0x802D0968) stashes
 // the name J2DScreen::set received; hook B (0x802D09DC) hashes it with
-// ws_name_hash and, on a row, applies it (EPOCH first: ws_latch).
+// ws_name_hash and, on a row, applies it (EPOCH first: ws_latch). A name
+// with no row gets GEOM alone (the global GEOM rule, plan section 6 lever
+// 1; tools/gen_wstable/testdata/geom_hits.txt lists every pane on the disc
+// it matches); a row without WST_F_GEOM turns it off for its screen.
 //
 // Hash: h = 5381; for each byte c (unsigned): h = h*33 ^ (c | 0x20), u32
 // wrap, over the name exactly as set receives it, ".blo" included
@@ -277,7 +281,15 @@ static const WsRow WST_ROW[WST_ROWS] = {
 func main() {
 	check := flag.Bool("check", false, "compare instead of writing; exit 1 if stale")
 	names := flag.String("names", "", "a vanilla disc image (ISO or CISO): rewrite "+NamesPath+" from it (read only)")
+	geom := flag.String("geom", "", "a vanilla disc image (ISO or CISO): rewrite "+GeomHitsPath+" from it (read only)")
 	flag.Parse()
+	if *geom != "" {
+		if err := runGeom(*geom); err != nil {
+			fmt.Fprintln(os.Stderr, "gen_wstable:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(*check, *names); err != nil {
 		fmt.Fprintln(os.Stderr, "gen_wstable:", err)
 		os.Exit(1)
@@ -317,6 +329,21 @@ func run(check bool, disc string) error {
 		return nil
 	}
 	return os.WriteFile(dst, out, 0o644)
+}
+
+// runGeom rewrites GeomHitsPath from a vanilla disc.
+func runGeom(disc string) error {
+	root, err := moduleRoot()
+	if err != nil {
+		return err
+	}
+	list, screens, err := GeomHitsFromDisc(disc)
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(root, filepath.FromSlash(GeomHitsPath))
+	fmt.Printf("%d screens parsed, %d GEOM panes -> %s\n", screens, len(list), GeomHitsPath)
+	return os.WriteFile(dst, []byte(strings.Join(list, "\n")+"\n"), 0o644)
 }
 
 // moduleRoot is the nearest directory at or above the working directory

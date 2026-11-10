@@ -5,7 +5,10 @@
 // The widescreen J2D screen table (docs/design/native-widescreen.md 3.3;
 // section 8 stage 2 item 4, stage 3 item 3). Hook A (0x802D0968) stashes
 // the name J2DScreen::set received; hook B (0x802D09DC) hashes it with
-// ws_name_hash and, on a row, applies it (EPOCH first: ws_latch).
+// ws_name_hash and, on a row, applies it (EPOCH first: ws_latch). A name
+// with no row gets GEOM alone (the global GEOM rule, plan section 6 lever
+// 1; tools/gen_wstable/testdata/geom_hits.txt lists every pane on the disc
+// it matches); a row without WST_F_GEOM turns it off for its screen.
 //
 // Hash: h = 5381; for each byte c (unsigned): h = h*33 ^ (c | 0x20), u32
 // wrap, over the name exactly as set receives it, ".blo" included
@@ -43,9 +46,9 @@
 #define WST_ACT_R       2    // shift right
 #define WST_ACT_EDGE    3    // move an edge at abs x <= 0 or >= 640
 #define WST_ROOT_TAG    0x524F4F54 // 'ROOT': the anchor parent
-#define WST_ROWS        34
+#define WST_ROWS        13
 #define WST_RULES       39
-#define WST_DATA_BYTES  0x1D3 // WST_ROWS*8 + WST_RULES*5
+#define WST_DATA_BYTES  0x12B // WST_ROWS*8 + WST_RULES*5
 
 typedef struct {
     u32 hash;
@@ -70,34 +73,13 @@ static const WsRow WST_ROW[WST_ROWS] = {
     { 0xEDB54489, 0x01,  0, 15, 0 }, // main_parts3.blo: ALL_L (stage 3)
     { 0xBEFF352E, 0x10,  0, 15, 0 }, // time_swim_1.blo: SCR_R (stage 3)
     { 0xBEEC0CAD, 0x02,  0, 15, 0 }, // time_swim_2.blo: ALL_R (stage 3)
-    { 0x2C8839E9, 0x00,  1, 15, 0 }, // place_name.blo: rules only (stage 3)
+    { 0x2C8839E9, 0x00,  1, 15, 0 }, // place_name.blo: no GEOM (stage 3)
     { 0x23F0A370, 0x08,  0, 16, 0 }, // auction1.blo: SCR_L (stage 3)
-    { 0x239959F3, 0x00, 11, 16, 0 }, // auction2.blo: rules only (stage 3)
+    { 0x239959F3, 0x00, 11, 16, 0 }, // auction2.blo: no GEOM (stage 3)
     { 0x3D1B2CE7, 0x04,  4, 27, 0 }, // menu_save.blo: GEOM (stage 2)
-    { 0xA03F08DE, 0x00,  4, 31, 0 }, // wipe_00.blo: rules only (stage 2)
-    { 0xF0795C73, 0x00,  4, 35, 0 }, // wipe_00_2.blo: rules only (stage 2)
-    { 0x14598AC6, 0x04,  0, 39, 0 }, // menu_collect_01.blo: GEOM (stage 2)
-    { 0xD3C7632E, 0x04,  0, 39, 0 }, // menu_item_02.blo: GEOM (stage 2)
-    { 0x2E17B0B5, 0x04,  0, 39, 0 }, // menu_explanation.blo: GEOM (stage 2)
-    { 0xFAD8CF41, 0x04,  0, 39, 0 }, // menu_map_d.blo: GEOM (stage 2)
-    { 0xB3AC3F49, 0x04,  0, 39, 0 }, // option.blo: GEOM (stage 2)
-    { 0xF992F94F, 0x04,  0, 39, 0 }, // f_map.blo: GEOM (stage 2)
-    { 0xB063DD28, 0x04,  0, 39, 0 }, // f_hikaku_1.blo: GEOM (stage 2)
-    { 0xCFC63A90, 0x04,  0, 39, 0 }, // g_map_01.blo: GEOM (stage 2)
-    { 0xD64155E3, 0x04,  0, 39, 0 }, // t_map_01.blo: GEOM (stage 2)
-    { 0x448E941F, 0x04,  0, 39, 0 }, // DOC_map_01.blo: GEOM (stage 2)
-    { 0x140E2969, 0x04,  0, 39, 0 }, // HRT_map_1.blo: GEOM (stage 2)
-    { 0xBF469622, 0x04,  0, 39, 0 }, // HM_map_1.blo: GEOM (stage 2)
-    { 0x240A55DC, 0x04,  0, 39, 0 }, // IR_map_1.blo: GEOM (stage 2)
-    { 0x3D970F44, 0x04,  0, 39, 0 }, // MN_map_1.blo: GEOM (stage 2)
-    { 0xC70DA330, 0x04,  0, 39, 0 }, // SENSUI_map_1.blo: GEOM (stage 2)
-    { 0x0881868F, 0x04,  0, 39, 0 }, // TERRY_map_1.blo: GEOM (stage 2)
-    { 0x2B2EA461, 0x04,  0, 39, 0 }, // TR_map_1.blo: GEOM (stage 2)
-    { 0x58EF7A19, 0x04,  0, 39, 0 }, // YG_map_1.blo: GEOM (stage 2)
-    { 0xB3EDA70D, 0x04,  0, 39, 0 }, // YS_map_1.blo: GEOM (stage 2)
-    { 0x679F46CA, 0x04,  0, 39, 0 }, // gameover.blo: GEOM (stage 2)
-    { 0x86BA1C39, 0x04,  0, 39, 0 }, // operate_wind.blo: GEOM (stage 2)
-    { 0x225A9F12, 0x04,  0, 39, 0 }, // operate_wind_mask.blo: GEOM (stage 2)
+    { 0xA03F08DE, 0x00,  4, 31, 0 }, // wipe_00.blo: no GEOM (stage 2)
+    { 0xF0795C73, 0x00,  4, 35, 0 }, // wipe_00_2.blo: no GEOM (stage 2)
+    { 0xF44C9021, 0x00,  0, 39, 0 }, // wipe_01_01.blo: no GEOM (stage 2)
     { 0x780FD48B, 0x22,  0, 39, 0 }, // main_parts_fileselect.blo: ALL_R EPOCH (stage EPOCH 2, ALL_R 3)
 };
 

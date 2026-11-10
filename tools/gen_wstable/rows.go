@@ -9,7 +9,10 @@ package main
 // characters); a range "ben1-4" or "ip00-03" expands to each tag.
 
 // The plan's 22 screens whose full-screen backdrop is a childless PIC1
-// to widen (GEOM, stage 2).
+// to widen (GEOM, stage 2). Since the global GEOM rule (plan section 6,
+// lever 1) they have no rows: a screen with no row gets GEOM. The list
+// stays for TestGeomGlobalRule, which checks it against the disc's GEOM
+// panes (testdata/geom_hits.txt).
 var geomScreens = []string{
 	"menu_collect_01", "menu_item_02", "menu_explanation", "menu_map_d", "option",
 	"f_map", "f_hikaku_1", "g_map_01", "t_map_01", "DOC_map_01", "HRT_map_1",
@@ -32,9 +35,10 @@ func tableRows() []row {
 		{name: "wipe_00", stage: "2", rules: tags(actEdge, "wp04-07")},
 		{name: "wipe_00_2", stage: "2", rules: tags(actEdge, "wp04-07")},
 	}
-	for _, n := range geomScreens {
-		rows = append(rows, row{name: n, flags: flagGeom, stage: "2"})
-	}
+	// The global GEOM rule's one exception (geom_hits.txt): the picto
+	// album's paper b1 and strip b2 cover the screen and are drawn
+	// uncompressed (ws_screen_draw_full), so they must keep their width.
+	rows = append(rows, row{name: "wipe_01_01", stage: "2"})
 	rows = append(rows, row{name: "main_parts_fileselect", kind: kindAllR, flags: flagEpoch, stage: "EPOCH 2, ALL_R 3"})
 	return rows
 }

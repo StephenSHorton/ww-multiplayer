@@ -106,7 +106,7 @@ ww-multiplayer/
 ├── tools/
 │   ├── blobstamp/               # Writes/checks internal/inject/blob.stamp
 │   ├── gen_mailbox/             # inject/include/mailbox_core.h (+ mailbox_mp.h) -> wwapi/mailbox/layout_gen.go (go generate ./wwapi/mailbox)
-│   ├── gen_wstable/             # The widescreen J2D screen table: rows.go -> inject/include/wstable_gen.h (-check; -names <disc> rewrites testdata/blo_names.txt, the vanilla DOL+RELs' .blo name strings; docs/design/native-widescreen.md 3.3)
+│   ├── gen_wstable/             # The widescreen J2D screen table: rows.go -> inject/include/wstable_gen.h (-check; -names <disc> rewrites testdata/blo_names.txt, the vanilla DOL+RELs' .blo name strings; -geom <disc> rewrites testdata/geom_hits.txt, every disc pane the global GEOM rule widens; docs/design/native-widescreen.md 3.3)
 │   ├── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate ./cmd/ww-multiplayer)
 │   ├── validate_manifests/      # Checks the mods' mod.json manifests (local checks run it)
 │   ├── check_game_files/        # Fails on a tracked game file or save (local checks) and on any release asset holding one (release.yml)
