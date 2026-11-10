@@ -3,9 +3,9 @@
 // rings. T2 code ends below it (TestT2EndsBelowMailbox), and the mailbox
 // starts right after it.
 //
-//   0x80410000..0x80414000  T2 (code and data; 0x4000 budget)
-//   0x80414000..0x80414F00  this region (WWAP_SIZE 0xF00)
-//   0x80414F00              the mailbox (mailbox_core.h MAILBOX_ADDR)
+//   0x80410000..0x80415000  T2 (code and data; 0x5000 budget)
+//   0x80415000..0x80415F00  this region (WWAP_SIZE 0xF00)
+//   0x80415F00              the mailbox (mailbox_core.h MAILBOX_ADDR)
 //
 // Shared by T2 (src/core/ops.c, which owns the header, the event ring's
 // writer side and the command queue's consumer side) and Go (wwapi/mailbox/
@@ -50,8 +50,8 @@
 #ifndef WW_WWOPS_H
 #define WW_WWOPS_H
 
-#define WWAP_ADDR               0x80414000  // region start (T2's budget ends here)
-#define WWAP_SIZE               0xF00       // ends at MAILBOX_ADDR (0x80414F00)
+#define WWAP_ADDR               0x80415000  // region start (T2's budget ends here)
+#define WWAP_SIZE               0xF00       // ends at MAILBOX_ADDR (0x80415F00)
 #define WWAP_MAGIC              0x57574150  // 'WWAP'
 #define WWAP_LAYOUT             1           // bump on any change below
 

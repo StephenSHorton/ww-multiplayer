@@ -2,6 +2,7 @@ package widescreen
 
 import (
 	"context"
+	"errors"
 	"math"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/emu/launch"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/log"
 	"github.com/StephenSHorton/ww-multiplayer/wwapi/mailbox"
@@ -265,5 +267,113 @@ func TestReconcileRebootWindow(t *testing.T) {
 	r.tick(st, time.Hour)
 	if !strings.Contains(rep.text(), "camera aspect") {
 		t.Fatalf("a foreign knob was not reported: %q", rep.text())
+	}
+}
+
+// errMem fails every read.
+type errMem struct{}
+
+func (errMem) Read(uint32, int) ([]byte, error) { return nil, errors.New("no read") }
+
+// TestAtTitle: sea_T (NUL-padded) is the title; other stages, a name that
+// only starts with sea_T and a read error are not.
+func TestAtTitle(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		want bool
+	}{
+		{"sea_T\x00\x00\x00", true},
+		{"sea_T\x00xy", true},
+		{"sea\x00\x00\x00\x00\x00", false},
+		{"sea_Tx\x00\x00", false},
+		{"sea_TTTT", false},
+		{"\x00\x00\x00\x00\x00\x00\x00\x00", false},
+	} {
+		m := mem.NewFakeMem()
+		if err := m.Store(addr.CurStageName, []byte(c.name)); err != nil {
+			t.Fatal(err)
+		}
+		if got := atTitle(m); got != c.want {
+			t.Errorf("atTitle(%q) = %v, want %v", c.name, got, c.want)
+		}
+	}
+	if atTitle(errMem{}) {
+		t.Error("a read error counts as the title")
+	}
+}
+
+// TestReconcileMarksAndPending2D drives tick by hand (no Dolphin view, so
+// nothing is submitted by the loop): the three boot marks log once each,
+// and the 2D-pending note logs on the rising edge and the "follows" line
+// on the falling edge, once each.
+func TestReconcileMarksAndPending2D(t *testing.T) {
+	g := newGame(t)
+	g.mu.Lock()
+	_ = g.m.Store(addr.CurStageName, []byte("sea_T\x00\x00\x00"))
+	g.mu.Unlock()
+	rep := &recLog{}
+	q := ops.New(g.m)
+	r := &Reconciler{Q: q, M: g.m, Rep: rep, Dolphin: func() (Dolphin, bool) { return Dolphin{}, false }}
+	s := &reconcileState{}
+	count := func(sub string) int { return strings.Count(rep.text(), sub) }
+	tick := func() {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		r.tick(s, time.Hour)
+	}
+	// A WS_SET of the test's own, answered OK, for the "first WS_SET OK" mark.
+	submit := func() {
+		tk, err := q.Submit(mailbox.OpWsSet, mailbox.WsModeClip, mailbox.WsFactorDefault, 0xFF)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if res, err := q.Wait(ctx, tk); err != nil || res != ops.ROK {
+			t.Fatalf("WS_SET: %v %v", res, err)
+		}
+		s.pending = &tk
+	}
+	tick()
+	submit()
+	tick()
+	submit()
+	tick()
+	tick()
+	for _, m := range []string{"first ready probe", "first probe on the title screen", "first WS_SET OK"} {
+		if n := count("widescreen: " + m + " at "); n != 1 {
+			t.Errorf("mark %q logged %d times:\n%s", m, n, rep.text())
+		}
+	}
+	if count(mailbox.Pending2DNote) != 0 || count("2D follows") != 0 {
+		t.Fatalf("2D lines with nothing pending:\n%s", rep.text())
+	}
+
+	// Mode 2 with F_2D, not latched: pending (once, however many ticks).
+	set := func(mode, flags, ui byte, factor float32) {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		_ = g.m.Store(mailbox.WsAddr+mailbox.WsModeOff, []byte{mode})
+		_ = g.m.Store(mailbox.WsAddr+mailbox.WsFlagsOff, []byte{flags, ui})
+		g.put32(mailbox.WsAddr+mailbox.WsFactorOff, math.Float32bits(factor))
+	}
+	set(mailbox.WsModeNative, mailbox.WsF2D, 0, 4.0/3.0)
+	tick()
+	tick()
+	if n := count(mailbox.Pending2DNote); n != 1 {
+		t.Errorf("pending logged %d times on the rising edge:\n%s", n, rep.text())
+	}
+	// The stage load latched it: follows (once).
+	set(mailbox.WsModeNative, mailbox.WsF2D, mailbox.WsModeNative, 4.0/3.0)
+	tick()
+	tick()
+	if n := count("widescreen: 2D follows the setting"); n != 1 {
+		t.Errorf("follows logged %d times on the falling edge:\n%s", n, rep.text())
+	}
+	// Mode 2 at factor 1: C latches nothing, so nothing is pending.
+	set(mailbox.WsModeNative, mailbox.WsF2D, 0, 1)
+	tick()
+	if n := count(mailbox.Pending2DNote); n != 1 {
+		t.Errorf("mode 2 at factor 1 reported pending:\n%s", rep.text())
 	}
 }

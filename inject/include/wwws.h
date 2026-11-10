@@ -10,7 +10,7 @@
 // `#define NAME value // comment`, a plain decimal or hex number: no
 // expressions, no negatives.
 //
-// Place: MAILBOX_ADDR + 0xA6C (0x8041596C), right after the boats block
+// Place: MAILBOX_ADDR + 0xA6C (0x8041696C), right after the boats block
 // (wwboat.h, +0x9E4..+0xA6C), at the start of what was CanaryArenaHigh
 // (which now starts at this block's end, +0xA84).
 //
@@ -31,8 +31,8 @@
 #ifndef WW_WWWS_H
 #define WW_WWWS_H
 
-#define WWWS_OFF              0xA6C       // block start, from MAILBOX_ADDR (0x8041596C)
-#define WWWS_SIZE             0x18        // ends +0xA84 (0x80415984)
+#define WWWS_OFF              0xA6C       // block start, from MAILBOX_ADDR (0x8041696C)
+#define WWWS_SIZE             0x18        // ends +0xA84 (0x80416984)
 #define WWWS_MAGIC            0x57575753  // 'WWWS'
 #define WWWS_VERSION          1           // layout version in +0x04
 #define WWWS_MAGIC_OFF        0x00        // u32

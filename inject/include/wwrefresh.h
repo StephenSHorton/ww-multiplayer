@@ -25,7 +25,7 @@
 // line as `#define NAME value // comment`, a plain decimal or hex number:
 // no expressions, no negatives.
 //
-// Where: the 0x20 bytes at MAILBOX_ADDR + 0x8B0 (0x804157B0), right after
+// Where: the 0x20 bytes at MAILBOX_ADDR + 0x8B0 (0x804167B0), right after
 // the enemy knob table (wwenemy.h WWENEMY_KNOB_OFF + WWENEMY_KNOB_SIZE), in
 // the slack that was free (+0x8B0..+0x1100, wwremote.h's slack map).
 // P0-L5 armed canaries over it across ten stage hops and found every word
@@ -62,7 +62,7 @@
 
 #define WWREFRESH_ENABLE         1            // compile switch (D10): 0 leaves refresh_link/refresh_frame empty (the block stays reserved)
 
-#define WWRF_OFF                 0x8B0        // request start, from MAILBOX_ADDR (0x804157B0): WWENEMY_KNOB_OFF + WWENEMY_KNOB_SIZE
+#define WWRF_OFF                 0x8B0        // request start, from MAILBOX_ADDR (0x804167B0): WWENEMY_KNOB_OFF + WWENEMY_KNOB_SIZE
 #define WWRF_SIZE                0x20         // ends at +0x8D0, where the visuals block starts (wwvis.h WWVIS_OFF)
 #define WWRF_SLACK_END           0x1100       // the free slack's end (wwremote.h); the block must end at or below it
 

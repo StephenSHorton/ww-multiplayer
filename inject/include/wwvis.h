@@ -11,7 +11,7 @@
 // seachart_players.asm, puppet_draw.c. Their code is adapted in visuals.c,
 // with the credit there.
 //
-// Place: MAILBOX_ADDR + 0x8D0 (0x804157D0), right after batch D's
+// Place: MAILBOX_ADDR + 0x8D0 (0x804167D0), right after batch D's
 // actor_refresh request (wwrefresh.h, +0x8B0..+0x8D0), in what was the
 // start of the region probe's CanaryArenaHigh (wwapi/mailbox/mod.go, which
 // now starts at WWVIS_OFF + WWVIS_SIZE). Nothing else writes here.
@@ -39,8 +39,8 @@
 #ifndef WW_WWVIS_H
 #define WW_WWVIS_H
 
-#define WWVIS_OFF               0x8D0       // block start, from MAILBOX_ADDR (0x804157D0)
-#define WWVIS_SIZE              0x114       // ends +0x9E4 (0x804158E4)
+#define WWVIS_OFF               0x8D0       // block start, from MAILBOX_ADDR (0x804167D0)
+#define WWVIS_SIZE              0x114       // ends +0x9E4 (0x804168E4)
 
 #define WWVIS_DRAW_FN_OFF       0x00        // u32 REL: void (*)(int slot, J3DModel* model, void* link, int phase)
 #define WWVIS_SEACHART_FN_OFF   0x04        // u32 REL: void (*)(u8* fmap_dl, void* graf)

@@ -59,7 +59,7 @@
 #define RL_WORD(off) (*(volatile u32*)(MAILBOX_ADDR + (off)))
 
 // The block lies past the enemy region, nests, and stays below the arena
-// (0x80416000, inject/build.py's OSInit patch).
+// (0x80417000, inject/build.py's OSInit patch).
 typedef char rl_check_block[(WWREMOTE_REGION_START >= WWENEMY_REGION_END &&
                              WWREMOTE_OFF >= WWREMOTE_REGION_START &&
                              WWREMOTE_OFF + WWREMOTE_SIZE == WWREMOTE_REGION_END &&

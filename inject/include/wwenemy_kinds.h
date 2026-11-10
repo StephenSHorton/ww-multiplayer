@@ -762,7 +762,7 @@
 // exists in d_a_bb.cpp). Wire: AngleY is current.angle.y, tilt
 // current.angle.x, angle.z in slot +0x18 (WWENEMY_SL_CC_M316Z_OFF, the CC
 // m316.z bytes). Riders (types 5/6) are refused on both sides (D9). Default
-// off; the row's hook byte is WWENEMY_HKD_HI_OFF + 0 (0x80415128).
+// off; the row's hook byte is WWENEMY_HKD_HI_OFF + 0 (0x80416128).
 #define EMK_BB_ID                7
 #define EMK_BB_PROC              0x00B6       // f_pc_name.h:191; wwapi/addr/remote.go ProcBB
 #define EMK_BB_CLASS_SIZE        0x1260       // d_a_bb.h:108

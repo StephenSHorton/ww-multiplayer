@@ -10,7 +10,7 @@
 // `#define NAME value // comment`, a plain decimal or hex number: no
 // expressions, no negatives.
 //
-// Place: MAILBOX_ADDR + 0x9E4 (0x804158E4), right after the visuals block
+// Place: MAILBOX_ADDR + 0x9E4 (0x804168E4), right after the visuals block
 // (wwvis.h, +0x8D0..+0x9E4), at the bottom of what was the free span below
 // the mini-Links' eye packets (mailbox_mp.h MP_EYE_PACKETS_OFF, +0xD00). The
 // region probe's CanaryArenaHigh now starts at this block's end (+0xA6C)
@@ -36,8 +36,8 @@
 #ifndef WW_WWBOAT_H
 #define WW_WWBOAT_H
 
-#define WWBOAT_OFF            0x9E4       // block start, from MAILBOX_ADDR (0x804158E4)
-#define WWBOAT_SIZE           0x88        // ends +0xA6C (0x8041596C)
+#define WWBOAT_OFF            0x9E4       // block start, from MAILBOX_ADDR (0x804168E4)
+#define WWBOAT_SIZE           0x88        // ends +0xA6C (0x8041696C)
 
 #define WWBOAT_MAGIC_OFF      0x00        // u32 Go: WWBOAT_MAGIC, 0 = off
 #define WWBOAT_FLAGS_OFF      0x04        // u32 Go: WWBOAT_F_*

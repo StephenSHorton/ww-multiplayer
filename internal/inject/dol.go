@@ -37,6 +37,10 @@ func PatchDOL(vanilla []byte) ([]byte, error) {
 			len(vanilla), dolHeaderSize)
 	}
 
+	if err := checkT2Budget(T2Address, uint32(len(T2Bytes)), APIRegionAddr); err != nil {
+		return nil, err
+	}
+
 	out := make([]byte, len(vanilla))
 	copy(out, vanilla)
 
@@ -101,6 +105,18 @@ var ErrAlreadyPatched = fmt.Errorf("dol: already patched (T2 section at 0x%08X e
 // vanilla ISO.
 var ErrPatchedByOtherVersion = fmt.Errorf("dol: patched by a different ww-multiplayer version "+
 	"(the T2 section at 0x%08X doesn't match this build); patch your vanilla ISO instead", T2Address)
+
+// checkT2Budget refuses a T2 of size bytes at addr that runs past limit,
+// the API region (wwops.h WWAP_ADDR): there the C runtime's rings would
+// overwrite T2's tail at run time (docs/design/native-widescreen.md
+// section 6). scripts/extract_blob.py refuses such a build too; this
+// keeps a stale or hand-made blob.go off a disc.
+func checkT2Budget(addr, size, limit uint32) error {
+	if end := uint64(addr) + uint64(size); end > uint64(limit) {
+		return fmt.Errorf("dol: this build's T2 runs 0x%X bytes past the API region at 0x%08X (ends at 0x%08X); it cannot be patched", end-uint64(limit), limit, end)
+	}
+	return nil
+}
 
 // hasCurrentPatch reports whether the T2 section at file offset off (size
 // bytes) and every DOLPatches site in dol hold exactly what PatchDOL writes.

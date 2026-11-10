@@ -7,7 +7,7 @@ The fundamental problem: to spawn a second Link actor, we need to CALL the game'
 DOL injection is the solved path. Build pipeline:
 
 1. Freighter compiles the C units (`inject/src/core/*.c`, `inject/src/mp/*.c`; `C_SOURCES` in build.py) → `patched.dol` with a new T2 section at `0x80410000`
-2. `build.py` applies four DOL binary patches to `OSInit` so `__OSArenaLo = 0x80416000` (`ARENA_LO` in `mailbox_core.h`; protects T2 and the mailbox at `0x80414F00` from `ClearArena`)
+2. `build.py` applies four DOL binary patches to `OSInit` so `__OSArenaLo = 0x80417000` (`ARENA_LO` in `mailbox_core.h`; protects T2 and the mailbox at `0x80415F00` from `ClearArena`)
 3. `build.py` reverts five Freighter silent clobbers of game code (see `docs/05-known-issues.md`)
 4. `scripts/extract_blob.py` turns `patched.dol` into the committed `internal/inject/blob.go`; `ww-multiplayer.exe patch` splices it into a vanilla ISO or CISO, moving the FST past the new DOL end. Players and local development both use it (the old local-dev splicer, `inject/patch_iso.py`, was retired in Phase E4)
 5. Boot the ISO in Dolphin — hook fires correctly, game renders normally

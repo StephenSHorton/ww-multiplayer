@@ -17,8 +17,8 @@ import (
 // function words T2 calls and owns the models and counters; Go writes the
 // span VisGoStart..VisGoEnd (multiplayer's vissync), magic included.
 const (
-	VisOff  uint32 = 0x8D0 // block start, from Mailbox (0x804157D0)
-	VisSize uint32 = 0x114 // ends +0x9E4 (0x804158E4), where CanaryArenaHigh starts
+	VisOff  uint32 = 0x8D0 // block start, from Mailbox (0x804167D0)
+	VisSize uint32 = 0x114 // ends +0x9E4 (0x804168E4), where CanaryArenaHigh starts
 
 	VisDrawFnOff     = 0x00 // u32 REL: the draw hook
 	VisSeachartFnOff = 0x04 // u32 REL: the sea chart draw
@@ -94,7 +94,7 @@ const (
 	VisPhasePost = 1
 )
 
-// VisAddr is the block's absolute address (0x804157D0).
+// VisAddr is the block's absolute address (0x804167D0).
 const VisAddr = Mailbox + VisOff
 
 // VisRegion is the visuals block. Go writes it every tick it changes and

@@ -15,7 +15,7 @@ import (
 // local Link's projectiles) and its counters; Go (multiplayer's fxsync)
 // writes the two magic words, the outbox read word and the inbox.
 const (
-	FxOff  uint32 = 0xE50 // block start, from Mailbox (0x80415D50)
+	FxOff  uint32 = 0xE50 // block start, from Mailbox (0x80416D50)
 	FxSize uint32 = 0x2B0 // ends +0x1100, the arena
 
 	FxSendMagicOff    = 0x00 // u32 Go (broadcast-pose): FxMagic = report, 0 = off
@@ -63,7 +63,7 @@ const (
 	FxBombPrmCopy uint32 = 0x01000000
 )
 
-// FxAddr is the block's absolute address (0x80415D50).
+// FxAddr is the block's absolute address (0x80416D50).
 const FxAddr = Mailbox + FxOff
 
 // FxRegion is the projectile events block. Go and the REL write it every

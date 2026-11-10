@@ -13,8 +13,8 @@
 // so keep every #define on one line as `#define NAME value // comment`,
 // a plain decimal or hex number: no expressions, no negatives.
 //
-// Slack map (mailbox-relative; MAILBOX_ADDR 0x80414F00, __OSArenaLo
-// 0x80416000, inject/build.py):
+// Slack map (mailbox-relative; MAILBOX_ADDR 0x80415F00, __OSArenaLo
+// 0x80417000, inject/build.py):
 //
 //   +0x000..+0x1B0  Mailbox struct (mailbox_core.h)
 //   +0x1B0..+0x1BC  REL words: magic, build id, frame (wwrel.h)
@@ -38,7 +38,7 @@
 //                   MP_EYE_PACKETS_OFF; T2 writes them; never canary-armed)
 //   +0xE50..+0x1100 the projectile events block (wwfx.h WWFX_OFF)
 //
-// The block (offsets from WWREMOTE_OFF; absolute = 0x80415420 + off):
+// The block (offsets from WWREMOTE_OFF; absolute = 0x80416420 + off):
 //
 //   Go-written span +0x000..+0x1EC, one write per tick, seq_head == seq_tail
 //   +0x000 u32 magic 'WWRP' (0 = off: vanilla-equivalent, the REL creates
@@ -164,8 +164,8 @@
 #define WW_WWREMOTE_H
 
 #define WWREMOTE_MAGIC              0x57575250   // 'WWRP'
-#define WWREMOTE_OFF                0x520        // block start, from MAILBOX_ADDR (0x80415420)
-#define WWREMOTE_SIZE               0x330        // whole block, ends +0x850 (0x80415750)
+#define WWREMOTE_OFF                0x520        // block start, from MAILBOX_ADDR (0x80416420)
+#define WWREMOTE_SIZE               0x330        // whole block, ends +0x850 (0x80416750)
 #define WWREMOTE_LAYOUT             1            // u16 at +0x08: bump on any layout change
 #define WWREMOTE_REGION_START       0x510        // what remote-Link owns, from MAILBOX_ADDR: WWENEMY_REGION_END..
 #define WWREMOTE_REGION_END         0x850        // ..WWREMOTE_OFF + WWREMOTE_SIZE

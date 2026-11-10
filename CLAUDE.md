@@ -85,7 +85,7 @@ ww-multiplayer/
 ├── inject/                      # C source for the injected PPC code (split into core + the multiplayer mod in Phase E3, docs/api §6.6)
 │   ├── src/core/                # The core: hooks.c (main01_init, frame_shim + multiplayer_update, daPy_draw_hook, pad_read_shim, exec_shim, seachart_shim; the fixed call
 │   │                            #   order; the mods through the WwModuleDesc table ww_modules[]), services.c (warp, tunic images + swap, face tev blocks + snapshot, pose publish),
-│   │                            #   ops.c (the API region at 0x80414000: event ring ww_event_push, command queue ww_cmd_register + the per-frame drain, core ops ECHO/KILL; wind#90),
+│   │                            #   ops.c (the API region at 0x80415000: event ring ww_event_push, command queue ww_cmd_register + the per-frame drain, core ops ECHO/KILL; wind#90),
 │   │                            #   core.h (core-only decls), mods.h (the mod entry points the hooks call)
 │   ├── src/mp/                  # The multiplayer mod: mp.h (PROC_* list, eye joints), puppets.c (actor puppets), minilink.c (mini-Links, pose feed,
 │   │                            #   eye fix; mp_frame, mp_draw_post), face.c (face hook arm/disarm, per-slot face bracket)

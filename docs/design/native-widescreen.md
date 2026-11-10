@@ -546,8 +546,8 @@ distance sites.
 
 ## 5. The WWWS block, extended, and the C pieces
 
-The culling plan's block (mailbox +0xA6C, `0x8041596C`) grows from 0x10 to **0x18 bytes** before
-#1185 builds it, so no stage changes its layout later. It ends at +0xA84 (`0x80415984`), inside the
+The culling plan's block (mailbox +0xA6C, `0x8041696C` since lever 4, section 6; `0x8041596C` before) grows from 0x10 to **0x18 bytes** before
+#1185 builds it, so no stage changes its layout later. It ends at +0xA84 (`0x80416984`), inside the
 free +0xA6C..+0xD00 slack; `CanaryArenaHigh` moves from +0xA6C (0x294 bytes today) to start at +0xA84 when #1185 adds the block (`wwapi/mailbox/mod.go`,
 `TestModRegions`: size 0x27C). Only C writes it.
 
@@ -570,7 +570,7 @@ mode above 2 or a factor outside [1, 3]; otherwise it stores mode, factor and fl
 knob (3.1) and returns OK. It never touches the `ui_*` fields.
 
 **`ws_latch()`** runs from `ws_init` (every boot, including a reboot reset; the usual reset to the title runs no init, docs/05 "Soft reset") and from hook B when an EPOCH row
-loads. It sets `ui_mode` = 2 if mode is 2 and `WWWS_F_2D` is set, else 0; `ui_factor` and
+loads. It sets `ui_mode` = 2 if mode is 2 with a valid factor other than 1 (`ws_live_factor() != 1`) and `WWWS_F_2D` is set, else 0 (at F = 1 compressing changes nothing; Go's `Widescreen.Pending2D` uses the same test, `Wants2D`); `ui_factor` and
 `ui_shift` to match; then runs `ws_apply(ui_factor, ui_shift)`. Hook B's order: `set(stream)` returned true → look up the stashed name's row → if the row has EPOCH, call `ws_latch()` first → then apply the row's GEOM/EDGE (stage 3: shifts) with the new latch → clear the stash.
 
 **`ws_apply`** walks one rodata table of `{u32 addr; u8 type; f32 a; f32 b}` and writes
@@ -668,6 +668,19 @@ in R2 if that is still not enough or another card has T2 work queued.
 
 So lever 3 was not built. Lever 4 (item 4 above) is the next step, after its ZeldaHeap headroom check on Outset, Windfall and the open sea.
 
+**Lever 4, as built (PC, 2026-11-09, branch `widescreen-2-5`).** The API region (`WWAP_ADDR`) is now
+`0x80415000`, the mailbox `0x80415F00`, ArenaLo `0x80417000` (build.py's `addi r3,r3,0x7000` at
+`0x80301820`); `frame_shim`, `exec_shim` and `seachart_shim` load `0x5F08`, `0x60BC` and `0x67D4`
+off `lis 12,0x8041`. Every mailbox-relative offset and `WWMB_LAYOUT` are unchanged. T2 still ends at
+`0x804145E8`: **0xA18 bytes free**, enough for stages 4-5 (about 0x200). The literal addresses
+were swept in the C headers, Go constants and tests, scripts and the reference docs; dated records
+(docs/live, docs/acceptance, docs/05, docs/06, passed checks) keep the addresses of their day.
+`scripts/extract_blob.py` now refuses a T2 that ends past `WWAP_ADDR` (blob.go not written) and
+emits it as `APIRegionAddr`, and `PatchDOL` refuses such a blob too, so an over-budget build can't
+reach a disc. **Owed before R2:** the ZeldaHeap gate (heap error counters `zeldaHeapErrors`,
+`gameHeapErrors`, `archiveHeapErrors` at 0 through boot, Outset, Windfall and the open sea, as
+wind#80's gate in docs/08), and the PC and Mac start-save recaptures (new BlobHash and REL id).
+
 **No runtime code rewrites.** Every per-mode value is a data word or read by a hook, so nothing
 needs `DCFlushRange` (`0x803030D8`) + `ICInvalidateRange` (`0x803031BC`). Never ship a
 patch-time-only DOL patch for a mode-dependent value: `DOLPatches` are outside BlobHash
@@ -733,7 +746,7 @@ is on. A mismatch between what was asked and what Dolphin runs shows one line on
 already launches and probes Dolphin) owns one `ops.Queue` per PID; nothing else in the app submits
 today (`cmd/wwdev/ops_cmd.go`'s note about "the app's Game" is stale). It starts at the first probe
 where the mod is present and the queue is `Ready()` (the logo or title: `ops_frame` runs before the
-Link check). Each tick it reads the mode byte (`0x80415971`) and factor (`0x80415974`) and resubmits
+Link check). Each tick it reads the mode byte (`0x80416971`) and factor (`0x80416974`) and resubmits
 WS_SET (flags 0xFF) on any difference. It does not compare the flags byte, so a tester's
 `--flags 0` survives until the next resubmit. The loop heals reboot resets (the DOL reloads and `ws_init` restores mode 1 and the knob; the usual reset to the title reloads nothing and keeps mode 2, docs/05 "Soft reset"), save states taken in
 another mode and a stray CLI toggle. It polls about every 100 ms until the first apply, then every
@@ -812,7 +825,7 @@ PC two-Dolphin loop, with a start save recaptured for the stage's blob (in mode 
   pre-stretch, for measuring 2D at 320 + (x − 320)/F). In a 16:9 picture the vanilla 4:3 area spans
   1/8..7/8 of the width.
 - **Readouts.** `-C Graphics.Settings.OverlayProjStats=True` prints Dolphin's projection ratios
-  (gameplay ortho ≈ 0.94 uncompressed, ≈ 1.26 compressed at 16:9). `./wwdev.exe peek 8041596C 24`
+  (gameplay ortho ≈ 0.94 uncompressed, ≈ 1.26 compressed at 16:9). `./wwdev.exe peek 8041696C 24`
   reads the block; `./wwdev.exe ops status` the queue's done/refused counters.
 - **Items.** Screens that need items (telescope, picto box, boomerang, bow, Deku Leaf, baton) need a
   save that has them; the start save may not, so note which checks were run. Pictures go on the
@@ -831,7 +844,7 @@ and its runner, the Gecko check, the `xscaleSampler` change, `stage-hop --wipe`)
 lands apart from the blob (no re-patch). Hooks:
 `clip_setup_hook` at `0x8017BF90` (DOL file offset `0x178ED0`), `ws_snap_setresult` at
 `0x800CE5E8` (DOL `0xCB528`), both in `hooks.c`. The block at
-`0x8041596C` (+0xA6C..+0xA84, mode byte `0x80415971`, factor `0x80415974`), op 16
+`0x8041696C` since lever 4 (+0xA6C..+0xA84, mode byte `0x80416971`, factor `0x80416974`; 0x1000 lower in the #1185 build), op 16
 `WWAP_OP_WS_SET`, `WW_FEAT_WIDESCREEN` 0x80 (`WW_FEATURES` 0xFF), `CanaryArenaHigh` from +0xA84.
 T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Widescreen stage 1".
 

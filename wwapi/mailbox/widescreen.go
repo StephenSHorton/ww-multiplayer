@@ -13,8 +13,8 @@ import (
 // header). Only T2 (inject/src/ws/widescreen.c) writes it; Go reads it for
 // status and changes it through WWAP_OP_WS_SET (OpWsSet).
 const (
-	WsOff  uint32 = 0xA6C // block start, from Mailbox (0x8041596C)
-	WsSize uint32 = 0x18  // ends +0xA84 (0x80415984), where CanaryArenaHigh starts
+	WsOff  uint32 = 0xA6C // block start, from Mailbox (0x8041696C)
+	WsSize uint32 = 0x18  // ends +0xA84 (0x80416984), where CanaryArenaHigh starts
 
 	WsMagic   uint32 = 0x57575753 // 'WWWS'
 	WsVersion        = 1
@@ -50,7 +50,7 @@ const (
 // OpWsSet is WWAP_OP_WS_SET: a = mode, b = factor f32 bits, c = flags.
 const OpWsSet = OpsOpWsSet
 
-// WsAddr is the block's absolute address (0x8041596C).
+// WsAddr is the block's absolute address (0x8041696C).
 const WsAddr = Mailbox + WsOff
 
 // WsRegion is the widescreen block, which the region probe must not arm.
@@ -96,11 +96,19 @@ func ReadWidescreen(m interface {
 func WsFactorValid(f float32) bool { return f >= WsFactorMin && f <= WsFactorMax }
 
 // Pending2D reports that the 2D does not yet follow the live mode: 2D
-// compression is asked for (mode 2 with WsF2D) and not latched, or
-// latched and no longer asked for. The 2D latch moves only when a stage
-// or the file select loads (native-widescreen.md sections 3.3 and 5).
+// compression is asked for and not latched, or latched and no longer
+// asked for. The 2D latch moves only when a stage or the file select
+// loads (native-widescreen.md sections 3.3 and 5).
 func (w Widescreen) Pending2D() bool {
-	return w.Present && (w.Mode == WsModeNative && w.Flags&WsF2D != 0) != (w.UIMode == WsModeNative)
+	return w.Present && w.Wants2D() != (w.UIMode == WsModeNative)
+}
+
+// Wants2D is ws_latch's test (widescreen.c): the next latch compresses the
+// 2D when the block is mode 2 with WsF2D and a valid factor other than 1
+// (ws_live_factor() != 1). At factor 1 compression would change nothing,
+// so C latches ui_mode 0 there.
+func (w Widescreen) Wants2D() bool {
+	return w.Mode == WsModeNative && w.Flags&WsF2D != 0 && WsFactorValid(w.Factor) && w.Factor != 1
 }
 
 // Pending2DNote is what the Play page and the CLI show while Pending2D.

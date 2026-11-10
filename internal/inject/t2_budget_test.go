@@ -238,7 +238,7 @@ func TestBuildPyMatchesBlob(t *testing.T) {
 }
 
 // TestFrameShimLoadsCallbackSlot: frame_shim's hand-written
-// `lis 12, 0x8041; lwz 12, 0x4F08(12)` is the one place the mailbox
+// `lis 12, 0x8041; lwz 12, 0x5F08(12)` is the one place the mailbox
 // address is baked into PPC code. It must load CALLBACK_PTR_ADDR, which
 // must be MAILBOX_ADDR+8, and the committed blob must contain that pair.
 func TestFrameShimLoadsCallbackSlot(t *testing.T) {
@@ -315,7 +315,7 @@ func TestExecShimLoadsHookSlot(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("blob.go T2Bytes has no exec_shim run (lis/lwz 0x50BC, cmpwi, beq, bctr, fpcMtd_Execute fallback): the blob is stale against hooks.c")
+		t.Error("blob.go T2Bytes has no exec_shim run (lis/lwz 0x60BC, cmpwi, beq, bctr, fpcMtd_Execute fallback): the blob is stale against hooks.c")
 	}
 }
 
@@ -387,7 +387,8 @@ func TestSnapSetResultHookSite(t *testing.T) {
 
 // checkHookSite: build.py has proj.hook_branchlink("<fn>", 0x<site>), and
 // the committed blob's DOLPatches turn the vanilla bl at fileOff into a bl
-// (opcode 18, LK = 1) whose target lies in T2. Bytes the diff leaves out
+// (opcode 18, LK = 1) whose target is fn's address in T2 (HookTargets, the
+// linked ELF's symbol extract_blob.py emits). Bytes the diff leaves out
 // are the vanilla ones.
 func checkHookSite(t *testing.T, fn string, site, fileOff, vanilla uint32) {
 	t.Helper()
@@ -420,6 +421,11 @@ func checkHookSite(t *testing.T, fn string, site, fileOff, vanilla uint32) {
 	target := uint32(int64(site) + int64(li))
 	if target < T2Address || target >= T2End {
 		t.Errorf("%s bl lands at 0x%08X, outside T2 0x%08X..0x%08X", fn, target, T2Address, T2End)
+	}
+	if want, ok := HookTargets[fn]; !ok {
+		t.Errorf("blob.go HookTargets has no %s: rebuild the blob (scripts/extract_blob.py)", fn)
+	} else if target != want {
+		t.Errorf("%s 0x%08X: bl lands at 0x%08X, but %s is at 0x%08X", fn, site, target, fn, want)
 	}
 }
 
@@ -536,5 +542,56 @@ func TestGameSymbols(t *testing.T) {
 	}
 	if !regexp.MustCompile(`proj\.ld_args\.append\(f"--defsym=\{name\}=0x\{addr:08X\}"\)`).Match(py) {
 		t.Error("build.py does not pass GAME_SYMBOLS to the linker as --defsym")
+	}
+}
+
+// TestHookSiteVanillaWords: each hand-entered vanilla word of the hook-site
+// pins (the stage-1 sites and wsStage2Sites) is the word the vanilla DOL
+// on the disc holds at that file offset. Skips without a vanilla disc
+// (WW_VANILLA_DISC, or the conventional places, fst_test.go).
+func TestHookSiteVanillaWords(t *testing.T) {
+	p := vanillaDiscPath()
+	if p == "" {
+		t.Skip("no vanilla disc: set WW_VANILLA_DISC to the ISO or CISO")
+	}
+	d, err := OpenDisc(p)
+	if err != nil {
+		t.Skipf("vanilla disc %s: %v", p, err)
+	}
+	defer d.Close()
+	dol, err := d.ReadDOL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sites := append([]wsSite{
+		{"clip_setup_hook", 0x8017BF90, 0x178ED0, 0x4BE9B72D, 0},
+		{"ws_snap_setresult", 0x800CE5E8, 0xCB528, 0x48000599, 0},
+	}, wsStage2Sites...)
+	for _, s := range sites {
+		if int(s.fileOff)+4 > len(dol) {
+			t.Errorf("%s 0x%08X: file offset 0x%X past the DOL (0x%X bytes)", s.fn, s.site, s.fileOff, len(dol))
+			continue
+		}
+		if got := binary.BigEndian.Uint32(dol[s.fileOff:]); got != s.vanilla {
+			t.Errorf("%s 0x%08X: the vanilla DOL holds 0x%08X at 0x%X, the pin says 0x%08X", s.fn, s.site, got, s.fileOff, s.vanilla)
+		}
+	}
+}
+
+// TestPatchDOLRefusesT2PastAPIRegion: the committed T2 ends at or below the
+// API region (wwops.h WWAP_ADDR, wwapi/mailbox OpsAddr), and checkT2Budget
+// refuses one that runs past it, so a blob over budget is never patched.
+func TestPatchDOLRefusesT2PastAPIRegion(t *testing.T) {
+	if APIRegionAddr != mbox.OpsAddr {
+		t.Fatalf("blob.go APIRegionAddr 0x%08X, wwapi/mailbox OpsAddr 0x%08X", APIRegionAddr, mbox.OpsAddr)
+	}
+	if err := checkT2Budget(T2Address, uint32(len(T2Bytes)), APIRegionAddr); err != nil {
+		t.Errorf("committed blob: %v", err)
+	}
+	if err := checkT2Budget(0x80410000, 0x5000, 0x80415000); err != nil {
+		t.Errorf("T2 ending exactly at the region: %v", err)
+	}
+	if err := checkT2Budget(0x80410000, 0x45E8, 0x80414000); err == nil {
+		t.Error("T2 0x5E8 past the region was accepted")
 	}
 }

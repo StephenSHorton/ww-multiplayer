@@ -154,7 +154,7 @@ func TestEnemyWatch(t *testing.T) {
 	}
 	s := out.String()
 	for _, want := range []string{
-		`stage "M_Dai" room 1; REL words at 0x804150B0: magic 0x5757524C linked=true build 0xAC19DE43 frames 77`,
+		`stage "M_Dai" room 1; REL words at 0x804160B0: magic 0x5757524C linked=true build 0xAC19DE43 frames 77`,
 		"3 keyed mode-0/1 Moblins in room 1 of \"M_Dai\":",
 		"setID 0 pid", "setID 1 pid", "setID 2 pid",
 		"mo2_mode 1 pos -1500.5 250.0 3000.0 ang 16384 shape 16383 hp 4 dr -100/20 atk 2/1 morf 0x80C00000 attr 2 rate 1.50 frame 12.25 pause 0x02 co -1500.5 250.0 3035.0 (d 0.0 0.0 35.0)",

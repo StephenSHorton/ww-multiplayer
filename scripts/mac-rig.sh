@@ -183,9 +183,9 @@ SW
 fps)
 	[ $# -gt 0 ] || die "usage: fps <pid>..."
 	t=$(mktemp)
-	for p in "$@"; do echo "$p $(WW_DOLPHIN_PID=$p "$WWDEV" peek 0x80414F00 | awk '{print $2}')"; done >"$t"
+	for p in "$@"; do echo "$p $(WW_DOLPHIN_PID=$p "$WWDEV" peek 0x80415F00 | awk '{print $2}')"; done >"$t"
 	sleep 5
-	while read -r p a; do b=$(WW_DOLPHIN_PID=$p "$WWDEV" peek 0x80414F00 | awk '{print $2}'); echo "pid $p: $(( ($(printf %d "$b") - $(printf %d "$a")) / 5 )) fps"; done <"$t"
+	while read -r p a; do b=$(WW_DOLPHIN_PID=$p "$WWDEV" peek 0x80415F00 | awk '{print $2}'); echo "pid $p: $(( ($(printf %d "$b") - $(printf %d "$a")) / 5 )) fps"; done <"$t"
 	rm -f "$t"
 	;;
 recapture)

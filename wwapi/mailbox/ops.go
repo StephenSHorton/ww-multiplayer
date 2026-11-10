@@ -9,7 +9,7 @@ import "github.com/StephenSHorton/ww-multiplayer/wwapi/addr"
 // results; Go (wwapi/ops) writes the event read word, the command entries
 // and the command head.
 const (
-	OpsAddr   uint32 = 0x80414000 // region start; T2's budget ends here
+	OpsAddr   uint32 = 0x80415000 // region start; T2's budget ends here
 	OpsSize   uint32 = 0xF00      // ends at Mailbox
 	OpsMagic  uint32 = 0x57574150 // 'WWAP'
 	OpsLayout        = 1
