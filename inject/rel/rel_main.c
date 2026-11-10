@@ -92,6 +92,12 @@
 // heaps go in the keeper's delete and in _epilog.
 #include "boats.h"
 
+// The widescreen mod's REL side (ws.c, native-widescreen.md H-12): the
+// cannon game's 2D widget vtable slots point at its wrappers while the
+// module is linked; _prolog takes them before the exec hook word,
+// _epilog gives them back first.
+#include "ws.h"
+
 // The build id: build.py passes -DWWREL_BUILD_ID=<CRC-32 of inject/rel's
 // sources and the slack headers>, so it changes with the source and never
 // with the clock (the ELF stays byte-identical across rebuilds of the
@@ -435,6 +441,7 @@ void _prolog(void) {
     fx_link();
     boats_link();
     wwvis_link();
+    relws_link();
     WWREL_WORD(WWREL_EXEC_HOOK_OFF) = (u32)wwrel_exec_hook;
 }
 
@@ -444,6 +451,7 @@ void _prolog(void) {
 // the module (full bodies deleted at a stage teardown still need it, and
 // the next link reuses it).
 void _epilog(void) {
+    relws_unlink();
     wwvis_unlink();
     boats_unlink();
     WWREL_WORD(WWREL_EXEC_HOOK_OFF) = 0;

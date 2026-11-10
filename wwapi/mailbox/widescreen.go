@@ -35,7 +35,7 @@ const (
 	WsF2D  = 0x01 // flags: compress 2D in mode 2 (stage 2)
 	WsFHUD = 0x02 // flags: anchor the HUD to the edges (stage 3)
 
-	WsFlagsSupported = 0x01 // the flags the blob supports (stage 2: WsF2D)
+	WsFlagsSupported = 0x03 // the flags the blob supports (stage 3: WsF2D | WsFHUD)
 
 	WsKnobAddr    uint32 = 0x803FA998 // the 4/3 literal preparation() reads for view->mAspect
 	WsKnobVanilla uint32 = 0x3FAAAAAB // 4/3 as an f32

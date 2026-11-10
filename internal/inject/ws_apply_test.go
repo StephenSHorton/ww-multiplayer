@@ -123,3 +123,20 @@ func TestWsApplyAt16x9(t *testing.T) {
 		}
 	}
 }
+
+// TestRelWsVtableOrder: the REL takes the cannon game's 2D widget vtable
+// slots (rel/ws.c, plan H-12) in _prolog before it publishes the exec
+// hook word, and gives them back first thing in _epilog, so no slot ever
+// points into an unlinked module.
+func TestRelWsVtableOrder(t *testing.T) {
+	src, err := os.ReadFile("../../inject/rel/rel_main.c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?s)void _prolog\(void\) \{[^}]*relws_link\(\);\s*WWREL_WORD\(WWREL_EXEC_HOOK_OFF\) = `).Match(src) {
+		t.Error("rel_main.c _prolog does not call relws_link() right before publishing the exec hook word")
+	}
+	if !regexp.MustCompile(`void _epilog\(void\) \{\s*relws_unlink\(\);`).Match(src) {
+		t.Error("rel_main.c _epilog does not call relws_unlink() first")
+	}
+}

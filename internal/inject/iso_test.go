@@ -112,6 +112,7 @@ func TestPatchISOGrowthWouldOverwriteFile(t *testing.T) {
 func TestPatchISOGrowthInsideOldFST(t *testing.T) {
 	d := vanillaLike()
 	d.junk = true
+	d.fstPad = 0x8000 // the FST stays bigger than T2 (0x45E8 with widescreen stages 2-3)
 	fstOff := uint32(alignUp64(uint64(d.dolOff)+uint64(testDOLSize), 0x100))
 	fstSize := uint32(len(buildFST(append(d.files, testFile{name: "next.arc"}), d.fstPad)))
 	if fstSize <= uint32(len(T2Bytes)) {
