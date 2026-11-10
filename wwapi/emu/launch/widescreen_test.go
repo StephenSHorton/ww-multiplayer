@@ -135,3 +135,18 @@ func TestWidescreenArgs(t *testing.T) {
 		t.Errorf("round trip: %+v", a)
 	}
 }
+
+// TestVIAspect: the recorded VI aspect sits inside the measured range
+// (WS-11), the range is 1.2524..1.2543, and the 1x dump agrees.
+func TestVIAspect(t *testing.T) {
+	if VIAspect < VIAspectMin || VIAspect > VIAspectMax {
+		t.Errorf("VIAspect %.4f outside %.4f..%.4f", VIAspect, VIAspectMin, VIAspectMax)
+	}
+	if math.Abs(VIAspectMin-1.2524) > 0.00005 || math.Abs(VIAspectMax-1.2543) > 0.00005 {
+		t.Errorf("range %.5f..%.5f, want 1.2524..1.2543", VIAspectMin, VIAspectMax)
+	}
+	// 640 wide at 1x: 640/VIAspect lines, rounded up to a multiple of 4, is 512.
+	if h := int(math.Ceil(640/VIAspect/4)) * 4; h != 512 {
+		t.Errorf("1x dump height %d, want 512", h)
+	}
+}

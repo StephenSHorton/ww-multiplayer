@@ -4,8 +4,8 @@ package main
 // actors the game culls at the screen's side edges. It reads mClipper, the
 // 3D knob and the WWWS block, puts every actor's current.pos through
 // j3dSys's view matrix and prints its tanH = x / -z with its NODRAW bit.
-// A CULL actor in the side band (the 16:9 strip the 4:3 clipper misses,
-// tanH 0.739..0.985), on screen vertically and inside the far plane, must
+// A CULL actor in the side band (the strip the 4:3 clipper misses: at fovY
+// 60 tanH 0.739..0.985, cullClip.band), on screen vertically and inside the far plane, must
 // be drawn once the clipper hook widens mClipper; one that is NODRAW makes
 // the probe exit 1.
 //
@@ -38,10 +38,9 @@ const (
 	cullCondNoDraw   uint32 = 0x04       // fopAcCnd_NODRAW_e: fopAc_Draw culled it
 	cullStatusCull   uint32 = 0x00000100 // fopAcStts_CULL_e (f_op_actor.h:28)
 
-	// The side band under Dolphin's hack at 16:9: the 4:3 clipper's edge,
-	// tan(30°) x 1.28, and the visible edge, that x 4/3 (section 3.2).
-	cullBandLo = 0.739
-	cullBandHi = 0.985
+	// The vanilla clipper's aspect (4/3 x 0.96) and the 16:9 widening.
+	cullAspect43 = 1.28
+	cullWide169  = 4.0 / 3.0
 )
 
 // cullClip is mClipper's frustum.
@@ -52,6 +51,18 @@ func (c cullClip) tanV() float64 { return math.Tan(float64(c.FovY) * 0.5 * math.
 
 // tanH is the side planes' tan: tan(fovY/2) x aspect.
 func (c cullClip) tanH() float64 { return c.tanV() * float64(c.Aspect) }
+
+// band is the side band at this clipper's fovY: from the vanilla 4:3
+// clipper's edge, tan(fovY/2) x 1.28, to the visible edge. That is the
+// clipper's own side plane when it is widened (mode 1 under the hack, mode
+// 2 by the knob; the stage-1 live run saw fovY 55, where the old fixed
+// 0.985 flagged an off-screen actor), and the 16:9 edge (the 4:3 edge x
+// 4/3) when it is not (mode 0 with the hack on: WS-C3's "off" half). At
+// fovY 60 both give 0.739..0.985.
+func (c cullClip) band() (lo, hi float64) {
+	lo = c.tanV() * cullAspect43
+	return lo, max(c.tanH(), lo*cullWide169)
+}
 
 // cullXform puts p through the 3x4 row-major view matrix m.
 func cullXform(m [12]float32, p [3]float32) [3]float64 {
@@ -84,7 +95,8 @@ func cullJudge(c cullClip, m [12]float32, a actors.Actor, cond uint32) cullRow {
 	}
 	r.TanH, r.TanV = r.View[0]/d, r.View[1]/d
 	h := math.Abs(r.TanH)
-	r.Band = r.Cull && h >= cullBandLo && h <= cullBandHi && math.Abs(r.TanV) < c.tanV() &&
+	lo, hi := c.band()
+	r.Band = r.Cull && h >= lo && h <= hi && math.Abs(r.TanV) < c.tanV() &&
 		d >= float64(c.Near) && d <= float64(c.Far)
 	return r
 }
@@ -141,7 +153,8 @@ func printCullSample(w io.Writer, s cullSample) (band, nodraw int) {
 	fmt.Fprintf(w, "mClipper: fovY %.2f aspect %.4f (0x%08X) near %.1f far %.1f; side-plane tan %.3f, top %.3f\n",
 		s.Clip.FovY, s.Clip.Aspect, math.Float32bits(s.Clip.Aspect), s.Clip.Near, s.Clip.Far, s.Clip.tanH(), s.Clip.tanV())
 	fmt.Fprintf(w, "knob 0x%08X: 0x%08X (vanilla 0x%08X); %s\n", mailbox.WsKnobAddr, s.Knob, mailbox.WsKnobVanilla, s.WS)
-	fmt.Fprintf(w, "band: |tanH| %.3f..%.3f (16:9 under the hack), CULL actors on screen vertically inside the far plane\n", cullBandLo, cullBandHi)
+	lo, hi := s.Clip.band()
+	fmt.Fprintf(w, "band: |tanH| %.3f..%.3f (the 4:3 clipper's edge to the visible edge), CULL actors on screen vertically inside the far plane\n", lo, hi)
 	fmt.Fprintf(w, "  %-10s %-6s %-6s %10s %7s %7s %4s %6s\n", "actor", "proc", "pid", "view z", "tanH", "tanV", "cull", "nodraw")
 	for _, r := range s.Rows {
 		mark := ""

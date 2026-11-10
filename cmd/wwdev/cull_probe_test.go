@@ -20,13 +20,29 @@ func TestCullClipTans(t *testing.T) {
 	if got := testClip.tanH(); math.Abs(got-0.739) > 0.0005 {
 		t.Errorf("side-plane tan %.4f, want 0.739", got)
 	}
-	if got := testClip.tanH() * 4 / 3; math.Abs(got-cullBandHi) > 0.0005 {
-		t.Errorf("visible edge %.4f, want %.3f", got, cullBandHi)
+	// The band at fovY 60: 0.739..0.985 whether the clipper is vanilla
+	// (1.28: the 16:9 edge) or widened by mode 1 (0x3FDA740E) or mode 2
+	// (0x3FDA740D): its side plane is the visible edge.
+	for _, a := range []uint32{0x3FA3D70A, 0x3FDA740E, 0x3FDA740D} {
+		c := cullClip{FovY: 60, Aspect: math.Float32frombits(a)}
+		if lo, hi := c.band(); math.Abs(lo-0.739) > 0.0005 || math.Abs(hi-0.985) > 0.0005 {
+			t.Errorf("aspect 0x%08X: band %.4f..%.4f, want 0.739..0.985", a, lo, hi)
+		}
 	}
-	// mode 1's widened clipper, 0x3FDA740E: its side plane is the visible edge.
-	wide := cullClip{FovY: 60, Aspect: math.Float32frombits(0x3FDA740E)}
-	if got := wide.tanH(); math.Abs(got-cullBandHi) > 0.0005 {
-		t.Errorf("widened side-plane tan %.4f, want %.3f", got, cullBandHi)
+	// fovY 55, widened (the stage-1 live run): the band ends at the side
+	// plane, 0.888, so an actor at tanH -0.927 is off screen, not in it.
+	c55 := cullClip{FovY: 55, Aspect: math.Float32frombits(0x3FDA740E), Near: 1, Far: 20500}
+	if lo, hi := c55.band(); math.Abs(lo-0.666) > 0.0005 || math.Abs(hi-0.888) > 0.0005 {
+		t.Errorf("fovY 55: band %.4f..%.4f, want 0.666..0.888", lo, hi)
+	}
+	off := actors.Actor{Pos: [3]float32{-927 + 100, 0, -1000 + 50}, Status: cullStatusCull}
+	if r := cullJudge(c55, testView, off, cullCondNoDraw); r.Band {
+		t.Errorf("fovY 55: tanH %.3f is in the band", r.TanH)
+	}
+	// 21:9 in mode 2 (factor 1.75): the widened side plane, past 16:9's edge.
+	c219 := cullClip{FovY: 60, Aspect: 1.28 * 1.75}
+	if _, hi := c219.band(); hi != c219.tanH() || hi < 1.29 {
+		t.Errorf("21:9: band ends at %.4f, want the side plane %.4f", hi, c219.tanH())
 	}
 }
 
