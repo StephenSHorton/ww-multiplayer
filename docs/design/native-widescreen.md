@@ -617,7 +617,7 @@ count code ×1.5 at the high end (E3 once overshot by 0x4E0); table data is exac
 | 1 | **0x320 measured** with #1185 (planned 0xE0-0x1C0 for both) | `ws_op_set` 0xB8, `ws_init` 0x88, `ws_live_factor` 0x68, `ws_clip_aspect` 0x5C, `clip_setup_hook` 0x58, `ws_snap_setresult` 0xAC (built `-Os` for that function; `-O2` unrolled it to 0x114), 0x308 in all, plus the module table entry and alignment | 0x320 |
 | 2 | 0x540-0x810 | `ws_2d_factor` + latch, `ws_ortho_hook`, `ws_apply` + 7 entries, hooks A/B + walker + 27 rows and 12 EDGE rules, `ws_project_2d`, scissor wrapper, `ws_screen_draw_full` (2 entries), `ws_persp`, opening fills | 0x860-0xB30 |
 | 3 | 0x140-0x1C0 | shift kinds (code 0x50-0x88), 7 rows + 27 rules (`main_parts1`'s 15 NONE tags, `pn`, `auction2`'s 11) + 3 `ws_apply` entries (data ≈ 0xEF); +0x80-0x120 if the cannon/Sploosh wrappers stay in T2 instead of the REL | 0x9A0-0xCF0 |
-| 4 | 0x70-0xD0 planned; **0x1A0 measured with stage 5** (`ws_frame_any` 0x150, `ws_project_live` 0x4C) | THP frame step, optional polish (flare, stars) | 0xA10-0xDC0 planned |
+| 4 | 0x70-0xD0 planned; **0x1A0 measured with stage 5** (`ws_frame_any` 0x158, `ws_project_live` 0x4C) | THP frame step, optional polish (flare, stars) | 0xA10-0xDC0 planned |
 | 5 | 0x20-0x200 planned; nothing more (option A; the telescope shares `ws_project_live`) | telescope look-in; picto option B or C if chosen (0x78 if B's resample lives in the REL behind a forwarder); option A needs nothing | measured: T2 ends `0x80414788`, 0x878 free (lever 4) |
 
 The running totals are from the measured 0x320. Stages 2-3 need 0x680-0x9D0 on top of it, and
@@ -1085,7 +1085,7 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
 ### Stage 4: menus and special screens (release R3)
 
 **Built on branch `ws-45`** (PC, 2026-11-09; not run in Dolphin). Item 1 and, of item 2, the lens
-flare and the moon's stars. T2 grew 0x1A0 for stages 4 and 5 together (`ws_frame_any` 0x150,
+flare and the moon's stars. T2 grew 0x1A0 for stages 4 and 5 together (`ws_frame_any` 0x158,
 `ws_project_live` 0x4C); 0x878 bytes stay free. It differs from the items below in these ways:
 - **The THP offsets were proven offline**, not live (`internal/inject/ws_thp_vanilla_test.go`,
   `TestWsTHPVanillaREL`, on the vanilla disc): `rels/d_a_movie_player.rel` is module 0x19F, its
@@ -1097,10 +1097,11 @@ flare and the moon's stars. T2 grew 0x1A0 for stages 4 and 5 together (`ws_frame
   `daMP_ActivePlayer.videoInfo` (`.bss`+0x6F0, the texture's size). The live read-back is
   docs/TESTING.md WS4-1.
 - **`ws_frame_any`** (`src/ws/widescreen.c`, the WS module's `frame_any` slot) walks
-  `__OSModuleList` (`0x800030C8`) every frame, at most 256 links, each checked inside MEM1; for id
+  `__OSModuleList` (`0x800030C8`) every frame, at most 256 links, each checked inside MEM1 (48 MB, `MEM1_END` `0x83000000`); for id
   0x19F it takes the section-info entry `bssSection` (header +0x33, which OSLink fills) names and
-  uses it only if its size is 0xCB5C8. It never caches the address (the module is unlinked after
-  the movie). It writes only when xSize is 640 or its own last value (a static that starts at 640),
+  uses it only if its size is 0xCB5C8 and the whole `.bss` lies in MEM1 (`OSLink.c:250-256` sets
+  `bssSection` and the entry's address at link time). It never caches the address (the module is unlinked after
+  the movie). It writes only when xSize is 640 or its own last value (a static that starts at 640, at `0x8041024C`, outside `HashRanges`),
   ySize is 480 and DrawPosX is still (640 − xSize)/2, and never when xSize is already the target.
   The movie's first frame may be drawn full width before the step runs (accepted; WS4-2 notes it).
 - **The lens flare and the moon's stars** share stage 5's `ws_project_live` (`src/core/hooks.c`):

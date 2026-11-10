@@ -319,8 +319,9 @@ void ws_init(void) {
 #define THP_W           640         // both movies are 640x480 (the disc's THP headers)
 #define THP_H           480
 
+// Inside MEM1 (48 MB on the patched disc: wwapi.h MEM1_END).
 static int ws_mem1(u32 a) {
-    return a >= 0x80000000u && a < 0x81800000u;
+    return a >= 0x80000000u && a < MEM1_END;
 }
 
 // The movie player's .bss, or 0 while it is not linked (or the list looks
@@ -335,7 +336,7 @@ static u8* ws_movie_bss(void) {
             return 0;
         if (*(u32*)m == MP_MODULE_ID) {
             u32* si = *(u32**)(m + 0x10) + 2 * m[0x33];
-            if (!ws_mem1((u32)si) || si[1] != MP_BSS_SIZE || !ws_mem1(si[0]))
+            if (!ws_mem1((u32)si) || si[1] != MP_BSS_SIZE || !ws_mem1(si[0]) || !ws_mem1(si[0] + MP_BSS_SIZE - 1))
                 return 0;
             return (u8*)si[0];
         }
