@@ -67,7 +67,7 @@ static int frame_count = 0;
 #define MOD_ID_WS 0x57532020   // 'WS  '
 static const WwModuleDesc ww_modules[] = {
     { MOD_ID_MP, 0, mp_frame_any, mp_frame, 0, mp_draw_post },
-    { MOD_ID_WS, ws_init, 0, 0, 0, 0 },
+    { MOD_ID_WS, ws_init, ws_frame_any, 0, 0, 0 },
 };
 #define WW_MODULE_COUNT ((int)(sizeof(ww_modules) / sizeof(ww_modules[0])))
 
@@ -268,6 +268,25 @@ void ws_opening_draw(void* scrn, f32 x, f32 y, void* graf) {
     }
 }
 #pragma GCC pop_options
+
+// --- Native widescreen, stages 4-5 (docs/design/native-widescreen.md 3.4) ---
+// Tests that measure a projected 3D point's distance or angle from the EFB
+// centre (320, 240): the lens flare's streak angle (dKyr_lenzflare_move,
+// 0x8008C6C0), the stars hidden around the moon (dKyr_drawStar: the moon
+// 0x800994AC and each star 0x80099A6C, both or neither) and the telescope
+// look-in (dKy_telescope_lookin_chk 0x8019744C; the radius is the caller's
+// f1, 100 for the moon, Orion and Hokuto, so the point is moved, not the
+// radius). In native mode the 3D is widened by F, so a point lands 1/F as
+// far from the centre in x as it shows on screen: x is pushed back out by
+// the live 3D factor about 320 (exact for these tests; ws_project_2d's 320.5
+// is a 2D landing pivot). At F = 1 it is the vanilla call.
+__attribute__((optimize("Os"))) void ws_project_live(cXyz* src, cXyz* dst) {
+    f32 F;
+    mDoLib_project(src, dst);
+    F = ws_live_factor();
+    if (F != 1.0f)
+        dst->x = 320.0f + (dst->x - 320.0f) * F;
+}
 
 // Hooked to main01 (0x80006338) via hook_branchlink. Runs once.
 // Publishes multiplayer_update's address for frame_shim to find.

@@ -39,6 +39,9 @@ f32 ws_live_factor(void);
 // ws_screen_name is hook A's stash of J2DScreen::set's name, consumed by
 // ws_screen_loaded (hook B: the screen table, the latch on EPOCH).
 f32 ws_2d_factor(void);
+// Stage 4 (section 8): ws_frame_any is the WS module's frame_any step, the
+// THP movies' polygon width (T-9); it runs every frame, Link or not.
+void ws_frame_any(fopAc_ac_c* link);
 extern const char* ws_screen_name;
 void ws_screen_loaded(u8* scrn, int ok);
 
