@@ -255,7 +255,7 @@ GEOM-only rows (−0xB0), if a stage-2 screenshot sweep shows no false hits.
 **As built (stage 2): the global GEOM rule (lever 1).** A screen with no row gets GEOM; a row without
 the GEOM flag turns it off for its screen. The table has 13 rows and 39 rules (0x12B bytes).
 
-Instead of a screenshot sweep, `go run ./tools/gen_wstable -geom <disc>` parses all 61 `.blo` files
+Instead of a screenshot sweep, `go run ./tools/gen_wstable -geom <disc>` parses all 63 `.blo` files
 on the vanilla disc (archives inside archives included). It writes every pane the GEOM test matches
 to `tools/gen_wstable/testdata/geom_hits.txt`.
 
@@ -1025,7 +1025,7 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
 - The shift kinds and the S rows were built in stage 2.
 - The REL's `relws_obj_draw` and `relws_battery_draw` sit in `inject/rel/ws.c`. `_prolog` links them before the exec-hook word, and `_epilog` unlinks them first (pinned by `TestRelWsVtableOrder`).
 - The Sploosh number wrappers are not built: they wait for a screenshot, as item 5 says.
-- Item 6: the default stays off. It is one constant, `widescreenDefault` in `internal/gui/display.go`, which becomes `"16:9"` once the live checks pass.
+- Item 6: the default stays off. It is one constant, `widescreenDefault` in `internal/gui/display.go`, which becomes `"16:9"` once the live checks pass. `TestBridgeSetWidescreen` (`internal/gui/display_test.go:17-20`) expects the unset setting to be off and must change with it (a trial flip showed it is the only test that does).
 
 1. `WWWS_FLAGS_SUPPORTED` = `WWWS_F_2D | WWWS_F_HUD`; `ws_latch` sets `ui_shift`.
 2. Walker: the shift kinds ALL_L, ALL_R, BY_CX, SCR_L, SCR_R and the L/R tag actions (3.3). They
