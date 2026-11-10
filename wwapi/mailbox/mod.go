@@ -35,7 +35,7 @@ const (
 	WarpSeq = Mailbox + OffWarpSeq
 
 	// PatchedArenaLo is the __OSArenaLo the patched OSInit computes
-	// (addi r3,r3,0x4000 at 0x80301820, inject/build.py:144).
+	// (addi r3,r3,0x7000 at 0x80301820, inject/build.py).
 	PatchedArenaLo uint32 = ArenaLo
 )
 

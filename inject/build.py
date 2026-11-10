@@ -36,6 +36,28 @@ C_SOURCES = [
     "src/ws/widescreen.c",
 ]
 
+# Game functions T2 calls by name (a plain `bl`, 4 bytes, instead of a
+# lis/ori/mtctr/bctrl through a cast pointer): each becomes an absolute
+# symbol at link time (ld --defsym). All are in the DOL's text section 1,
+# within a bl's 32 MB reach of T2. C declares them extern (src/core/hooks.c,
+# src/ws/widescreen.c). Addresses: ~/projects/tww symbols.txt, checked
+# against the vanilla DOL's call sites (native-widescreen.md section 8;
+# internal/inject/t2_budget_test.go TestGameSymbols).
+GAME_SYMBOLS = {
+    "mDoLib_project": 0x80017748,
+    "dMap_calcScissor": 0x8004A3A4,
+    "dPb_shutterLineDraw": 0x8022A09C,
+    "JKRFileLoader_getGlbResource": 0x802B68F0,
+    "J2DOrthoGraph_setPort": 0x802CDCB4,
+    "J2DOrthoGraph_setOrtho": 0x802CDD14,
+    "J2DFillBox": 0x802CDF3C,
+    "J2DPane_add": 0x802D05C8,
+    "J2DPane_setBasePosition": 0x802D0800,
+    "J2DScreen_set_stream": 0x802D0CE0,
+    "J2DScreen_draw": 0x802D0F2C,
+    "C_MTXPerspective": 0x8030DB78,
+}
+
 DEFAULT_DEVKITPRO = r"C:\devkitpro"
 DEFAULT_DEVKITPPC = os.path.join(DEFAULT_DEVKITPRO, "devkitPPC")
 MSYS_DEVKITPRO = "/opt/devkitpro"
@@ -50,20 +72,20 @@ SYMBOL_MAP = os.path.join("build", "WWMultiplayer.map")
 # embeds REL_ELF as is and the Go converter (wwapi/rel) makes the REL.
 REL_SOURCES = ["rel/rel_main.c", "rel/enemy_mirror.c", "rel/remote.c", "rel/fullbody.c", "rel/shanm.c", "rel/bosskill.c",
                "rel/refresh.c", "rel/em_mt.c", "rel/visuals.c", "rel/fx.c",
-               "rel/boats.c"]
+               "rel/boats.c", "rel/ws.c"]
 # The headers the module's build id also covers (rel_build_id): its own
-# and the five slack layouts it reads and writes.
+# and the slack layouts it reads and writes.
 REL_HEADERS = ["rel/enemy_mirror.h", "rel/remote.h", "rel/fullbody.h", "rel/shanm.h", "rel/dapy.h", "rel/bosskill.h",
-               "rel/refresh.h", "rel/em_mt.h", "rel/visuals.h", "rel/fx.h", "rel/boats.h",
+               "rel/refresh.h", "rel/em_mt.h", "rel/visuals.h", "rel/fx.h", "rel/boats.h", "rel/ws.h",
                "include/wwrel.h", "include/wwenemy.h", "include/wwenemy_kinds.h", "include/wwremote.h", "include/wwboss.h",
-               "include/wwrefresh.h", "include/wwvis.h", "include/wwfx.h", "include/wwboat.h"]
+               "include/wwrefresh.h", "include/wwvis.h", "include/wwfx.h", "include/wwboat.h", "include/wwws.h"]
 # The module's functions DOL code calls back through a pointer the module
 # hands it at run time (not the profile tables, which ww_rel.ld places):
 # each, when compiled in, must be a .text symbol of the linked ELF (batch D
 # R-D2: bosskill.c's fopAcIt_Judge callbacks, bk_bst_judge under
 # WWBOSS_WITH_BST and bk_bpw_judge under WWBOSS_WITH_BPW).
 REL_TEXT_CALLBACKS = ["bk_bst_judge", "bk_bpw_judge", "wwvis_draw_hook", "wwvis_seachart_draw", "vis_tag_draw", "fx_cannon_judge",
-                      "bt_jnt_cb", "bt_sail_draw"]
+                      "bt_jnt_cb", "bt_sail_draw", "relws_obj_draw", "relws_battery_draw", "relws_num_draw"]
 REL_LD = os.path.join("rel", "ww_rel.ld")
 REL_OBJ_DIR = os.path.join("build", "temp", "rel")
 REL_ELF = os.path.join("build", "wwrel.elf")
@@ -394,7 +416,7 @@ def main():
 
     # One-shot init hook on main01 (0x80006338 — proven working).
     # main01_init publishes &multiplayer_update at CALLBACK_PTR_ADDR
-    # (mailbox+0x08 = 0x80414F08, src/core/hooks.c) for frame_shim.
+    # (mailbox+0x08 = 0x80415F08, src/core/hooks.c) for frame_shim.
     proj.hook_branchlink("main01_init", 0x80006338)
 
     # Per-frame hook. Targets the LAST bl in fapGm_Execute (0x80023204 ->
@@ -463,6 +485,50 @@ def main():
     # factor (mode 2 only), so photos judge the same as on a 4:3 screen.
     proj.hook_branchlink("ws_snap_setresult", 0x800CE5E8)
 
+    # Native widescreen stages 2-3 (docs/design/native-widescreen.md
+    # sections 3.2-3.6 and 8; src/core/hooks.c). Each line replaces a `bl`
+    # whose callee the hook calls itself; all pass through when the
+    # latched 2D factor is 1. Pinned in internal/inject/t2_budget_test.go.
+    # 2D compression: the four `bl J2DOrthoGraph::setOrtho` (0x802CDD14).
+    proj.hook_branchlink("ws_ortho_hook", 0x8000B06C)
+    proj.hook_branchlink("ws_ortho_hook", 0x8000BA30)
+    proj.hook_branchlink("ws_ortho_hook", 0x80223CF4)
+    proj.hook_branchlink("ws_ortho_hook", 0x8003EADC)
+    # 2D at projected points: seven `bl mDoLib_project` (0x80017748).
+    proj.hook_branchlink("ws_project_2d", 0x800E1624)
+    proj.hook_branchlink("ws_project_2d", 0x80129550)
+    proj.hook_branchlink("ws_project_2d", 0x801F8104)
+    proj.hook_branchlink("ws_project_2d", 0x801F9910)
+    proj.hook_branchlink("ws_project_2d", 0x8020DF5C)
+    proj.hook_branchlink("ws_project_2d", 0x802229D0)
+    proj.hook_branchlink("ws_project_2d", 0x80222ADC)
+    # J2DScreen::set(name, archive): A = its `bl getGlbResource` (0x802B68F0),
+    # B = its `bl set(stream)` (0x802D0CE0).
+    proj.hook_branchlink("ws_set_name_hook", 0x802D0968)
+    proj.hook_branchlink("ws_set_stream_hook", 0x802D09DC)
+    # The minimap's `bl calcScissor` (0x8004A3A4).
+    proj.hook_branchlink("ws_map_scissor", 0x8004A64C)
+    # The file select's two `bl C_MTXPerspective` (0x8030DB78).
+    proj.hook_branchlink("ws_persp", 0x802306A0)
+    proj.hook_branchlink("ws_persp", 0x802324A8)
+    # The picto box: four `bl J2DScreen::draw` (0x802D0F2C) and two
+    # `bl shutterLineDraw` (0x8022A09C) drawn uncompressed.
+    proj.hook_branchlink("ws_screen_draw_full", 0x8022B510)
+    proj.hook_branchlink("ws_screen_draw_full", 0x8022B538)
+    proj.hook_branchlink("ws_screen_draw_full", 0x8022B778)
+    proj.hook_branchlink("ws_screen_draw_full", 0x8022B9B8)
+    proj.hook_branchlink("ws_shutter_draw_full", 0x8022B524)
+    proj.hook_branchlink("ws_shutter_draw_full", 0x8022B9CC)
+    # The opening's `bl J2DScreen::draw` (0x802D0F2C), then the band fills.
+    proj.hook_branchlink("ws_opening_draw", 0x8023452C)
+    # Stages 4-5 (native-widescreen.md 3.4): the projected-point tests about
+    # the EFB centre follow the live 3D factor: the lens flare's angle, the
+    # moon's star exclusion (both sites), the telescope look-in.
+    proj.hook_branchlink("ws_project_live", 0x8008C6C0)
+    proj.hook_branchlink("ws_project_live", 0x800994AC)
+    proj.hook_branchlink("ws_project_live", 0x80099A6C)
+    proj.hook_branchlink("ws_project_live", 0x8019744C)
+
     # Set entry function (required for linker)
     proj.set_entry_function("main01_init")
 
@@ -488,6 +554,8 @@ def main():
     # sections from there, internal/inject TestBlobContract). Addressing
     # is unchanged: nothing here uses r13/r2-relative small data.
     proj.common_args.append("-G0")
+    for name, addr in GAME_SYMBOLS.items():
+        proj.ld_args.append(f"--defsym={name}=0x{addr:08X}")
 
     # Build
     input_dol = "original.dol"
@@ -521,19 +589,20 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # Post-build: patch OSInit so __OSArenaLo starts at 0x80416000 (past our
-    # T2 at 0x80410000 + the mailbox at 0x80414F00) instead of the
-    # linker's 0x8040EFC0. Arena loses ~24 KB from the original layout.
+    # Post-build: patch OSInit so __OSArenaLo starts at 0x80417000 (past our
+    # T2 at 0x80410000, the API region at 0x80415000 and the mailbox at
+    # 0x80415F00) instead of the linker's 0x8040EFC0.
     #
     # History: was 0x80411000 while mod fit in 0xF00 bytes; echo-ring code
     # (docs/06 track 1) pushed .text past 0x80411000, bumping to 0x80412000.
     # Eye-fix recipe (item #9 attempt 4) grew mod past 0x80411F00, bumping
-    # to 0x80415000. Session 6 (mode-1 freeze diagnostics) added
+    # to 0x80413000. Session 6 (mode-1 freeze diagnostics) added
     # dbg_postswap_* fields that pushed mailbox size past 0x100; bumped to
-    # 0x80416000 so mailbox has 0x1000 = 4 KB of headroom for further
-    # diagnostics without another arena bump. Mailbox lives at
-    # 0x80414F00..0x80413nnn; MUST stay in sync with MAILBOX_ADDR in
-    # inject/include/mailbox_core.h.
+    # 0x80414000. wind#80 (co-op M7 code space) took 8 KB more: 0x80416000.
+    # Native widescreen stages 2-3 (docs/design/native-widescreen.md
+    # section 6, lever 4) took 4 KB more: 0x80417000, moving the API
+    # region and the mailbox up 0x1000 with it. MUST stay in sync with
+    # ARENA_LO in inject/include/mailbox_core.h.
     #
     # Do NOT bump further without measuring ZeldaHeap headroom: the 1 MB
     # carve-out experiment (0x80511000) broke Outset archive loading. A few
@@ -543,7 +612,7 @@ def main():
     patches = [
         (0x80301818, b"\x60\x00\x00\x00"),  # nop (always fall through)
         (0x8030181C, b"\x3c\x60\x80\x41"),  # lis r3, 0x8041
-        (0x80301820, b"\x38\x63\x60\x00"),  # addi r3, r3, 0x6000  -> r3 = 0x80416000 (ARENA_LO)
+        (0x80301820, b"\x38\x63\x70\x00"),  # addi r3, r3, 0x7000  -> r3 = 0x80417000 (ARENA_LO)
         (0x80301838, b"\x48\x00\x00\x30"),  # b +0x30 (skip debug path)
         # 48 MB MEM1 (2026-10-18, docs/05 "48 MB MEM1"): mDoMch_Create's heap
         # plan (m_Do_machine.cpp:500-612), the ww-online split: archive heap

@@ -222,7 +222,7 @@ Alternatives considered and rejected:
 ### 6.1 The mailbox block
 
 A self-describing block in free slack, as `wwboat.h`, `wwvis.h` and `wwrefresh.h` were added (no
-`WWMB_LAYOUT` bump). It goes at mailbox **+0xA6C** (`0x8041596C`), right after the boats block,
+`WWMB_LAYOUT` bump). It goes at mailbox **+0xA6C** (`0x8041696C`), right after the boats block,
 at the start of the free `CanaryArenaHigh` region (+0xA6C..+0xD00, 0x294 bytes).
 
 | Offset | Type | Field | Meaning |
@@ -316,7 +316,7 @@ later in-process writer must share the session's Queue. The app's mod runtime st
 ## 7. Blob budget and what a C change costs
 
 - **T2 space:** on main at `735c8d7`, `blob.go` `T2End = 0x80413408`, and T2's budget now ends at
-  the API region, `0x80414000` (`wwops.h`, `wwapi/mailbox/ops.go` `OpsAddr`):
+  the API region, `0x80415000` (`wwops.h`, `wwapi/mailbox/ops.go` `OpsAddr`):
   **0xBF8 bytes free**. The card's "0x478" is from before wind#80, and the 0x21F8 measured at
   `a9dbc82` is from before wind#90's API region. The hook, `ws_clip_aspect`, `ws_init`, the op
   handler and one `WwModuleDesc` entry come to roughly 0x80-0x100 bytes. Putting the mod in its
@@ -396,7 +396,7 @@ Each step is small enough to commit on its own. The checks are CLAUDE.md's "Chec
 7. **Live check on the Mac rig** (take a `ww/dolphin-slot-<n>` lease, rig per docs/mac-rig.md, the
    fixture's hack settings, the new start save). With the real hook, the JIT is fine, so no
    interpreter is needed:
-   1. `wwdev peek 0x8041596C` shows the magic. `wwdev peek 0x803A575C` shows `0x3FDA740E` (1.7067).
+   1. `wwdev peek 0x8041696C` shows the magic. `wwdev peek 0x803A575C` shows `0x3FDA740E` (1.7067).
    2. Turn the camera so actors sit in the band (`wwdev input 0x0000 -60 0 3000`, repeated). Run
       `wwdev cull-probe`: no actor with tanH between 0.739 and 0.985 inside the far plane may be NODRAW.
    3. `ww-multiplayer widescreen off`, then `cull-probe`: the same actors are NODRAW again, and

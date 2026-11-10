@@ -63,25 +63,25 @@ func TestModRegions(t *testing.T) {
 		t.Error("canary regions do not border T2, the mailbox, the REL hook words, the enemy and remote-Link blocks, the knob table, the refresh block, the visuals block, the boats block, the eye packets, the projectile block and the arena")
 	}
 	// The enemy region ends at the WWENEMY_REGION_END the REL uses, past
-	// its collision objects (0x80415410), where the remote-Link region
-	// starts; that ends at 0x80415750 past the WWRP block, the knob table
-	// (layout 4) runs to 0x804157B0, the actor_refresh request (batch D) to
-	// 0x804157D0, the visuals block to 0x804158E4 (0x80415890 before
+	// its collision objects (0x80416410), where the remote-Link region
+	// starts; that ends at 0x80416750 past the WWRP block, the knob table
+	// (layout 4) runs to 0x804167B0, the actor_refresh request (batch D) to
+	// 0x804167D0, the visuals block to 0x804168E4 (0x80416890 before
 	// WWMB_LAYOUT 3's third slot and the wave-3 models2 table), the peer
-	// boats block to 0x8041596C, and CanaryArenaHigh is the rest of the
-	// slack up to the mini-Links' eye packets, 0x80415984..0x80415C00 =
+	// boats block to 0x8041696C, and CanaryArenaHigh is the rest of the
+	// slack up to the mini-Links' eye packets, 0x80416984..0x80416C00 =
 	// 0x27C (0x294 before the widescreen block, 0x31C before the boats block); the packets run to the
-	// projectile events block (0x80415D50), and that to the arena
-	// (0x80416000). CanaryArena stops at the REL's
-	// exec-hook word (0x804150BC).
+	// projectile events block (0x80416D50), and that to the arena
+	// (0x80417000). CanaryArena stops at the REL's
+	// exec-hook word (0x804160BC).
 	if EnemyBlockRegion.End != Mailbox+EnemyRegionEnd {
 		t.Errorf("enemy region ends at 0x%08X, not Mailbox+EnemyRegionEnd 0x%08X", EnemyBlockRegion.End, Mailbox+EnemyRegionEnd)
 	}
-	if EnemyRegionEnd != 0x510 || Mailbox+EnemyRegionEnd != 0x80415410 {
-		t.Errorf("EnemyRegionEnd 0x%X (0x%08X), want 0x510 (0x80415410)", EnemyRegionEnd, Mailbox+EnemyRegionEnd)
+	if EnemyRegionEnd != 0x510 || Mailbox+EnemyRegionEnd != 0x80416410 {
+		t.Errorf("EnemyRegionEnd 0x%X (0x%08X), want 0x510 (0x80416410)", EnemyRegionEnd, Mailbox+EnemyRegionEnd)
 	}
-	if RemoteBlockRegion.Start != 0x80415410 || RemoteBlockRegion.End != 0x80415750 || RELHookRegion != (addr.Region{Name: RELHookRegion.Name, Start: 0x804150BC, End: 0x804150C4}) {
-		t.Errorf("remote-Link region 0x%08X-0x%08X, hook words 0x%08X-0x%08X; want 0x80415410-0x80415750, 0x804150BC-0x804150C4",
+	if RemoteBlockRegion.Start != 0x80416410 || RemoteBlockRegion.End != 0x80416750 || RELHookRegion != (addr.Region{Name: RELHookRegion.Name, Start: 0x804160BC, End: 0x804160C4}) {
+		t.Errorf("remote-Link region 0x%08X-0x%08X, hook words 0x%08X-0x%08X; want 0x80416410-0x80416750, 0x804160BC-0x804160C4",
 			RemoteBlockRegion.Start, RemoteBlockRegion.End, RELHookRegion.Start, RELHookRegion.End)
 	}
 	if CanaryTRK.Size() != 0x3050 || CanaryArena.Size() != 0x0C || CanaryArenaHigh.Size() != 0x27C || EnemyBlockRegion.Size() != 0x348 || RemoteBlockRegion.Size() != 0x340 {

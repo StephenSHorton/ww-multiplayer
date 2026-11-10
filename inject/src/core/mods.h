@@ -34,6 +34,16 @@ void mp_draw_post(void* link);
 void ws_init(void);
 f32 ws_clip_aspect(f32 aspect);
 f32 ws_live_factor(void);
+// Stages 2-3 (native-widescreen.md section 5): ws_2d_factor is the latched
+// 2D factor every 2D reader uses (1.0 unless 2D is compressed);
+// ws_screen_name is hook A's stash of J2DScreen::set's name, consumed by
+// ws_screen_loaded (hook B: the screen table, the latch on EPOCH).
+f32 ws_2d_factor(void);
+// Stage 4 (section 8): ws_frame_any is the WS module's frame_any step, the
+// THP movies' polygon width (T-9); it runs every frame, Link or not.
+void ws_frame_any(fopAc_ac_c* link);
+extern const char* ws_screen_name;
+void ws_screen_loaded(u8* scrn, int ok);
 
 typedef struct {
     u32 id;                                 // four characters, e.g. 'MP  '

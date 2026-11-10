@@ -10,7 +10,7 @@
 // `#define NAME value // comment`, a plain decimal or hex number: no
 // expressions, no negatives.
 //
-// Place: MAILBOX_ADDR + 0xA6C (0x8041596C), right after the boats block
+// Place: MAILBOX_ADDR + 0xA6C (0x8041696C), right after the boats block
 // (wwboat.h, +0x9E4..+0xA6C), at the start of what was CanaryArenaHigh
 // (which now starts at this block's end, +0xA84).
 //
@@ -22,14 +22,17 @@
 //                       camera's aspect through the 4/3 knob)
 //   +0x08 f32 factor    output aspect / (4/3), in [1, 3]
 //   +0x0C u8  flags     WWWS_F_* (stored & WWWS_FLAGS_SUPPORTED)
-//   +0x0D u8  ui_mode   latched 2D mode (0 or 2); 0 in this build
-//   +0x10 f32 ui_factor latched 2D factor; 1.0 in this build
-//   +0x14 f32 ui_shift  latched HUD edge shift; 0 in this build
+//   +0x0D u8  ui_mode   latched 2D mode: 2 while 2D is compressed, else 0
+//   +0x10 f32 ui_factor latched 2D factor; 1.0 unless ui_mode is 2
+//   +0x14 f32 ui_shift  latched HUD edge shift 329.5 * (ui_factor - 1)
+//                       with WWWS_F_HUD, else 0
+// The ui_* fields move only at boot and when an EPOCH screen loads
+// (main_parts1.blo, main_parts_fileselect.blo: src/ws ws_latch).
 #ifndef WW_WWWS_H
 #define WW_WWWS_H
 
-#define WWWS_OFF              0xA6C       // block start, from MAILBOX_ADDR (0x8041596C)
-#define WWWS_SIZE             0x18        // ends +0xA84 (0x80415984)
+#define WWWS_OFF              0xA6C       // block start, from MAILBOX_ADDR (0x8041696C)
+#define WWWS_SIZE             0x18        // ends +0xA84 (0x80416984)
 #define WWWS_MAGIC            0x57575753  // 'WWWS'
 #define WWWS_VERSION          1           // layout version in +0x04
 #define WWWS_MAGIC_OFF        0x00        // u32
@@ -45,7 +48,7 @@
 #define WWWS_MODE_NATIVE      2           // mode: the camera's aspect, through the 3D knob
 #define WWWS_F_2D             0x01        // flags: compress 2D in mode 2 (stage 2)
 #define WWWS_F_HUD            0x02        // flags: anchor the HUD to the edges (stage 3)
-#define WWWS_FLAGS_SUPPORTED  0x00        // the flags this build supports (stage 1: none)
+#define WWWS_FLAGS_SUPPORTED  0x03        // the flags this build supports (stage 3: WWWS_F_2D | WWWS_F_HUD)
 #define WWWS_KNOB_ADDR        0x803FA998  // the 4/3 literal preparation() reads for view->mAspect
 #define WWWS_KNOB_VANILLA     0x3FAAAAAB  // 4/3 as an f32
 #define WWWS_FACTOR_MAX_BITS  0x40400000  // 3.0f

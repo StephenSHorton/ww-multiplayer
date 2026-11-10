@@ -72,6 +72,7 @@
 #include "mailbox_core.h"
 #include "wwvis.h"
 #include "visuals.h"
+#include "ws.h"
 
 #define VIS_WORD(off) (*(volatile u32*)(MAILBOX_ADDR + WWVIS_OFF + (off)))
 #define VIS_BYTE(off) (*(volatile u8*)(MAILBOX_ADDR + WWVIS_OFF + (off)))
@@ -568,9 +569,19 @@ static void vis_tag_queue(int slot, J3DModel* model) {
     mDoLib_project(&anchor, &screen);
     // The hack draws the remote at centre + (x - centre) * xs: the tag goes
     // there too, and is culled there (the hack shows past the 4:3 edges).
+    // With native widescreen's 2D compressed (F != 1; native-widescreen.md
+    // 3.7) the EFB px are the whole screen: cull them, put the tag on the
+    // 2D x that lands on the same pixel and draw its glyphs at width 1.
+    f32 F = relws_2d_factor();
     f32 xs = vis_xscale();
     f32 sx = 320.0f + (screen.x - 320.0f) * xs;
-    if (sx < -TAG_MARGIN || sx > 640.0f + TAG_MARGIN ||
+    f32 cx = sx;
+    if (F != 1.0f) {
+        xs = 1.0f;
+        cx = screen.x;
+        sx = 320.5f + (screen.x - 320.5f) * F;
+    }
+    if (cx < -TAG_MARGIN || cx > 640.0f + TAG_MARGIN ||
         screen.y < -TAG_MARGIN || screen.y > 480.0f + TAG_MARGIN) return;
 
     f32 t = (depth - TAG_DEPTH_NEAR) / (TAG_DEPTH_SMALL - TAG_DEPTH_NEAR);
@@ -633,7 +644,7 @@ void wwvis_lobby_draw(void) {
     u8* dl = (u8*)GI_DRAWLIST;
     tag->vtbl = vis_tag_vtbl;
     tag->x = LOBBY_X;
-    tag->xs = vis_xscale();
+    tag->xs = relws_2d_factor() != 1.0f ? 1.0f : vis_xscale();   // native 2D: no hack to undo
     tag->y = LOBBY_Y;
     tag->px = LOBBY_PX;
     tag->alpha = 0xFF;

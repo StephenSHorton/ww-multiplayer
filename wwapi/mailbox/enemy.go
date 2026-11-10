@@ -263,7 +263,7 @@ const (
 	// D3): live quiet / tg_hit_up / invuln_wait for kind ids 3..15, written
 	// as its own write before the block naming its gen (EnemyKnobs). Tuning
 	// only: an invalid table is the compiled values, never a hook turned on.
-	EnemyKnobOff        uint32 = 0x850 // 0x80415750, past the remote-Link block
+	EnemyKnobOff        uint32 = 0x850 // 0x80416750, past the remote-Link block
 	EnemyKnobSize       uint32 = 0x60  // +0x850..+0x8B0
 	EnemyKnobKinds             = 16    // rows per field, by kind id
 	EnemyKnobGenHeadOff        = 0x00  // u32 == the blocks' knob_gen

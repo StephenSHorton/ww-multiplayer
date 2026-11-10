@@ -65,19 +65,19 @@ state in the actor either way.
 ## The mailbox slack words
 
 `Mailbox` (`inject/include/mailbox_core.h`) is 0x1B0 bytes at
-`MAILBOX_ADDR` 0x80414F00; `__OSArenaLo` is 0x80416000, so 0xF50 bytes
+`MAILBOX_ADDR` 0x80415F00; `__OSArenaLo` is 0x80417000, so 0xF50 bytes
 past the struct belong to nobody. The module uses the first six words.
 The struct and its size are unchanged; the offsets are `#define`s in
 `rel_main.c`, read by `extract_blob.py` into `blob.go`.
 
 | Offset from MAILBOX_ADDR | Address    | Word                | Writer                    |
 |--------------------------|------------|---------------------|---------------------------|
-| +0x1B0 `WWREL_MAGIC_OFF` | 0x804150B0 | `'WWRL'` 0x5757524C | `_prolog` sets, `_epilog` clears |
-| +0x1B4 `WWREL_BUILD_ID_OFF` | 0x804150B4 | build id          | `_prolog`                 |
-| +0x1B8 `WWREL_FRAME_OFF` | 0x804150B8 | frame counter       | `_prolog` zeroes, execute +1 |
-| +0x1BC `WWREL_EXEC_HOOK_OFF` | 0x804150BC | `&wwrel_exec_hook` | `_prolog` sets last, `_epilog` clears first; T2's exec shim branches to it |
-| +0x1C0 `WWREL_SWAP_STATE_OFF` | 0x804150C0 | keeper + 0x458 (remote.c's swap state) | keeper create sets, keeper delete and `_epilog` clear |
-| +0x1C4 `WWREL_SHANM_OFF` | 0x804150C4 | the full bodies' shanm table (archive heap, `'WWSA'`) | T2's `main01_init` zeroes it at boot; the first full create sets it; never cleared after (not by `_epilog`), never freed |
+| +0x1B0 `WWREL_MAGIC_OFF` | 0x804160B0 | `'WWRL'` 0x5757524C | `_prolog` sets, `_epilog` clears |
+| +0x1B4 `WWREL_BUILD_ID_OFF` | 0x804160B4 | build id          | `_prolog`                 |
+| +0x1B8 `WWREL_FRAME_OFF` | 0x804160B8 | frame counter       | `_prolog` zeroes, execute +1 |
+| +0x1BC `WWREL_EXEC_HOOK_OFF` | 0x804160BC | `&wwrel_exec_hook` | `_prolog` sets last, `_epilog` clears first; T2's exec shim branches to it |
+| +0x1C0 `WWREL_SWAP_STATE_OFF` | 0x804160C0 | keeper + 0x458 (remote.c's swap state) | keeper create sets, keeper delete and `_epilog` clear |
+| +0x1C4 `WWREL_SHANM_OFF` | 0x804160C4 | the full bodies' shanm table (archive heap, `'WWSA'`) | T2's `main01_init` zeroes it at boot; the first full create sets it; never cleared after (not by `_epilog`), never freed |
 
 The build id is a CRC-32 of `inject/rel`'s sources (`build.py`
 `rel_build_id`, passed as `-DWWREL_BUILD_ID`), also exported as
@@ -312,7 +312,7 @@ hook-disable bytes for kind ids 7..14 (BB +0x28, batch D's MT +0x29;
 inside Go's seq span, read live by `em_hkd`), +0x194 the REL's
 echo of the knob table it validated (0 when none or invalid, so Go
 rewrites a clobbered table), +0x196 a saturating count of BB and MT fingerprint misses. The knob table at
-mailbox +0x850 (0x80415750, 0x60 bytes, its own write) is valid when the
+mailbox +0x850 (0x80416750, 0x60 bytes, its own write) is valid when the
 block's `knob_gen` is nonzero and equals its head and tail words, its
 layout is 4 and it has a row per kind; then ids 3..15 take their quiet
 frames, `tg_hit_up` (not TN: its annex byte 0x1FB stays) and invuln wait
@@ -733,7 +733,7 @@ and the death camera sets STAGE_BOSS_ENEMY. The result bytes are
 
 Batch D's Tier 3 stale-actor refresh (`design/enemy-mirror-batch-d.json`
 R-D4, R-D5, D4-D7), under `WWREFRESH_ENABLE`. The request is 0x20 bytes at
-`MAILBOX_ADDR + 0x8B0` (0x804157B0, `include/wwrefresh.h`), past the
+`MAILBOX_ADDR + 0x8B0` (0x804167B0, `include/wwrefresh.h`), past the
 enemy knob table; the keeper's create consumes a stale seq, as boss_kill's
 does, and its execute runs a new one after boss_kill. It deletes one
 actor of five allow-listed procs (Stone2, Obj_Leaves, daItem, Tbox, Saku)
@@ -750,12 +750,12 @@ the proc's state as found. Stateless; nothing is added to the keeper.
 
 ## visuals.c: the remote players' visuals
 
-The block is `include/wwvis.h` at `MAILBOX_ADDR + 0x8D0` (0x804157D0,
+The block is `include/wwvis.h` at `MAILBOX_ADDR + 0x8D0` (0x804167D0,
 0x114 bytes, right after the actor_refresh request; it was 0xC0 bytes
 before WWMB_LAYOUT 3's third slot and the second model table at +0xF0,
 the mirror shield, Master Sword scabbard and katsura models). Go's
 `wwapi/mailbox/vis.go` mirrors it. The peer boats block (`include/wwboat.h`,
-`boats.c`) follows it at 0x804158E4..0x8041596C, and `CanaryArenaHigh` runs
+`boats.c`) follows it at 0x804168E4..0x8041696C, and `CanaryArenaHigh` runs
 from there to the eye packets. Its first word is `&wwvis_draw_hook`, published by
 `_prolog` just before the exec hook word and cleared by `_epilog` first;
 T2's `main01_init` zeroes it (and the model words) at boot. T2's
@@ -840,7 +840,7 @@ in `REL_TEXT_CALLBACKS`. Adapted from datstarkey/ww-online
 ww-online review idea 5, adapted from their `puppet_fx.c` (`fx.c` carries
 their MIT notice); design: handoff `archive/ww-online-review/
 DESIGN-big-items.md` (a), option A. The block is `include/wwfx.h` at
-`MAILBOX_ADDR + 0xE50` (0x80415D50, 0x2B0 bytes, the top of the slack up
+`MAILBOX_ADDR + 0xE50` (0x80416D50, 0x2B0 bytes, the top of the slack up
 to the arena; Go's `wwapi/mailbox/fx.go` mirrors it; the mini-Links' eye
 packets sit right below it, +0xD00..+0xE50, and `CanaryArenaHigh` ends at
 theirs). `fx_frame` runs last in the keeper's execute. No

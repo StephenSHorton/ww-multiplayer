@@ -138,7 +138,7 @@
 #define EM_STTS_SIZE 0x3C
 
 // The block must lie past the REL words (wwrel.h) and below the arena
-// (0x80416000, inject/build.py's OSInit patch), and its pieces must nest.
+// (0x80417000, inject/build.py's OSInit patch), and its pieces must nest.
 typedef char em_check_block_start[(WWENEMY_OFF >= WWREL_FRAME_OFF + 4 && WWENEMY_OFF >= sizeof(Mailbox)) ? 1 : -1];
 typedef char em_check_block_end[(MAILBOX_ADDR + WWENEMY_OFF + WWENEMY_SIZE <= ARENA_LO) ? 1 : -1];
 typedef char em_check_slots[(WWENEMY_SLOTS_OFF + WWENEMY_MAX_SLOTS * WWENEMY_SLOT_SIZE <= WWENEMY_HIT_APPLY_OFF) ? 1 : -1];

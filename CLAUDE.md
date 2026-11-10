@@ -85,7 +85,7 @@ ww-multiplayer/
 ├── inject/                      # C source for the injected PPC code (split into core + the multiplayer mod in Phase E3, docs/api §6.6)
 │   ├── src/core/                # The core: hooks.c (main01_init, frame_shim + multiplayer_update, daPy_draw_hook, pad_read_shim, exec_shim, seachart_shim; the fixed call
 │   │                            #   order; the mods through the WwModuleDesc table ww_modules[]), services.c (warp, tunic images + swap, face tev blocks + snapshot, pose publish),
-│   │                            #   ops.c (the API region at 0x80414000: event ring ww_event_push, command queue ww_cmd_register + the per-frame drain, core ops ECHO/KILL; wind#90),
+│   │                            #   ops.c (the API region at 0x80415000: event ring ww_event_push, command queue ww_cmd_register + the per-frame drain, core ops ECHO/KILL; wind#90),
 │   │                            #   core.h (core-only decls), mods.h (the mod entry points the hooks call)
 │   ├── src/mp/                  # The multiplayer mod: mp.h (PROC_* list, eye joints), puppets.c (actor puppets), minilink.c (mini-Links, pose feed,
 │   │                            #   eye fix; mp_frame, mp_draw_post), face.c (face hook arm/disarm, per-slot face bracket)
@@ -106,6 +106,7 @@ ww-multiplayer/
 ├── tools/
 │   ├── blobstamp/               # Writes/checks internal/inject/blob.stamp
 │   ├── gen_mailbox/             # inject/include/mailbox_core.h (+ mailbox_mp.h) -> wwapi/mailbox/layout_gen.go (go generate ./wwapi/mailbox)
+│   ├── gen_wstable/             # The widescreen J2D screen table: rows.go -> inject/include/wstable_gen.h (-check; -names <disc> rewrites testdata/blo_names.txt, the vanilla DOL+RELs' .blo name strings; -geom <disc> rewrites testdata/geom_hits.txt, every disc pane the global GEOM rule widens; docs/design/native-widescreen.md 3.3)
 │   ├── mkicns/                  # docs/img/icon.ico -> docs/img/icon.icns (macOS app icon; go generate ./cmd/ww-multiplayer)
 │   ├── validate_manifests/      # Checks the mods' mod.json manifests (local checks run it)
 │   ├── check_game_files/        # Fails on a tracked game file or save (local checks) and on any release asset holding one (release.yml)

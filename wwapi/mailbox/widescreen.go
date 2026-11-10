@@ -13,8 +13,8 @@ import (
 // header). Only T2 (inject/src/ws/widescreen.c) writes it; Go reads it for
 // status and changes it through WWAP_OP_WS_SET (OpWsSet).
 const (
-	WsOff  uint32 = 0xA6C // block start, from Mailbox (0x8041596C)
-	WsSize uint32 = 0x18  // ends +0xA84 (0x80415984), where CanaryArenaHigh starts
+	WsOff  uint32 = 0xA6C // block start, from Mailbox (0x8041696C)
+	WsSize uint32 = 0x18  // ends +0xA84 (0x80416984), where CanaryArenaHigh starts
 
 	WsMagic   uint32 = 0x57575753 // 'WWWS'
 	WsVersion        = 1
@@ -35,7 +35,7 @@ const (
 	WsF2D  = 0x01 // flags: compress 2D in mode 2 (stage 2)
 	WsFHUD = 0x02 // flags: anchor the HUD to the edges (stage 3)
 
-	WsFlagsSupported = 0x00 // the flags the stage-1 blob supports
+	WsFlagsSupported = 0x03 // the flags the blob supports (stage 3: WsF2D | WsFHUD)
 
 	WsKnobAddr    uint32 = 0x803FA998 // the 4/3 literal preparation() reads for view->mAspect
 	WsKnobVanilla uint32 = 0x3FAAAAAB // 4/3 as an f32
@@ -50,7 +50,7 @@ const (
 // OpWsSet is WWAP_OP_WS_SET: a = mode, b = factor f32 bits, c = flags.
 const OpWsSet = OpsOpWsSet
 
-// WsAddr is the block's absolute address (0x8041596C).
+// WsAddr is the block's absolute address (0x8041696C).
 const WsAddr = Mailbox + WsOff
 
 // WsRegion is the widescreen block, which the region probe must not arm.
@@ -95,9 +95,50 @@ func ReadWidescreen(m interface {
 // WsFactorValid reports whether WS_SET would accept f (NaN fails).
 func WsFactorValid(f float32) bool { return f >= WsFactorMin && f <= WsFactorMax }
 
+// Pending2D reports that the 2D does not yet follow the live mode: the
+// next latch would differ from the current one. 2D compression is asked
+// for and not latched, or latched and no longer asked for, or latched with
+// another factor or HUD shift (a mid-stage aspect or WsFHUD change). The
+// 2D latch moves only when a stage or the file select loads
+// (native-widescreen.md sections 3.3 and 5).
+func (w Widescreen) Pending2D() bool {
+	if !w.Present {
+		return false
+	}
+	if !w.Wants2D() {
+		return w.UIMode == WsModeNative
+	}
+	return w.UIMode != WsModeNative || w.UIFactor != w.Factor || w.UIShift != w.wantShift()
+}
+
+// wantShift is ws_latch's ui_shift for a block that Wants2D:
+// 329.5*(F-1) in f32 with WsFHUD, else 0.
+func (w Widescreen) wantShift() float32 {
+	if w.Flags&WsFHUD == 0 {
+		return 0
+	}
+	return float32(329.5) * (w.Factor - 1)
+}
+
+// Wants2D is ws_latch's test (widescreen.c): the next latch compresses the
+// 2D when the block is mode 2 with WsF2D and a valid factor other than 1
+// (ws_live_factor() != 1). At factor 1 compression would change nothing,
+// so C latches ui_mode 0 there.
+func (w Widescreen) Wants2D() bool {
+	return w.Mode == WsModeNative && w.Flags&WsF2D != 0 && WsFactorValid(w.Factor) && w.Factor != 1
+}
+
+// Pending2DNote is what the Play page and the CLI show while Pending2D.
+const Pending2DNote = "2D pending until the next stage load"
+
 func (w Widescreen) String() string {
 	if !w.Present {
 		return "no widescreen block"
 	}
-	return fmt.Sprintf("mode %d factor %.4f flags 0x%02X", w.Mode, w.Factor, w.Flags)
+	s := fmt.Sprintf("mode %d factor %.4f flags 0x%02X; 2D mode %d factor %.4f shift %.2f",
+		w.Mode, w.Factor, w.Flags, w.UIMode, w.UIFactor, w.UIShift)
+	if w.Pending2D() {
+		s += " (" + Pending2DNote + ")"
+	}
+	return s
 }

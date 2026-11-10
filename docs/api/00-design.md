@@ -34,7 +34,7 @@ The plan:
 | 5 | Dead C experiments (D2) | **Delete** shadow modes 1-4, the echo ring, the eye-fix probe steps 1-7 and modes 1-2 (the default step 8 eye fix is live and stays) and the `dbg_*` fields (Phase E). **Keep shadow_mode 5**, the live pose-feed mode. **Keep the legacy KAMOME/NPC_OB1 actor puppets** (`move-puppet`, `unhide-puppet`, `broadcast-link` paths): they still draw every remote beyond the 2 mini-Link slots, so they are what players 3 and 4 see. They go only when the mini-Link slot count covers the player count. An actor comes up only after 2 s (`actorGrace`) of in-play time with no link slot for the remote, and goes down when this game leaves play; the C side deletes it when its slot goes inactive and on every stage change (docs/05, "Actor puppets outlived their slot"). Caveat: live, a third remote currently freezes both games, on origin/main too (F1 in [05-known-issues.md](../05-known-issues.md)), so this fallback is not shown to work; this decision and E2 must not count on it until F1 is fixed. |
 | 6 | ~60 research subcommands | **Move to a separate `cmd/wwdev` binary**, built in CI and not shipped. Delete only the ones tied to removed C modes. |
 | 7 | Timing | **Phase A now; Phase B after #74 (now merged); Phase C after app PR 9 and the owner's uncommitted `ww-multiplayer` work land.** One package per PR, landed quickly. |
-| 8 | C runtime and arena | **Defer** the C dispatcher, event ring, command queue and arena move **until co-op M7 needs them.** Then use docs/08 §4.5 **Option A** (+8 KB, arenaLo 0x80416000), gated on the heap error counters. |
+| 8 | C runtime and arena | **Defer** the C dispatcher, event ring, command queue and arena move **until co-op M7 needs them.** Then use docs/08 §4.5 **Option A** (+8 KB, arenaLo 0x80416000; native widescreen's lever 4 later took 4 KB more, 0x80417000), gated on the heap error counters. |
 | 9 | Event model | **Polled snapshot edges only, 10 Hz by default, 30 Hz as an option.** The docs say in bold that game events are polled, not in-game callbacks, so short toggles can be missed. |
 | 10 | Write safety | **Each mod declares the address set it may write.** The sets must not overlap (checked at Init). Every write goes through `wwapi/write` (gate, heartbeat, verify, breaker), and a backup is taken before a mod's first save write. |
 | 11 | Splitting `runPuppetSyncCtx` | Do it inside C12 and D1, only after the probes are gone. Keep a two-Dolphin smoke checklist: pose, face, colors, stage change, leave and reset. |
@@ -61,40 +61,40 @@ The plan:
 
  0x8040EFC0   original __ArenaLo (vanilla)
  0x80410000   T2 code start (injected .text/.data/.bss)
- 0x80413728   T2 end since #1185 (widescreen stage 1, src/ws/widescreen.c and its two hooks, +0x320) -> 0x8D8 bytes free below the API region; T2's budget ends at 0x80414000
- 0x80414000   API region (inject/include/wwops.h, wind#90): 'WWAP' header and directory, event ring, command queue (to +0x260);
-              the co-op world region at +0x300..+0xF00 (0x80414300..0x80414F00, reserved for co-op M7's image)
+ 0x80413728   T2 end since #1185 (widescreen stage 1, src/ws/widescreen.c and its two hooks, +0x320) -> 0x8D8 bytes free below the API region; T2's budget ends at 0x80415000
+ 0x80415000   API region (inject/include/wwops.h, wind#90): 'WWAP' header and directory, event ring, command queue (to +0x260);
+              the co-op world region at +0x300..+0xF00 (0x80415300..0x80415F00, reserved for co-op M7's image)
               (before #1185: T2 end 0x80413408 -> 0xBF8 free since wind#90 (the C runtime's rings, src/core/ops.c))
               (before wind#90: T2 end 0x80412D08 -> 0x21F8 bytes free below the mailbox since wind#80 moved it +0x2000 (issue #130; 0x1F8 before, 0x258 with the REL loader, T2 end 0x80412CA8; 0x478 after F20, T2 end 0x80412A88; 0x538 after F19; 0x478 after E3; 0x958 after E1/E2; 0x978 after E0; 0x18 before E0, T2 end 0x80412EE8))
- 0x80414F00   Mailbox start (0x1B0 bytes since E1; 0x1A0 before)
- 0x804150B0   Mailbox end                 -> 0xF50 bytes slack, of which:
- 0x804150B0   the REL module's words (mailbox +0x1B0..+0x1BC, inject/include/wwrel.h):
+ 0x80415F00   Mailbox start (0x1B0 bytes since E1; 0x1A0 before)
+ 0x804160B0   Mailbox end                 -> 0xF50 bytes slack, of which:
+ 0x804160B0   the REL module's words (mailbox +0x1B0..+0x1BC, inject/include/wwrel.h):
               'WWRL' magic, build id, frame counter; written by inject/rel/rel_main.c
- 0x804150BC   the REL's remote-Link words (mailbox +0x1BC..+0x1C4, wwrel.h): WWREL_EXEC_HOOK_OFF (T2's
+ 0x804160BC   the REL's remote-Link words (mailbox +0x1BC..+0x1C4, wwrel.h): WWREL_EXEC_HOOK_OFF (T2's
               exec_shim branches to it) and WWREL_SWAP_STATE_OFF (the keeper's swap state); never canary-armed
- 0x804150C4   WWREL_SHANM_OFF (mailbox +0x1C4): the remote-Link full bodies' shanm table, an archive-heap
+ 0x804160C4   WWREL_SHANM_OFF (mailbox +0x1C4): the remote-Link full bodies' shanm table, an archive-heap
               block allocated once per boot and never freed; T2's main01_init zeroes it, the REL never clears it
- 0x804150C8   free slack up to the enemy block (0x38 bytes, unprobed)
- 0x80415100   the enemy-mirror block (mailbox +0x200..+0x398, inject/include/wwenemy.h, layout 2):
+ 0x804160C8   free slack up to the enemy block (0x38 bytes, unprobed)
+ 0x80416100   the enemy-mirror block (mailbox +0x200..+0x398, inject/include/wwenemy.h, layout 2):
               Go writes +0x00..+0x124 per tick, inject/rel/enemy_mirror.c writes +0x124..+0x198
- 0x804152A0   the host's v2 At sphere, a dCcD_Sph image (mailbox +0x3A0..+0x4CC, WWENEMY_SPH_OFF)
- 0x804153D0   its dCcD_Stts (mailbox +0x4D0..+0x50C, WWENEMY_STTS_OFF); enemy sync ends at +0x510
- 0x80415410   free slack (a co-op region here would start at mailbox +0x510, WWENEMY_REGION_END)
+ 0x804162A0   the host's v2 At sphere, a dCcD_Sph image (mailbox +0x3A0..+0x4CC, WWENEMY_SPH_OFF)
+ 0x804163D0   its dCcD_Stts (mailbox +0x4D0..+0x50C, WWENEMY_STTS_OFF); enemy sync ends at +0x510
+ 0x80416410   free slack (a co-op region here would start at mailbox +0x510, WWENEMY_REGION_END)
               (since then: the remote-Link block +0x510..+0x850, the knob table, the refresh request and
               the visuals block +0x8D0..+0x9E4 (0x990 before WWMB_LAYOUT 3, 0x9C0 before the wave-3 models2
               table); the peer boats block +0x9E4..+0xA6C (wwboat.h); the widescreen block +0xA6C..+0xA84
-              (0x8041596C, 'WWWS', wwws.h, #1185; only C writes it, Go submits WWAP_OP_WS_SET 16);
+              (0x8041696C, 'WWWS', wwws.h, #1185; only C writes it, Go submits WWAP_OP_WS_SET 16);
               free slack +0xA84..+0xD00, where CanaryArenaHigh starts)
- 0x80415C00   the mini-Links' eye packets (mailbox +0xD00..+0xE50, MP_EYE_PACKETS_OFF in mailbox_mp.h,
+ 0x80416C00   the mini-Links' eye packets (mailbox +0xD00..+0xE50, MP_EYE_PACKETS_OFF in mailbox_mp.h,
               WWMB_LAYOUT 3: 3 slots x 4 J3DPacket copies x 0x1C; were T2 .bss, then +0xFB0); never canary-armed
- 0x80415D50   the projectile events block (mailbox +0xE50..+0x1100, inject/include/wwfx.h WWFX_OFF;
+ 0x80416D50   the projectile events block (mailbox +0xE50..+0x1100, inject/include/wwfx.h WWFX_OFF;
               Go's magic and ring words, the REL's counters and two event rings); never canary-armed
- 0x80416000   patched __ArenaLo (OSInit patched by build.py; ARENA_LO in mailbox_core.h; 0x80414000 before wind#80)
+ 0x80417000   patched __ArenaLo (OSInit patched by build.py; ARENA_LO in mailbox_core.h; 0x80414000 before wind#80, 0x80416000 before widescreen lever 4)
 ```
 
 (verified: `inject/build.py`, `inject/include/mailbox_core.h`, `internal/inject/blob.go` T2Bytes = 0x3728 since #1185 (0x3408 after wind#90, 0x2CA8 after the REL loader (2026-10-18, src/mp/relload.c); 0x2A88 after F20, 0x29C8 after F19, 0x2A88 after E3, 0x25A8 after E1/E2, 0x2588 after E0, 0x2EE8 before it), `t2_budget_test.go`; blob.go's `T2End`, `MailboxAddr` and `ArenaLo` carry these since E1)
 
-**Mailbox layout** at 0x80414F00 (the source of truth is `inject/include/mailbox_core.h` and the `mailbox_mp.h` it includes, split from `mailbox.h` in E3 with the same offsets; `tools/gen_mailbox` generates the Go copy, `wwapi/mailbox/layout_gen.go`, and `TestMailboxLayout` fails when it is stale):
+**Mailbox layout** at 0x80415F00 (the source of truth is `inject/include/mailbox_core.h` and the `mailbox_mp.h` it includes, split from `mailbox.h` in E3 with the same offsets; `tools/gen_mailbox` generates the Go copy, `wwapi/mailbox/layout_gen.go`, and `TestMailboxLayout` fails when it is stale):
 
 | Offset | Field(s) | Owner | Future home |
 |---|---|---|---|
@@ -120,7 +120,7 @@ The plan:
 | +0x1A0..+0x1A3 | `features` u32 (the `WW_FEAT_*` bits; E1, at +0x1A0 in every layout) | C (main01_init) | core |
 | +0x1A4..+0x1AF | `tunic_state` +0x1A4, `tunic_swaps` +0x1A8, padding (layout 3; the mailbox ends at +0x1B0) | C | core |
 
-**Option A, as built (wind#80, wind#90):** arenaLo is 0x80416000, the mailbox 0x80414F00, and the API RAM is a fixed range right below it, 0x80414000..0x80414F00 (`wwops.h`); T2 has 0x80410000..0x80414000 (16 KB, `TestT2EndsBelowMailbox`). Go reads the mailbox address from `blob.go` and, if no magic is there, probes the old address and reports `BlobMismatch` instead of reading garbage.
+**Option A, as built (wind#80, wind#90; moved up 0x1000 by native widescreen's lever 4, docs/design/native-widescreen.md section 6):** arenaLo is 0x80417000, the mailbox 0x80415F00, and the API RAM is a fixed range right below it, 0x80415000..0x80415F00 (`wwops.h`); T2 has 0x80410000..0x80415000 (20 KB, `TestT2EndsBelowMailbox`). Go reads the mailbox address from `blob.go` and, if no magic is there, probes the old address and reports `BlobMismatch` instead of reading garbage.
 
 **Facts that shape the plan:**
 - Before E0 only **0x18 bytes** of code space were free. E0 (the D2 code deletion, layout unchanged) freed 0x960, leaving **0x978**; D2 was the only way to free T2 bytes without an arena bump. E1 took 0x20 of that and the E3 split 0x4E0, leaving **0x478**.
@@ -408,7 +408,7 @@ Running post-draw callbacks in reverse keeps today's brackets nested. Drawing mo
 **The C runtime (co-op M7's infrastructure, wind#90, issue #130).** The Option A arena move landed in wind#80. wind#90 added:
 
 - **`WwModuleDesc[]`** (`src/core/mods.h`): one entry per C mod in priority order, `{id, init, frame_any, frame, draw_pre, draw_post}`. The hooks walk it: `init` once from `main01_init` (after the core's `ops_init`, so a mod can register ops), `frame_any` and `frame` each frame, `draw_pre` in order, `draw_post` in reverse order. It is a static table, not generated; the multiplayer mod is its only entry.
-- **API RAM** at 0x80414000 (`include/wwops.h`; Go `wwapi/mailbox/ops.go`, pinned by `TestOpsHeaderPins`): a `'WWAP'` header with a directory (`EVTR`, `CMDQ`, `COOP`), counters, and the two rings; the co-op world region (+0x300, 0xC00) is reserved. `main01_init` clears it at every boot and writes the magic last.
+- **API RAM** at 0x80415000 (`include/wwops.h`; Go `wwapi/mailbox/ops.go`, pinned by `TestOpsHeaderPins`): a `'WWAP'` header with a directory (`EVTR`, `CMDQ`, `COOP`), counters, and the two rings; the co-op world region (+0x300, 0xC00) is reserved. `main01_init` clears it at every boot and writes the magic last.
 - **Event ring** (C to Go, 16 entries): `ww_event_push`; core kinds `BOOT`, `CMD` (each command run) and `ECHO`. A `wwapi.Game`'s watcher drains it each tick as `events.RuntimeEvent` (`core.runtime_event`), so it is the ring's one reader. A full ring drops and counts (at 10 Hz polling, a burst of more than 16 events in one tick is lost).
 - **Command queue** (Go to C, 16 entries; `wwapi/ops`: `Submit`, `Result`, `Wait`, `Run`): docs/08's ring entry `{op, seq, result, check, a, b, c}`, run at most 2 a frame from `multiplayer_update`, before the Link check. C checks seq and the XOR byte and refuses unregistered ops. Core ops are `ECHO` and `KILL`; mods take op numbers from 16. One writer per game: `Game.Ops()`.
 - Feature bit `ops` (`WW_FEAT_OPS`). `wwdev ops status|echo|kill|events` drives it live.

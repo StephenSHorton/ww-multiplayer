@@ -43,7 +43,7 @@ func TestVisHeaderPins(t *testing.T) {
 // in order, the slots match the mini-Link slots, and the high canary
 // starts at its end.
 func TestVisLayout(t *testing.T) {
-	if VisOff != RefreshOff+RefreshSize || VisAddr != 0x804157D0 || VisOff+VisSize > RefreshSlackEnd {
+	if VisOff != RefreshOff+RefreshSize || VisAddr != 0x804167D0 || VisOff+VisSize > RefreshSlackEnd {
 		t.Fatalf("visuals block at +0x%X (0x%08X), size 0x%X", VisOff, VisAddr, VisSize)
 	}
 	if VisNamesOff+VisSlots*VisNameBytes != VisEquipOff || VisEquipOff+VisSlots*4 != VisSeaOff ||

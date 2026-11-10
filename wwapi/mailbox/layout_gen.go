@@ -5,8 +5,8 @@ package mailbox
 // The header's #defines.
 const (
 	// Mailbox is the mailbox's address (MAILBOX_ADDR).
-	Mailbox            uint32 = 0x80414F00
-	ArenaLo                   = 0x80416000 // ARENA_LO
+	Mailbox            uint32 = 0x80415F00
+	ArenaLo                   = 0x80417000 // ARENA_LO
 	WwmbMagic                 = 0x57574D42 // WWMB_MAGIC
 	WwmbAbi                   = 1          // WWMB_ABI
 	WwmbLayout                = 3          // WWMB_LAYOUT

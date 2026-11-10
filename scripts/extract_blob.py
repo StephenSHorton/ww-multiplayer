@@ -56,6 +56,11 @@ OUT = os.path.join(ROOT, "internal", "inject", "blob.go")
 # table says where T2's read-only sections (and .text) start and end.
 ELF = os.path.join(ROOT, "inject", "build", "temp", "WWMultiplayer.o")
 MAILBOX_H = os.path.join(ROOT, "inject", "include", "mailbox_core.h")
+# The C runtime's API region (wind#90): T2's budget ends at its WWAP_ADDR.
+WWOPS_H = os.path.join(ROOT, "inject", "include", "wwops.h")
+# build.py: its proj.hook_branchlink("<fn>", <site>) lines name the hook
+# functions whose linked addresses go into blob.go as HookTargets.
+BUILD_PY = os.path.join(ROOT, "inject", "build.py")
 # The REL module: build.py's relocatable ELF and the source its mailbox
 # slack #defines are read from.
 REL_ELF = os.path.join(ROOT, "inject", "build", "wwrel.elf")
@@ -395,7 +400,28 @@ def main():
     layout = header_define("WWMB_LAYOUT")
     features = header_define("WW_FEATURES")
     arena = arena_lo(patched)
+    # T2 must end at or below the API region: past it the ops rings
+    # overwrite T2's tail at run time (native-widescreen.md section 6).
+    # Refuse to emit a blob.go the patcher would put on a disc.
+    api_addr = source_define(WWOPS_H, "WWAP_ADDR")
+    if t2_end > api_addr:
+        print(f"ERROR: T2 ends at 0x{t2_end:08x}, 0x{t2_end - api_addr:x} bytes past the API region at "
+              f"0x{api_addr:08x} (wwops.h WWAP_ADDR): shrink T2 or move the region "
+              f"(docs/design/native-widescreen.md section 6); blob.go not written", file=sys.stderr)
+        sys.exit(1)
     rel = rel_module(mailbox_addr, arena)
+    # Each hook function's linked address, so the hook-site pins can check
+    # that every rewritten bl lands on the function build.py names.
+    with open(BUILD_PY, encoding="utf-8") as f:
+        hook_fns = sorted(set(re.findall(r'(?m)^\s*proj\.hook_branchlink\("(\w+)"', f.read())))
+    syms = elf_symbols(elf_bytes(ELF))
+    hook_targets = {}
+    for fn in hook_fns:
+        sym = syms.get(fn)
+        if sym is None or sym[0] is None or not (text_start <= sym[1] < text_end):
+            print(f"ERROR: hook function {fn} is not a .text symbol of {ELF}", file=sys.stderr)
+            sys.exit(1)
+        hook_targets[fn] = sym[1]
     name_entry, name_off, name_orig, name_ptr = body_name_patch(orig, patched, rel)
 
     # Diff orig vs patched within the original DOL's footprint to find every
@@ -421,7 +447,8 @@ def main():
     print(f"Extracted T2 blob:")
     print(f"  size:    0x{t2_size:x} ({t2_size} bytes)")
     print(f"  address: 0x{t2_address:08x}")
-    print(f"  end:     0x{t2_end:08x} (mailbox 0x{mailbox_addr:08x}, arena 0x{arena:08x})")
+    print(f"  end:     0x{t2_end:08x} (API region 0x{api_addr:08x}, 0x{api_addr - t2_end:x} free; "
+          f"mailbox 0x{mailbox_addr:08x}, arena 0x{arena:08x})")
     print(f"  .text:   0x{text_start:08x}..0x{text_end:08x}")
     print(f"  hashed:  {', '.join(f'0x{a:08x}..0x{b:08x}' for a, b in hash_ranges)}, CRC-32 0x{blob_hash:08x}")
     print(f"  WWMB:    ABI {abi}, layout {layout}, features 0x{features:x}")
@@ -474,6 +501,9 @@ def main():
     lines.append(f"\tBlobHash uint32 = 0x{blob_hash:08X}")
     lines.append("\t// MailboxAddr is mailbox_core.h's MAILBOX_ADDR.")
     lines.append(f"\tMailboxAddr uint32 = 0x{mailbox_addr:08X}")
+    lines.append("\t// APIRegionAddr is wwops.h's WWAP_ADDR, where T2's budget ends: the")
+    lines.append("\t// patcher refuses a T2 that runs past it.")
+    lines.append(f"\tAPIRegionAddr uint32 = 0x{api_addr:08X}")
     lines.append("\t// ArenaLo is the __OSArenaLo the patched OSInit sets.")
     lines.append(f"\tArenaLo uint32 = 0x{arena:08X}")
     lines.append("\t// ABI, LayoutVersion and Features are what main01_init writes into")
@@ -482,6 +512,15 @@ def main():
     lines.append(f"\tLayoutVersion uint16 = {layout}")
     lines.append(f"\tFeatures      uint32 = 0x{features:02X}")
     lines.append(")")
+    lines.append("")
+    lines.append("// HookTargets is each hook function's address in T2 (the linked ELF's")
+    lines.append("// symbols), by the name build.py's proj.hook_branchlink lines use.")
+    lines.append("var HookTargets = map[string]uint32{")
+    width = max(len(fn) for fn in hook_fns) + 3  # gofmt aligns the values: "name": padded
+    for fn in hook_fns:
+        key = '"' + fn + '":'
+        lines.append(f'\t{key:<{width}} 0x{hook_targets[fn]:08X},')
+    lines.append("}")
     lines.append("")
     lines.append("// HashRanges are the [start, end) address ranges BlobHash covers: the")
     lines.append("// read-only part of T2 (.rodata, .text, .init, .fini: every allocated")

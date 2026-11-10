@@ -341,9 +341,9 @@ func TestEnemyBlockDump(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"enemy block at 0x80415100 (0x198 bytes)",
+		"enemy block at 0x80416100 (0x198 bytes)",
 		"magic 0x5757454E 'WWEN' seq_head 42 seq_tail 42 host_beat 7 go_write_ms 99 count 1 flags 0x05 layout 4 epoch 3 stage \"M_Dai\" room 1 role 2 kind_mask 0x1 knob_gen 4660 hkd_hi 02 40 00 00 00 00 00 00",
-		"knob table at 0x80415750: gen_head 4660 gen_tail 4660 layout 4 count 16: valid for knob_gen; hook [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] quiet [0 0 0 5 0",
+		"knob table at 0x80416750: gen_head 4660 gen_tail 4660 layout 4 count 16: valid for knob_gen; hook [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0] quiet [0 0 0 5 0",
 		"knob_gen_seen 4660 fp_miss 3",
 		"slot 0: pid 1002 proc 0x00BD pkey 0xD0264F5D pos 1.0 2.0 3.0", "health 4 flags 0x03 frame 1.50 rate 1.00 sample 9 bck 0x73 attr 2 anm_seq 5 morf 15 flags2 0x05 blur 3/1.25",
 		"hit_apply: seq 196609 setID 2 collider 1 flags 0x02 atType 0x00000002 atp 2 se 1 hit_mark 13 spl 1 pos 0.0 0.0 0.0 pid 620",
@@ -351,7 +351,7 @@ func TestEnemyBlockDump(t *testing.T) {
 		"status 1: actor 0x00000000 pid 0 state 0 pause_prev 0x00 last_err 0 frames 0 anm_state 1 bck 0x73 anm_changes 9;",
 		"ack_seq 41", "canaries pause_reasserts 1 anm_unresolved 2 revalidate_failures 3 watchdog_releases 4",
 		"status 3: actor 0x00000000",
-		"annex at 0x804150C8: annex_seq 42 aux [[11 22 0 0] [0 0 0 0] [0 0 0 0] [0 0 0 0]]",
+		"annex at 0x804160C8: annex_seq 42 aux [[11 22 0 0] [0 0 0 0] [0 0 0 0] [0 0 0 0]]",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("dump lacks %q:\n%s", want, out.String())
