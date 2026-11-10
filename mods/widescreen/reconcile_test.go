@@ -356,6 +356,13 @@ func TestReconcileMarksAndPending2D(t *testing.T) {
 		_ = g.m.Store(mailbox.WsAddr+mailbox.WsModeOff, []byte{mode})
 		_ = g.m.Store(mailbox.WsAddr+mailbox.WsFlagsOff, []byte{flags, ui})
 		g.put32(mailbox.WsAddr+mailbox.WsFactorOff, math.Float32bits(factor))
+		// ws_latch writes the latched factor with ui_mode (no WsFHUD here,
+		// so ui_shift stays 0).
+		uf := float32(1)
+		if ui == mailbox.WsModeNative {
+			uf = factor
+		}
+		g.put32(mailbox.WsAddr+mailbox.WsUIFactorOff, math.Float32bits(uf))
 	}
 	set(mailbox.WsModeNative, mailbox.WsF2D, 0, 4.0/3.0)
 	tick()
