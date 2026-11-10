@@ -677,9 +677,11 @@ were swept in the C headers, Go constants and tests, scripts and the reference d
 (docs/live, docs/acceptance, docs/05, docs/06, passed checks) keep the addresses of their day.
 `scripts/extract_blob.py` now refuses a T2 that ends past `WWAP_ADDR` (blob.go not written) and
 emits it as `APIRegionAddr`, and `PatchDOL` refuses such a blob too, so an over-budget build can't
-reach a disc. **Owed before R2:** the ZeldaHeap gate (heap error counters `zeldaHeapErrors`,
-`gameHeapErrors`, `archiveHeapErrors` at 0 through boot, Outset, Windfall and the open sea, as
-wind#80's gate in docs/08), and the PC and Mac start-save recaptures (new BlobHash and REL id).
+reach a disc. **The ZeldaHeap gate passed** (PC rig, 2026-11-09, docs/TESTING.md WS2-0): the
+error counters `zelda`, `game` and `archive` stay 0 on two Dolphins through boot, Outset, Windfall
+by day and night, the open sea, DRC, M_DragB, kindan and Hyrule with mp-local running; ZeldaHeap is
+6094 KiB, with at least 788 KiB free at every stop. The PC start save is recaptured
+(`fixtures/start-ws2-9E6314D8-47408CD2.sav`); **still owed before R2:** the Mac start-save recapture.
 
 **No runtime code rewrites.** Every per-mode value is a data word or read by a hook, so nothing
 needs `DCFlushRange` (`0x803030D8`) + `ICInvalidateRange` (`0x803031BC`). Never ship a
@@ -1037,7 +1039,7 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
 - Flags are 0x03.
 - The shift kinds and the S rows were built in stage 2.
 - The REL's `relws_obj_draw` and `relws_battery_draw` sit in `inject/rel/ws.c`. `_prolog` links them before the exec-hook word, and `_epilog` unlinks them first (pinned by `TestRelWsVtableOrder`).
-- The Sploosh number wrappers are not built: they wait for a screenshot, as item 5 says.
+- Sploosh Kaboom's numbers: the screenshot item 5 asks for (PC rig, 2026-11-09, WS3-8) showed the shot count left inside while its bombs moved out, so `relws_num_draw` wraps the `dDlst_2DNumber_c` slot `0x80389130` (vanilla `0x800C8644`; `mPos[4]` at +0x14, `mDigitNum` at +0x41): a number whose ones digit is left of 320.5 moves by −S, and the high score's digits stay on their plate. `dDlst_2DMinigame_c` (`0x80389120`, the plate) stays unwrapped: it sits over the board, not at an edge. REL build 0x47408CD2.
 - Item 6: the default stays off. It is one constant, `widescreenDefault` in `internal/gui/display.go`, which becomes `"16:9"` once the live checks pass. `TestBridgeSetWidescreen` (`internal/gui/display_test.go:17-20`) expects the unset setting to be off and must change with it (a trial flip showed it is the only test that does).
 
 1. `WWWS_FLAGS_SUPPORTED` = `WWWS_F_2D | WWWS_F_HUD`; `ws_latch` sets `ui_shift`.
@@ -1144,11 +1146,9 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
 - Default Off in R1, 16:9 from R2 (section 7): the card asked for 16:9 by default; this plan only
   waits until the HUD is right.
 
-**Owed live (each is in its stage's checks):** a single knob store holds under the JIT; the pause
-cloth covers at every rotation; boot timing of WS_SET against the title stage; the save iris and
-telescope EDGE bars through their tweens; the `ship_race2.blo` result screen (H-19); Sploosh
-Kaboom's number positions; the THP `.bss` offsets; the VI aspect before any Stretch mode is
-allowed; whether `back_aori.bti` (`operate_wind_mask`'s `BACK`) and `back_auction_00.bti` (the
+**Owed live (each is in its stage's checks):** the `ship_race2.blo` result screen (H-19); the THP
+`.bss` offsets; the VI aspect in `wwapi/emu/launch` before any Stretch mode is allowed (measured
+1.2524..1.2543 in WS-11, not yet recorded there); whether `back_aori.bti` (`operate_wind_mask`'s `BACK`) and `back_auction_00.bti` (the
 full-screen `BACK` panes of `auction1/2`, siblings of `ROOT`; stage 3's SCR_L moves `auction1`'s
 by −S with the screen) need GEOM.
 
@@ -1156,6 +1156,19 @@ by −S with the screen) need GEOM.
 notes sliding in through a band; the title ship visible in the bands; text about 25% softer
 sideways (2D drawn into fewer EFB pixels); the sun's falloff and Aryll's telescope check stretched
 by F; photos viewed in a different mode than they were taken in; a Dolphin aspect changed mid-session.
+
+**Settled live (PC rig, 2026-11-09):** a single knob store holds under the JIT (WS-1); the pause
+cloth covers at every rotation (WS-4); WS_SET lands about 7 s before the title stage from a cold
+app launch, so the title's 2D is compressed (WS2-11); the save iris and the telescope bars leave
+no gap through their tweens (WS2-2, WS2-7); Sploosh Kaboom's shot count needed the number wrapper
+(WS3-8, built).
+
+**Stage 2/3 checks not run on the PC rig (2026-11-09),** each needing an event or a minigame the
+start save doesn't reach by a hop: the Wind's Requiem selector, a cutscene's own iris wipe, a
+Bokoblin's HP bar at an edge, an NPC talked to at the far left, the place name on arriving at an
+island (sailing between two sea rooms showed none), a minigame timer, the Windfall auction, the
+cannon game, the compass, the clock and a boss bar, the file select's lobby line, and the Play
+page's 2D-pending line.
 
 ---
 
