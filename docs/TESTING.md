@@ -1060,6 +1060,54 @@ Native widescreen, stage 1 (hack off, Force 16:9 unless the item says otherwise)
 - [ ] **WS-10 regression**: WS-C1..WS-C6 in mode 1 with the hack on, unchanged.
 - [ ] **WS-11 VI aspect**: hack off, `-C Graphics.Settings.AspectRatio=2` (Force 4:3), a default-resolution frame dump: width/480 is the VI aspect (expect about 1.2534, 602x480). Record it in `wwapi/emu/launch` before any XScale Stretch change.
 
+### Widescreen stage 2
+
+Native widescreen's stage 2, 2D proportions (docs/design/native-widescreen.md section 8 "Stage 2" item 11). Built on branch `widescreen-2-5`. Its blob ends past the API region (T2 0x804145E8 against 0x80414000, section 6), so these checks wait for lever 4 (the mailbox and ArenaLo moved up) and the rebuilt blob. After that: re-patch, and recapture `saves/start.sav` in mode 1. Hack off; Force 16:9 (`WW_WIDESCREEN=16:9` on `dolphin2`), then 16:10 and 21:9 by Custom. Use `./wwdev.exe ops ws 2 16:9 [flags]` for manual toggles, never with an mp-local loop running (the rig notes in section 8). `peek 8041596C 24` reads the block: `ui_mode` +0x0D, `ui_factor` +0x10, `ui_shift` +0x14. Saves with items: `fixtures/saves/100pct-E`.
+
+- [ ] **WS2-1 HUD and text**: hearts and buttons are round and sit inside the centre 4:3 area, and text has vanilla proportions. `wwdev ops ws 2 16:9 0`, then a stage load: the 2D goes back to stretched. `ops ws 2 16:9 1` and a stage load: compressed again.
+- [ ] **WS2-2 pause menus**: Items, Quest Status, Map, the sea chart, a treasure chart, Options, Save. Every dim and backdrop reaches both edges, the save iris leaves no gap in the bands, and scrolling lists clip exactly at their frames.
+- [ ] **WS2-3 game over and Wind's Requiem**: Game Over then Continue, and the Wind's Requiem selector. The dim covers the full width, and the letters and the ring are not stretched.
+- [ ] **WS2-4 transitions**: `stage-hop --wipe 2` shows no one-frame widening of the HUD at the twist. A cutscene iris wipe is round and covers the corners. `stage-hop --wipe 4`: the white fade fills the width.
+- [ ] **WS2-5 reticles**: each of these sits where it does in a 4:3 run.
+  - The boomerang with 3-5 targets spread to both edges.
+  - The bow or hookshot at an edge target.
+  - A Bokoblin Z-locked at each edge: its HP bar sits 50 units beside it.
+  - The Deku Leaf gauge flying to an off-centre Link.
+  - Talking to an NPC at the far left: the box springs from the NPC.
+  - The baton swung to both extremes: the sparkle stays on the tip.
+- [ ] **WS2-6 minimap**: the icons are clipped to the map frame. Hide the map: it slides fully out of the left band.
+- [ ] **WS2-7 telescope**: open, zoom and close in both layouts. `wipe_00_2.blo` loads when `dComIfGp_getScopeType()` is 0, else `wipe_00.blo`; note which scope gave which. The bands stay black wherever the 4:3 area is, and the bars never lag the iris (otherwise use H-15's fallback).
+- [ ] **WS2-8 picto box**: the viewfinder looks as it does today and matches the photo taken. Album photos sit in their frames and look round where the subject is round. The album paper (`b1`, `b2`) is not stretched: the global GEOM rule has its one exception there.
+- [ ] **WS2-9 file select and opening**: the cloth panel keeps its side margins around the panels, and the sky is round. New game: the opening's bands stay black during the `d4` pan.
+- [ ] **WS2-10 our drawing**: mp-local with `WW_WIDESCREEN=16:9`. Walk B's Link to A's screen edges: A's tag sits over B's head, with glyphs shaped as they are at the centre. The lobby line on the file select is centred and not stretched.
+- [ ] **WS2-11 boot timing**: from a cold app launch, read the runner's lines in the `-app.log`: `first ready probe`, `first WS_SET OK` and `first probe on the title screen`, each with its time. Note whether WS_SET lands before the title stage loads (the title's 2D is then compressed) or after.
+- [ ] **WS2-12 regression**: mode 1 with the hack on, and mode 0. Everything is identical to stage 1.
+- [ ] **WS2-13 hash misses and global GEOM**: a talk box (`hukidashi_00.blo`) and the telescope/picto message box (`hukidashi_08.blo`) are unchanged: compressed and centred. Their `BACK` panes draw nothing (`tools/gen_wstable/testdata/geom_hits.txt`).
+- [ ] **WS2-14 bands sweep**: do each of the following, and note any pane parked or sliding outside 0..640 that shows in a band.
+  - Open and close the pause menu, and switch pages with L/R.
+  - Open the sea chart and a treasure chart.
+  - Play a cutscene that hides the HUD.
+  - Toggle the map.
+
+  Then add a row for each such pane, or list it in the plan's section 10 as accepted.
+- [ ] **WS2-15 the 2D-pending note**: `wwdev ops ws 2 16:9` mid-stage. `ww-multiplayer widescreen` (no argument) and the Play page show "2D pending until the next stage load" until a stage loads, then "2D follows the setting".
+
+### Widescreen stage 3
+
+Stage 3 moves the HUD to the edges (plan section 8 "Stage 3" item 7). It uses the same blob, the same caveat and the same rig as stage 2. Flags 0x03, so `ui_shift` reads 109.83 at 16:9.
+
+- [ ] **WS3-1 margins**: hearts, magic, the compass and the clock keep their vanilla left margin. Buttons, keys and rupees keep their right margin. The boss bar stays centred, and the enemy HP bar stays beside its enemy.
+- [ ] **WS3-2 swimming**: swim in the sea. The air meter sits at the right edge and is not clipped, with its shine on `wk00`.
+- [ ] **WS3-3 the map's neighbours**: the minimap is at the left edge, with the wind arrow on it at sea. The free-camera icon is at the right.
+- [ ] **WS3-4 place name**: on arriving at an island, the place name is at the left.
+- [ ] **WS3-5 minigame timer**: in the boat race or Orca's game, the rupee icon is at the left.
+- [ ] **WS3-6 auction**: at the Windfall auction, the digits roll uncut, and the icon and plates hug the top left.
+- [ ] **WS3-7 cannon game**: the bombs are at the left, the ships at the right, and the battery at the right.
+- [ ] **WS3-8 Sploosh Kaboom**: the squid icons move with the cannon game's wrapper. Take a screenshot of the numbers. Their wrapper (`0x80389130` / `0x80389120`) is not built; build it only if the numbers sit at an edge.
+- [ ] **WS3-9 leaving a minigame**: the HUD is normal. The slots `0x80389100` and `0x80389110` still point into the REL (`peek`), and they pass through when S is 0.
+- [ ] **WS3-10 mode change mid-stage**: run `wwdev ops ws 0 16:9` mid-stage, as a manual-toggle run. Nothing goes off screen, and the HUD updates at the next stage load.
+- [ ] **WS3-11 file select**: the A/B button cluster is at the right.
+
 ### Release defaults (pre-release live checklist)
 
 Enemy sync and the remote bodies are on by default (docs/05-known-issues.md "Shared enemies"), and the network protocol is 6 (3 in v0.5.0; batch C bumped it to 4, D13, batch D to 5 with the Magtail row's KindHash, and the projectile events to 6), so this build refuses v0.5.0, batch C and D builds and older at the hello. Nearly every enemy-layer live pass on record ran under `wwdev mp-local` (one process, two Dolphins, one machine). The one exception is a CLI loopback before the v0.5.0 tag: `host` and `join 127.0.0.1` as two processes on one machine (REL 0xFB8986C3), where the joiner adopted the host's two Bokoblins in M_NewD2 room 0 (`adopted 0011`, handoff `archive/release-gate/gate-join.log`:30-36). None has run through the app's GameRunner, between two machines, over WAN, or on macOS. The owner runs this list on the release candidate binary before the tag. `mp-local` now runs the enemy pipelines too unless `WW_ENEMY_SYNC=0`, so the smoke and co-op checks above include them by default.

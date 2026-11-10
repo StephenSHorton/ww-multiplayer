@@ -1,8 +1,13 @@
 # Native widescreen: every 4:3 assumption and the build plan
 
-**Status:** stage 1 built on card #1185 (with the culling plan, PC build 2026-11-09, BlobHash
-0x1100504D; live checks owed, docs/TESTING.md "Widescreen stage 1"); stages 2-5 are plan only
-(card #1186, 2026-11-09). It builds on #1184's culling plan
+**Status:**
+- **Stage 1** was built on card #1185, with the culling plan (PC build 2026-11-09, BlobHash
+  0x1100504D). Its live checks are owed: docs/TESTING.md "Widescreen stage 1".
+- **Stages 2 and 3** are built on branch `widescreen-2-5` (PC, 2026-11-09). They do not fit in T2:
+  the blob ends 0x5E8 past the API region (section 6, "As built"). Lever 4 is still to be done, and
+  neither stage may be patched onto a disc until it is. Their live checks are docs/TESTING.md
+  "Widescreen stage 2" and "Widescreen stage 3".
+- **Stages 4 and 5** are a plan only (card #1186, 2026-11-09). It builds on #1184's culling plan
 (`docs/design/widescreen-culling.md`, "the culling plan" below), whose clipper hook, `WWWS` mailbox
 block and `WWAP_OP_WS_SET` op card #1185 builds. Section 9 lists what this plan corrects in it.
 Every address here was checked against the vanilla GZLE01 DOL and the decomp
@@ -247,6 +252,24 @@ decomp's literals miss `ship_race2.blo`, which only the DOL's `@stringBase0` hol
 About 0x1D3 bytes of data (34 rows, 39 rules) and 0x1C0 of code. A global GEOM rule (every screen) would drop the 22
 GEOM-only rows (−0xB0), if a stage-2 screenshot sweep shows no false hits.
 
+**As built (stage 2): the global GEOM rule (lever 1).** A screen with no row gets GEOM; a row without
+the GEOM flag turns it off for its screen. The table has 13 rows and 39 rules (0x12B bytes).
+
+Instead of a screenshot sweep, `go run ./tools/gen_wstable -geom <disc>` parses all 61 `.blo` files
+on the vanilla disc (archives inside archives included). It writes every pane the GEOM test matches
+to `tools/gen_wstable/testdata/geom_hits.txt`.
+
+- There is one visible false hit: `wipe_01_01.blo`'s album paper `b1` (note_02.bti) and strip `b2`
+  (strip00.bti), which are drawn uncompressed. They get a row with no flags.
+- Every other extra hit is a `BACK` pane (0..640 × 0..480): the layout tool's reference picture.
+  Its texture is in no archive on the disc (back.bti, baton3.bti, shiprace.bti, bg_proro.bti,
+  sky_cloth.bti, back_aori.bti, back_auction_00.bti, collect_back.bti), so it draws nothing. This
+  answers section 10's open question on `back_aori.bti` and `back_auction_00.bti`: they need nothing.
+- `TestGeomGlobalRule` checks the list against the plan's 22 screens and `menu_save`. Each of them
+  has a hit.
+- `TestRuleTagsOnDisc` (disc-gated) checks that every rule's tag exists in its screen, and that every
+  L/R tag is a direct child of the anchor.
+
 **Mode changes and the latch.** A row is applied once, at load, and the game's `Orig` copies can't
 be reached again. So every 2D reader uses a *latched* mode and factor that change only at boot and
 when an EPOCH screen loads: `main_parts1` (every stage load, `d_stage.cpp:1496`) and
@@ -286,7 +309,7 @@ void ws_project_2d(Vec* src, Vec* dst) {
 | `0x802229D0`, `0x80222ADC` | `dMetronome_c::melodyShow` | baton-tip sparkle (wrapped before its −320) | yes | 2 |
 | `0x8008C6C0` | `dKyr_lenzflare_move` | flare streak angle | optional | 4 |
 | `0x800994AC`, `0x80099A6C` | `dKyr_drawStar` | moon-star exclusion (both or neither) | optional | 4 |
-| `0x8019744C` | `dKy_telescope_lookin_chk` | radius-100 test round (320,240) | optional | 5 |
+| `0x8019744C` | `dKy_telescope_lookin_chk` | radius test round (320,240); the radius is the caller's f1 (100 for the moon, Orion and Hokuto checks), not a constant. With a 320.5 pivot the test is off by 0.5(F − 1); a 320 pivot is exact here | optional | 5 |
 | `0x8020F518` | `dMsg_mesgOutPos` | only y used; x goes to `talkPosX`, never read | no | — |
 | `0x8008CAA4` | `dKyr_sun_move` | bounds + `peekZ` (its falloff stays ×F: accepted) | no | — |
 | `0x8009AD38`, `0x8009B0C4` | `drawVrkumo` | cloud bounds | no | — |
@@ -382,7 +405,7 @@ Stage 0 means Go only; "—" means no change (with the reason). Decomp paths are
 | 3D-8 | Lock-on framing `mWindowAspectRatio` | `d_camera.cpp` | stored `0x8017BE84`, read `0x801659BC` | shared | stays 4:3 on purpose (3.1) | — |
 | 3D-9 | `g_HIO.mAspectRatio` (0.96) | `f_ap_game.cpp:34` | `0x803B9A08`; readers `0x8017BE68 0x8017C920 0x801DF9F4 0x80223A00 0x80230034 0x80232498` | shared | never written (3.1) | — |
 | 3D-10 | `dOvlpFd2` capture quad, own 60° perspective | `d_ovlp_fade2.cpp:20-102` | `bl C_MTXPerspective` `0x80223A10` | screen | none: stays 1.28 and fills the EFB | — |
-| 3D-11 | Pause cloth (`dMCloth`), own 30° perspective | `d_menu_capture.inc:79-93` | `0x801DFA04` | screen | accepted: still covers, weave ×F. Optional polish: `ws_persp` here plus a uniform cloth scale (`0x803E5EC0/C4`, `0x803E5F70/74` × k(F), k(F) = √((1.28F)² + 1) / √(1.28² + 1), the growth of the screen's corner radius in the cloth's projection when its aspect goes from 1.28 to 1.28F; k(16:9) = 1.218; the cloth scale words are unverified) | — (4) |
+| 3D-11 | Pause cloth (`dMCloth`), own 30° perspective | `d_menu_capture.inc:79-93` | `0x801DFA04` | screen | accepted: still covers, weave ×F. Optional polish: `ws_persp` here plus a uniform cloth scale (`0x803E5EC0/C4`, `0x803E5F70/74` × k(F), k(F) = √((1.28F)² + 1) / √(1.28² + 1), the growth of the screen's corner radius in the cloth's projection when its aspect goes from 1.28 to 1.28F; k(16:9) = 1.218. The cloth scale words were checked: they are .bss in `l_HIO` `0x803E5EB4` (d_menu_cloth), 0x58-byte children from +8, scale at child+4: DEFAULT `0x803E5EC0/C4` (1.78), CLOTH_ONLY `0x803E5F70/74` (1.7); the file-select child `0x803E5F18/1C` is left out) | — (4) |
 | 3D-12 | File-select camera (aspect latched at create) and file-select cloth panel | `d_s_name.cpp:195-205, 610-622, 1538-1545` | `bl C_MTXPerspective` `0x802306A0` (setView, every frame) and `0x802324A8` (cloth) | screen | `ws_persp(m,fovy,aspect,n,f)` = `C_MTXPerspective` (`0x8030DB78`) with aspect × `ws_2d_factor()`; without it the ~90% cloth panel runs to ~120% under the centred panels | 2 |
 | 3D-13 | Sky, sun/moon sprites, flare billboards, focus lines, DOF, rain/snow | `d_kankyo*.cpp` | — | shared | follow; focus lines may thin in the bands (accepted) | — |
 
@@ -404,7 +427,7 @@ Stage 0 means Go only; "—" means no change (with the reason). Decomp paths are
 | 2D-12 | GX points and lines sized in px (minimap dots) | `d_map.cpp` | — | element | accepted (×F wide) | — |
 | 2D-13 | Clip-to-parent screens | `J2DScreen+0xCC` | — | rule | move the screen, never widen a child (3.3) | 2, 3 |
 | 2D-14 | Cinema/vista trims 52/65 (16:9 vista ≈ 2.27:1) | `d_cam_param.cpp:327-328` (`dCamSetup_c` ctor, copied into `dCamera_c::mCamSetup` +0x60C, fields +0x64/+0x68) | data `0x803F90F0`, `0x803F90F4` (read only at `0x800AFE14`/`0x800AFE1C`, the ctor) | element | optional smaller trims in mode 2: write the live camera's `mCamSetup` fields (the .sdata2 words only reach cameras built afterwards) | 4 |
-| 2D-15 | Scope/picto opening: the 3D view rect follows the 2D wipe scale in EFB px | `d_scope.cpp`, `d_camera.cpp` | — | element | only if visible: `hook_branchlink` the `bl dCamera_c::setView` (`0x801675E8`) at `0x80170EE8` (`subjectCamera`, `d_camera.cpp:3962`; f1 x, f2 y, f3 w, f4 h): keep the centre's offset from 320 scaled by 1/F, and w′ = w/F | 5 |
+| 2D-15 | Scope/picto opening: the 3D view rect follows the 2D wipe scale in EFB px | `d_scope.cpp`, `d_camera.cpp` | — | element | only if visible, and only under option B: under option A the viewfinder art is drawn uncompressed and already matches these EFB rects. Then `hook_branchlink` the `bl dCamera_c::setView` (`0x801675E8`) at `0x80170EE8` (`subjectCamera`, `d_camera.cpp:3962`; f1 x, f2 y, f3 w, f4 h): keep the centre's offset from 320 scaled by 1/F, and w′ = w/F. That call is only the opening tween (picto aim or demo). `subjectCamera` has two more: `0x80171084` (160, 35, 320, 320), the static rect once the tween ends, which needs the same treatment or the view jumps, and `0x801710B4` (0, 0, 640, 480) | 5 |
 
 ### 4.3 HUD (in-game)
 
@@ -474,7 +497,7 @@ full-width backdrop" is the target look.
 | T-5 | Picto viewfinder and shutter lines | `d_picture_box.cpp` | 3.6 | screen | uncompressed draw | 2 |
 | T-6 | Picto album private ortho | `d_picture_box.cpp:710-781` | `0x803FB81C..28`, `bl` `0x80227BB8` | screen | option A: none (its slot panes are in `wipe_01_01`, drawn uncompressed); option B: widen about 320.5 by F | 5 |
 | T-7 | Picto capture rect and freeze-frame | `m_Do_graphic.cpp` (`mDoGph_screenCapture`, `setUpRectangle`) | `mDoGph_screenCapture` `0x8000AC3C`, `mCaptureProc` `0x8000AAC4`, `setUpRectangle` `0x8000A530`, `bl C_MTXOrtho` `0x8000A6C0` | screen | option A: none (anamorphic photos); B/C in 3.6 | 5 |
-| T-8 | Photo browse/get views | `d_picture_box.cpp` | `0x80227A30` | screen | option A: none; B: x += w(1 − 1/F)/2, w /= F | 5 |
+| T-8 | Photo browse/get views | `d_picture_box.cpp` | `0x80227A30` (a `bl GXSetViewport` (0, 0, 640, 480), not a function entry; `0x80227CF8` restores the saved viewport) | screen | option A: none; B: x += w(1 − 1/F)/2, w /= F. Never together with T-6's widened `pictureDraw` ortho: each compresses by F, so both give F² | 5 |
 | T-9 | THP movies `title_loop.thp` (title screen) and `end_st_epilogue.thp` (the staff roll), 640x480 with their own ortho | `d_a_movie_player.cpp:4206` (loose Yaz0 REL, loaded before ours) | REL `.bss` + `0xCB580` (xSize), + `0xCB59C` (DrawPosX), from the disc map and the decomp's REL symbols.txt (module id 415 from the REL header); the runtime effect is still a live check | screen | T2 `frame_any` step (stage 4 step 1): with F = `ws_2d_factor()` (latched, so the movie matches the rest of the 2D; `main_parts1` also loads with the title stage), target w = 640 if F is 1, else 2·round(320/F); if `xSize` is 640 or the last w written and differs from the target, write w and `DrawPosX` = (640 − w)/2. Never touch another value | 4 |
 | T-10 | Game over, Wind's Requiem, opening | 4.4, H-16 | | | | 2 |
 | T-11 | Tingle Tuner TV side, JUT debug console | | | | none | — |
@@ -618,6 +641,32 @@ behind a 0x30-0x50 T2 forwarder (the `seachart_shim` pattern). That saves bytes,
 **Rule:** after stage 2 first compiles, read `TestT2EndsBelowMailbox`'s free-bytes line. If fewer
 than 0x500 bytes are free (stages 3-5 at their high end need 0x488), apply levers 1-3, and lever 4
 in R2 if that is still not enough or another card has T2 work queued.
+
+**As built (stages 2-3, PC, 2026-11-09): lever 4 is needed.** Stage 1 left 0x8D8 free. Stages 2 and 3 take 0xEC0 (T2 now ends at `0x804145E8`, 0x5E8 past the API region), and stages 4 and 5 still need about 0x200. So the gap is 0x7E8.
+
+**What is already applied:**
+- lever 1 (the global GEOM rule, section 3.3);
+- lever 2's REL half for the cannon and Sploosh wrappers (`inject/rel/ws.c`);
+- every hook body built `-Os`;
+- every game function called with a plain `bl`, through build.py's `GAME_SYMBOLS` and `ld --defsym`, instead of a 16-byte `lis/ori/mtctr/bctrl`.
+
+**Where the 0xEC0 goes,** from `inject/build/WWMultiplayer.map`:
+
+| Part | Bytes |
+|---|---|
+| The walker | `ws_walk` 0x264, `ws_screen_loaded` 0x1D0, `ws_name_hash` 0x5C |
+| The latch | `ws_latch` + `ws_apply` 0x138, `ws_2d_factor` 0x64 |
+| Hooks | `ws_full_draw` and its entries 0x138, `ws_map_scissor` 0xF8, `ws_ortho_hook` 0xAC, `ws_opening_draw` 0xAC, `ws_persp` 0x5C, `ws_project_2d` 0x44, hooks A/B 0x40 |
+| Data | the table 0x12B, `ws_apply_tbl` 0x78, the box 0x10, constants |
+| `-Os` save/restore helpers from libgcc | 0xFC |
+| Alignment | the rest |
+
+**What levers 2 and 3 could still recover is about 0x370-0x470, short of 0x7E8:**
+- **Lever 3**, the Go-written tables: at most the table and `ws_apply_tbl` together, 0x1A3, less the loads that replace them.
+- **Lever 2 extended.** The gameplay-only bodies (the scissor, the picto draws, `ws_project_2d`, 0x27C) could move to the REL behind four exec_shim-style forwarders (4 × 0x28). That saves about 0x1DC, but leaves those features vanilla for the first 300 frames after Link exists.
+- **Dropping `-Os`.** This removes the 0xFC of helpers, but `-O1` measured 0xC0 larger overall.
+
+So lever 3 was not built. Lever 4 (item 4 above) is the next step, after its ZeldaHeap headroom check on Outset, Windfall and the open sea.
 
 **No runtime code rewrites.** Every per-mode value is a data word or read by a hook, so nothing
 needs `DCFlushRange` (`0x803030D8`) + `ICInvalidateRange` (`0x803031BC`). Never ship a
@@ -865,6 +914,13 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
 
 ### Stage 2: 2D proportions (release R2, with stage 3)
 
+**Built on branch `widescreen-2-5`** (PC, 2026-11-09, over the T2 budget: see section 6 "As built"). Items 1-10. The 23 hook sites in `hooks.c` are pinned in `t2_budget_test.go` (`TestWidescreenStage2HookSites`). Each pin checks the vanilla word's callee, and the callee addresses are pinned by `TestGameSymbols`. The `ws_apply` rows are checked at F = 1 (the vanilla words) and at 16:9 (`ws_apply_test.go`). It differs from the items below in these ways:
+- `ws_apply`'s entry is `{u32 at; f32 a, b}`: the address's low 24 bits, with the type in the top byte (0x01 s16, 0x02 × S).
+- The walker applies a tag's L/R rule at any depth, not only to the anchor's children. Every L/R tag on the disc is a direct child of its anchor (`TestRuleTagsOnDisc`), so the result is the same.
+- `ws_screen_draw_full` draws with x = y = 0: all four sites pass `0x803FB7C4` = 0.0.
+- The opening fills call `setPort(graf)` first (item 8). `J2DFillBox` builds a temporary `J2DOrthoGraph` that never sets the projection or the vertex state.
+- The text-section file offset is address − `0x800030C0`. An earlier verifier note said `0x800036C0`; the offsets it listed are right.
+
 1. **Block and helpers.** `WWWS_FLAGS_SUPPORTED` = `WWWS_F_2D`. `ws_2d_factor`, `ws_latch`,
    `ws_apply`. `ws_apply`'s entry is `{u32 addr; u8 type; f32 a; f32 b}`; `type` bit 0 = s16
    (rounded half away from zero) else f32, bit 1 = b multiplies `ui_shift` else `ui_factor`. Stage-2
@@ -913,7 +969,9 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
 8. **Opening fills** at `0x8023452C`: forward to `J2DScreen::draw` (`0x802D0F2C`; r3 scrn, f1, f2,
    r4 graf), then if `ws_2d_factor()` ≠ 1 call `J2DFillBox(f32 x, f32 y, f32 w, f32 h, const u32*
    rgba)` (`0x802CDF3C`; the colour by pointer, a stack u32 `0x000000FF`) at (L′, −21, −9 − L′, 524)
-   and (650, −21, R′ − 650, 524), L′ = 320.5 − 329.5F, R′ = 320.5 + 329.5F.
+   and (650, −21, R′ − 650, 524), L′ = 320.5 − 329.5F, R′ = 320.5 + 329.5F. Call
+   `J2DOrthoGraph::setPort(graf)` (`0x802CDCB4`) before the fills: `J2DFillBox` builds a temporary
+   `J2DOrthoGraph()` and never sets the projection, so it draws with whatever state the last pane left.
 9. **REL** (3.7): name tags and lobby line read the block through the REL's own copy of the
    `ws_2d_factor` rule (it can't call T2). `"include/wwws.h"` joins `REL_HEADERS` in build.py; the
    RELBuildID changes by itself.
@@ -961,6 +1019,13 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
         section 10 as accepted.
 
 ### Stage 3: HUD to the edges (release R2)
+
+**Built on branch `widescreen-2-5`** (PC, 2026-11-09, over the T2 budget). Items 1-5:
+- Flags are 0x03.
+- The shift kinds and the S rows were built in stage 2.
+- The REL's `relws_obj_draw` and `relws_battery_draw` sit in `inject/rel/ws.c`. `_prolog` links them before the exec-hook word, and `_epilog` unlinks them first (pinned by `TestRelWsVtableOrder`).
+- The Sploosh number wrappers are not built: they wait for a screenshot, as item 5 says.
+- Item 6: the default stays off. It is one constant, `widescreenDefault` in `internal/gui/display.go`, which becomes `"16:9"` once the live checks pass.
 
 1. `WWWS_FLAGS_SUPPORTED` = `WWWS_F_2D | WWWS_F_HUD`; `ws_latch` sets `ui_shift`.
 2. Walker: the shift kinds ALL_L, ALL_R, BY_CX, SCR_L, SCR_R and the L/R tag actions (3.3). They
