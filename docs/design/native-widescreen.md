@@ -681,7 +681,7 @@ reach a disc. **The ZeldaHeap gate passed** (PC rig, 2026-11-09, docs/TESTING.md
 error counters `zelda`, `game` and `archive` stay 0 on two Dolphins through boot, Outset, Windfall
 by day and night, the open sea, DRC, M_DragB, kindan and Hyrule with mp-local running; ZeldaHeap is
 6094 KiB, with at least 788 KiB free at every stop. The PC start save is recaptured
-(`fixtures/start-ws2-9E6314D8-47408CD2.sav`); **still owed before R2:** the Mac start-save recapture.
+(`fixtures/start-ws2-9E6314D8.sav`, REL 0x47408CD2); **still owed before R2:** the Mac start-save recapture.
 
 **No runtime code rewrites.** Every per-mode value is a data word or read by a hook, so nothing
 needs `DCFlushRange` (`0x803030D8`) + `ICInvalidateRange` (`0x803031BC`). Never ship a
@@ -1165,8 +1165,8 @@ no gap through their tweens (WS2-2, WS2-7); Sploosh Kaboom's shot count needed t
 
 **Stage 2/3 checks not run on the PC rig (2026-11-09),** each needing an event or a minigame the
 start save doesn't reach by a hop: the Wind's Requiem selector, a cutscene's own iris wipe, a
-Bokoblin's HP bar at an edge, an NPC talked to at the far left, the place name on arriving at an
-island (sailing between two sea rooms showed none), a minigame timer, the Windfall auction, the
+Bokoblin's HP bar at an edge, an NPC talked to at the far left (the place name was checked by
+poking its request, WS3-4), a minigame timer, the Windfall auction, the
 cannon game, the compass, the clock and a boss bar, the file select's lobby line, and the Play
 page's 2D-pending line.
 
