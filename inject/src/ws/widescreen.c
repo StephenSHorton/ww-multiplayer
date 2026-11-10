@@ -296,3 +296,78 @@ void ws_init(void) {
     WS32(WWWS_MAGIC_OFF) = WWWS_MAGIC;
     ww_cmd_register(WWAP_OP_WS_SET, ws_op_set);
 }
+
+// --- stage 4: THP movies (native-widescreen.md T-9, section 8 stage 4) ----
+//
+// The title loop and the staff roll are 640x480 THP movies drawn by the
+// loose REL d_a_movie_player (module 0x19F) as one quad at daMP_DrawPosX,
+// daMP_videoInfo.xSize wide. With 2D compressed by F the quad is drawn
+// 2*round(320/F) wide and centred, so Dolphin's stretch gives the movie its
+// 4:3 shape with bands at the sides. Both words are in the module's .bss,
+// found through the OS module list every frame (the module is linked only
+// while a movie plays, its .bss freed after). Only daMP_videoInfo (the
+// draw's polygon size, written once by daMP_ActivePlayer_Init) is changed,
+// never daMP_ActivePlayer.videoInfo (the texture's size). Offsets: the
+// vanilla disc's rels/d_a_movie_player.rel (bss size 0xCB5C8; the draw's
+// relocations, internal/inject/ws_thp_vanilla_test.go) and the decomp's
+// REL symbols.txt.
+#define OS_MODULE_LIST  0x800030C8  // __OSModuleList.head
+#define MP_MODULE_ID    0x19F       // d_a_movie_player
+#define MP_BSS_SIZE     0xCB5C8     // its .bss: the only section this size
+#define MP_VIDEO_X      0xCB580     // daMP_videoInfo.xSize (u32); ySize at +4
+#define MP_DRAW_X       0xCB59C     // daMP_DrawPosX (u32)
+#define THP_W           640         // both movies are 640x480 (the disc's THP headers)
+#define THP_H           480
+
+// Inside MEM1 (48 MB on the patched disc: wwapi.h MEM1_END).
+static int ws_mem1(u32 a) {
+    return a >= 0x80000000u && a < MEM1_END;
+}
+
+// The movie player's .bss, or 0 while it is not linked (or the list looks
+// wrong). OSLink stores the .bss's index in the module header's
+// bssSection (u8 at +0x33) and its address in that section's info entry;
+// the size check stands for "this is the movie player's .bss".
+static u8* ws_movie_bss(void) {
+    u8* m = *(u8**)OS_MODULE_LIST;
+    int n;
+    for (n = 0; m && n < 256; n++, m = *(u8**)(m + 4)) {
+        if (!ws_mem1((u32)m))
+            return 0;
+        if (*(u32*)m == MP_MODULE_ID) {
+            u32* si = *(u32**)(m + 0x10) + 2 * m[0x33];
+            if (!ws_mem1((u32)si) || si[1] != MP_BSS_SIZE || !ws_mem1(si[0]) || !ws_mem1(si[0] + MP_BSS_SIZE - 1))
+                return 0;
+            return (u8*)si[0];
+        }
+    }
+    return 0;
+}
+
+// The last polygon width this step wrote (640 = none yet).
+static u32 ws_thp_w = THP_W;
+
+// The WS module's frame_any step: every frame, Link or not (the title movie
+// plays before Link exists). The target width is 640 at F = 1, else
+// 2*round(320/F) (480 at 16:9). Writes only a movie that is open and
+// untouched (xSize 640) or that this step wrote (xSize = the last value),
+// 480 high, with DrawPosX still centring it; never another value.
+void ws_frame_any(fopAc_ac_c* link) {
+    u8* b = ws_movie_bss();
+    volatile u32* v;
+    volatile u32* dx;
+    u32 x, w;
+    f32 F;
+    if (!b)
+        return;
+    v = (volatile u32*)(b + MP_VIDEO_X);
+    dx = (volatile u32*)(b + MP_DRAW_X);
+    x = v[0];
+    F = ws_2d_factor();
+    w = F == 1.0f ? THP_W : 2 * (s32)(320.0f / F + 0.5f);
+    if ((x != THP_W && x != ws_thp_w) || x == w || v[1] != THP_H || *dx != (THP_W - x) / 2)
+        return;
+    *dx = (THP_W - w) / 2;
+    v[0] = w;
+    ws_thp_w = w;
+}

@@ -131,6 +131,22 @@ func iniSection(path, section string, set func(k, v string)) {
 // standardAspect is the game's picture: Wind Waker draws 4:3.
 const standardAspect = 4.0 / 3.0
 
+// VIAspect is the aspect of Wind Waker's picture by its video interface
+// (VI width 660 over 480 lines), which Dolphin uses for Auto/Force 4:3 and
+// the Stretch modes (docs/design/native-widescreen.md section 2). Computed
+// from Dolphin's VideoInterface.cpp as about 1.2534 and measured on the PC
+// rig 2026-11-09 (docs/TESTING.md WS-11; Dolphin 2609b, hack off, Force 4:3):
+// the dumps keep the width and round the height up to a multiple of 4, 1x
+// IR 640x512 and 4x IR 2560x2044, so the VI aspect lies in
+// VIAspectMin..VIAspectMax and 1.2534 holds. Recorded only: XScale's
+// Stretch cases still compare against standardAspect, and a change there
+// needs its own live check.
+const (
+	VIAspect    = 1.2534
+	VIAspectMin = 2560.0 / 2044.0 // 1.2524: the 4x dump as it is
+	VIAspectMax = 2560.0 / 2041.0 // 1.2543: the most its rounded-up height can hide
+)
+
 // XScale is how much the Widescreen Hack narrows the 3D picture's x
 // against the 2D layer: the game's 4:3 over the aspect Dolphin draws at
 // (VertexShaderManager: the projection's x times source / target when the

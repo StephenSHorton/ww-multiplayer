@@ -521,6 +521,13 @@ def main():
     proj.hook_branchlink("ws_shutter_draw_full", 0x8022B9CC)
     # The opening's `bl J2DScreen::draw` (0x802D0F2C), then the band fills.
     proj.hook_branchlink("ws_opening_draw", 0x8023452C)
+    # Stages 4-5 (native-widescreen.md 3.4): the projected-point tests about
+    # the EFB centre follow the live 3D factor: the lens flare's angle, the
+    # moon's star exclusion (both sites), the telescope look-in.
+    proj.hook_branchlink("ws_project_live", 0x8008C6C0)
+    proj.hook_branchlink("ws_project_live", 0x800994AC)
+    proj.hook_branchlink("ws_project_live", 0x80099A6C)
+    proj.hook_branchlink("ws_project_live", 0x8019744C)
 
     # Set entry function (required for linker)
     proj.set_entry_function("main01_init")
