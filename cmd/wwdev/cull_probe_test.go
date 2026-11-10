@@ -25,24 +25,51 @@ func TestCullClipTans(t *testing.T) {
 	// (0x3FDA740D): its side plane is the visible edge.
 	for _, a := range []uint32{0x3FA3D70A, 0x3FDA740E, 0x3FDA740D} {
 		c := cullClip{FovY: 60, Aspect: math.Float32frombits(a)}
-		if lo, hi := c.band(); math.Abs(lo-0.739) > 0.0005 || math.Abs(hi-0.985) > 0.0005 {
+		if lo, hi := c.band(cullWide169); math.Abs(lo-0.739) > 0.0005 || math.Abs(hi-0.985) > 0.0005 {
 			t.Errorf("aspect 0x%08X: band %.4f..%.4f, want 0.739..0.985", a, lo, hi)
 		}
 	}
 	// fovY 55, widened (the stage-1 live run): the band ends at the side
 	// plane, 0.888, so an actor at tanH -0.927 is off screen, not in it.
 	c55 := cullClip{FovY: 55, Aspect: math.Float32frombits(0x3FDA740E), Near: 1, Far: 20500}
-	if lo, hi := c55.band(); math.Abs(lo-0.666) > 0.0005 || math.Abs(hi-0.888) > 0.0005 {
+	if lo, hi := c55.band(cullWide169); math.Abs(lo-0.666) > 0.0005 || math.Abs(hi-0.888) > 0.0005 {
 		t.Errorf("fovY 55: band %.4f..%.4f, want 0.666..0.888", lo, hi)
 	}
 	off := actors.Actor{Pos: [3]float32{-927 + 100, 0, -1000 + 50}, Status: cullStatusCull}
-	if r := cullJudge(c55, testView, off, cullCondNoDraw); r.Band {
+	if r := cullJudge(c55, cullWide169, testView, off, cullCondNoDraw); r.Band {
 		t.Errorf("fovY 55: tanH %.3f is in the band", r.TanH)
 	}
 	// 21:9 in mode 2 (factor 1.75): the widened side plane, past 16:9's edge.
 	c219 := cullClip{FovY: 60, Aspect: 1.28 * 1.75}
-	if _, hi := c219.band(); hi != c219.tanH() || hi < 1.29 {
+	if _, hi := c219.band(1.75); hi != c219.tanH() || hi < 1.29 {
 		t.Errorf("21:9: band ends at %.4f, want the side plane %.4f", hi, c219.tanH())
+	}
+	// 21:9 in mode 0 with the hack on (factor 1.75, clipper vanilla): the
+	// band ends at the 4:3 edge x 1.75, 0.739 x 1.75 = 1.293, not at 16:9's
+	// 0.985, so an actor at tanH 1.1 is in it.
+	if lo, hi := testClip.band(1.75); math.Abs(lo-0.739) > 0.0005 || math.Abs(hi-1.293) > 0.0005 {
+		t.Errorf("mode 0, 21:9: band %.4f..%.4f, want 0.739..1.293", lo, hi)
+	}
+	wide := actors.Actor{Pos: [3]float32{1100 + 100, 0, -1000 + 50}, Status: cullStatusCull}
+	if r := cullJudge(testClip, 1.75, testView, wide, cullCondNoDraw); !r.Band {
+		t.Errorf("mode 0, 21:9: tanH %.3f is not in the band", r.TanH)
+	}
+	if r := cullJudge(testClip, cullWide169, testView, wide, cullCondNoDraw); r.Band {
+		t.Errorf("mode 0, 16:9: tanH %.3f is in the band", r.TanH)
+	}
+	// cullFactor: the block's valid factor, else 16:9's.
+	for _, c := range []struct {
+		ws   mailbox.Widescreen
+		want float64
+	}{
+		{mailbox.Widescreen{Present: true, Factor: 1.75}, 1.75},
+		{mailbox.Widescreen{Present: true, Factor: 0}, cullWide169},
+		{mailbox.Widescreen{Present: true, Factor: 4}, cullWide169},
+		{mailbox.Widescreen{Factor: 1.75}, cullWide169},
+	} {
+		if got := cullFactor(c.ws); got != c.want {
+			t.Errorf("cullFactor(%+v) = %v, want %v", c.ws, got, c.want)
+		}
 	}
 }
 
@@ -74,7 +101,7 @@ func TestCullJudge(t *testing.T) {
 		{"past far", act(870*21, 0, -21000, cullStatusCull), cullCondNoDraw, false, true},
 		{"behind", act(-870, 0, 1000, cullStatusCull), cullCondNoDraw, false, true},
 	} {
-		r := cullJudge(testClip, testView, c.a, c.cond)
+		r := cullJudge(testClip, cullWide169, testView, c.a, c.cond)
 		if r.Band != c.band || r.NoDraw != c.nodraw {
 			t.Errorf("%s: band %v nodraw %v (tanH %.3f tanV %.3f z %.0f), want %v %v", c.name, r.Band, r.NoDraw, r.TanH, r.TanV, r.View[2], c.band, c.nodraw)
 		}

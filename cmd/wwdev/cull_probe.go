@@ -56,12 +56,22 @@ func (c cullClip) tanH() float64 { return c.tanV() * float64(c.Aspect) }
 // clipper's edge, tan(fovY/2) x 1.28, to the visible edge. That is the
 // clipper's own side plane when it is widened (mode 1 under the hack, mode
 // 2 by the knob; the stage-1 live run saw fovY 55, where the old fixed
-// 0.985 flagged an off-screen actor), and the 16:9 edge (the 4:3 edge x
-// 4/3) when it is not (mode 0 with the hack on: WS-C3's "off" half). At
-// fovY 60 both give 0.739..0.985.
-func (c cullClip) band() (lo, hi float64) {
+// 0.985 flagged an off-screen actor), and the 4:3 edge x factor when it is
+// not (mode 0 with the hack on: WS-C3's "off" half), where factor is the
+// WWWS block's (cullFactor; 4/3, the 16:9 edge, without a valid one). At
+// fovY 60 and 16:9 both give 0.739..0.985.
+func (c cullClip) band(factor float64) (lo, hi float64) {
 	lo = c.tanV() * cullAspect43
-	return lo, max(c.tanH(), lo*cullWide169)
+	return lo, max(c.tanH(), lo*factor)
+}
+
+// cullFactor is the aspect factor the band's visible edge follows: the
+// WWWS block's when it has a valid one, else 16:9's 4/3.
+func cullFactor(ws mailbox.Widescreen) float64 {
+	if ws.Present && mailbox.WsFactorValid(ws.Factor) {
+		return float64(ws.Factor)
+	}
+	return cullWide169
 }
 
 // cullXform puts p through the 3x4 row-major view matrix m.
@@ -84,10 +94,10 @@ type cullRow struct {
 	Band       bool       // a CULL actor in the side band, on screen vertically, inside the far plane
 }
 
-// cullJudge places a in view space and marks the band. The game culls by
+// cullJudge places a in view space and marks the band (factor: cullFactor). The game culls by
 // a sphere or box around the actor, not its origin, so the band is judged
 // by the origin only, as the 3.2 probe did.
-func cullJudge(c cullClip, m [12]float32, a actors.Actor, cond uint32) cullRow {
+func cullJudge(c cullClip, factor float64, m [12]float32, a actors.Actor, cond uint32) cullRow {
 	r := cullRow{A: a, View: cullXform(m, a.Pos), Cull: a.Status&cullStatusCull != 0, NoDraw: cond&cullCondNoDraw != 0}
 	d := -r.View[2]
 	if d <= 0 {
@@ -95,7 +105,7 @@ func cullJudge(c cullClip, m [12]float32, a actors.Actor, cond uint32) cullRow {
 	}
 	r.TanH, r.TanV = r.View[0]/d, r.View[1]/d
 	h := math.Abs(r.TanH)
-	lo, hi := c.band()
+	lo, hi := c.band(factor)
 	r.Band = r.Cull && h >= lo && h <= hi && math.Abs(r.TanV) < c.tanV() &&
 		d >= float64(c.Near) && d <= float64(c.Far)
 	return r
@@ -142,7 +152,7 @@ func readCullSample(m mem.Reader) (cullSample, error) {
 		if err != nil {
 			return s, err
 		}
-		s.Rows = append(s.Rows, cullJudge(s.Clip, s.Mtx, a, cond))
+		s.Rows = append(s.Rows, cullJudge(s.Clip, cullFactor(s.WS), s.Mtx, a, cond))
 	}
 	return s, nil
 }
@@ -153,7 +163,7 @@ func printCullSample(w io.Writer, s cullSample) (band, nodraw int) {
 	fmt.Fprintf(w, "mClipper: fovY %.2f aspect %.4f (0x%08X) near %.1f far %.1f; side-plane tan %.3f, top %.3f\n",
 		s.Clip.FovY, s.Clip.Aspect, math.Float32bits(s.Clip.Aspect), s.Clip.Near, s.Clip.Far, s.Clip.tanH(), s.Clip.tanV())
 	fmt.Fprintf(w, "knob 0x%08X: 0x%08X (vanilla 0x%08X); %s\n", mailbox.WsKnobAddr, s.Knob, mailbox.WsKnobVanilla, s.WS)
-	lo, hi := s.Clip.band()
+	lo, hi := s.Clip.band(cullFactor(s.WS))
 	fmt.Fprintf(w, "band: |tanH| %.3f..%.3f (the 4:3 clipper's edge to the visible edge), CULL actors on screen vertically inside the far plane\n", lo, hi)
 	fmt.Fprintf(w, "  %-10s %-6s %-6s %10s %7s %7s %4s %6s\n", "actor", "proc", "pid", "view z", "tanH", "tanV", "cull", "nodraw")
 	for _, r := range s.Rows {

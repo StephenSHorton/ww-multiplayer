@@ -906,7 +906,8 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
       `0x3FDA740D` (3.1's mode-2 value, not the mode-1 `0x3FDA740E`). The culling plan's `cull-probe`:
       no CULL actor in the band is NODRAW. The band is 0.739..0.985 at fovY 60; since branch
       `ws-45` the probe takes it from the clipper (tan(fovY/2) × 1.28 up to the clipper's own side
-      plane, or the 16:9 edge when the clipper is not widened), so it follows the camera's fovY.
+      plane, or, when the clipper is not widened, the 4:3 edge × the WWWS block's factor, 16:9's 4/3
+      without a valid one), so it follows the camera's fovY and the hack's aspect.
    3. Pictures: the world is correctly proportioned, the HUD stretched exactly as with today's hack.
       Sun glare is lost exactly when the sun goes behind something at the screen edge.
    4. Fades: `wwdev stage-hop --wipe 2 <stage> ...`: the first frames of the OVERLAP2 twist fill the
