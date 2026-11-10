@@ -927,7 +927,7 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
 
 ### Stage 2: 2D proportions (release R2, with stage 3)
 
-**Built on branch `widescreen-2-5`** (PC, 2026-11-09, over the T2 budget: see section 6 "As built"). Items 1-10. The 23 hook sites in `hooks.c` are pinned in `t2_budget_test.go` (`TestWidescreenStage2HookSites`). Each pin checks the vanilla word's callee, and the callee addresses are pinned by `TestGameSymbols`. The `ws_apply` rows are checked at F = 1 (the vanilla words) and at 16:9 (`ws_apply_test.go`). It differs from the items below in these ways:
+**Built on branch `widescreen-2-5`** (PC, 2026-11-09; first over the T2 budget, back under it since lever 4: section 6 "As built" and "Lever 4, as built"). Items 1-10. The 23 hook sites in `hooks.c` are pinned in `t2_budget_test.go` (`TestWidescreenStage2HookSites`). Each pin checks the vanilla word's callee and that the rewritten bl lands on the named hook (`HookTargets` in blob.go, from the linked ELF); `TestHookSiteVanillaWords` reads each vanilla word from the vanilla disc's DOL; the callee addresses are pinned by `TestGameSymbols`. The `ws_apply` rows are checked at F = 1 (the vanilla words) and at 16:9 (`ws_apply_test.go`). It differs from the items below in these ways:
 - `ws_apply`'s entry is `{u32 at; f32 a, b}`: the address's low 24 bits, with the type in the top byte (0x01 s16, 0x02 × S).
 - The walker applies a tag's L/R rule at any depth, not only to the anchor's children. Every L/R tag on the disc is a direct child of its anchor (`TestRuleTagsOnDisc`), so the result is the same.
 - `ws_screen_draw_full` draws with x = y = 0: all four sites pass `0x803FB7C4` = 0.0.
@@ -1033,7 +1033,7 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
 
 ### Stage 3: HUD to the edges (release R2)
 
-**Built on branch `widescreen-2-5`** (PC, 2026-11-09, over the T2 budget). Items 1-5:
+**Built on branch `widescreen-2-5`** (PC, 2026-11-09; under the T2 budget since lever 4, section 6). Items 1-5:
 - Flags are 0x03.
 - The shift kinds and the S rows were built in stage 2.
 - The REL's `relws_obj_draw` and `relws_battery_draw` sit in `inject/rel/ws.c`. `_prolog` links them before the exec-hook word, and `_epilog` unlinks them first (pinned by `TestRelWsVtableOrder`).
