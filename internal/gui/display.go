@@ -20,8 +20,9 @@ import (
 const widescreenMod = "widescreen"
 
 // widescreenDefault is an unset setting: off in R1 (stage 1 left the
-// HUD stretched), 16:9 since stages 2-5 passed their live checks
-// (docs/TESTING.md WS2-WS4, the cannon game WS3-7 and the regressions).
+// HUD stretched), 16:9 once the flip's gate passed live (the cannon
+// game WS3-7, stage 4 and the mode 0/1 regressions; docs/TESTING.md
+// "Widescreen final build" says what is still owed).
 const widescreenDefault = "16:9"
 
 // widescreenAspect is c's saved aspect as Start passes it on, the default

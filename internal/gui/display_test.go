@@ -14,7 +14,7 @@ import (
 func TestBridgeSetWidescreen(t *testing.T) {
 	b, _, path := newTestBridge(t)
 	if got := b.Widescreen(); got != "16:9" {
-		t.Errorf("unset = %q, want 16:9 (the default since stages 2-5)", got)
+		t.Errorf("unset = %q, want 16:9 (widescreenDefault)", got)
 	}
 	if got := b.launchOptions().Widescreen; got != "16:9" {
 		t.Errorf("unset launches with %q", got)

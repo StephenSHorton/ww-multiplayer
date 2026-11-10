@@ -9,8 +9,11 @@
   stage 2" and "Widescreen stage 3".
 - **Stages 4 and 5** were built on branch `ws-45` (PC, 2026-11-09, over `widescreen-2-5` db6fc72;
   section 8 "Stage 4" and "Stage 5", as built) and merged into `widescreen-2-5`. Their live checks
-  are docs/TESTING.md "Widescreen stage 4" and "Widescreen stage 5". The plan was card #1186
-  (2026-11-09).
+  are docs/TESTING.md "Widescreen stage 4" (all passed live, PC rig, BlobHash 0x4045BB2F) and
+  "Widescreen stage 5" (the look-in checks only at code level: no night quest set up). The plan
+  was card #1186 (2026-11-09).
+- **The default** is 16:9 since the gate passed (section 8, item 6; docs/TESTING.md "Widescreen
+  final build").
 - The plan builds on #1184's culling plan
 (`docs/design/widescreen-culling.md`, "the culling plan" below), whose clipper hook, `WWWS` mailbox
 block and `WWAP_OP_WS_SET` op card #1185 builds. Section 9 lists what this plan corrects in it.
@@ -1218,9 +1221,15 @@ no gap through their tweens (WS2-2, WS2-7); Sploosh Kaboom's shot count needed t
 **Stage 2/3 checks not run on the PC rig (2026-11-09),** each needing an event or a minigame the
 start save doesn't reach by a hop: the Wind's Requiem selector, a cutscene's own iris wipe, a
 Bokoblin's HP bar at an edge, an NPC talked to at the far left (the place name was checked by
-poking its request, WS3-4), a minigame timer, the Windfall auction, the
-cannon game, the compass, the clock and a boss bar, the file select's lobby line, and the Play
-page's 2D-pending line.
+poking its request, WS3-4), a minigame timer, the Windfall auction, the compass, the clock and a
+boss bar. Since run on BlobHash 0x4045BB2F: the cannon game (WS3-7, its `MiniGameType` poked, not a
+played game), the file select's lobby line (WS2-10) and the 2D-pending line in the app's session
+log (WS2-15). Stage 5's look-in (WS5-1, WS5-2) and quest photo (WS5-3) are owed live; their call
+site is checked live at code level.
+
+**A mode change reaches the 2D and the THP movies at the next EPOCH screen,** not at once (WS2-15,
+WS4-4): hopping straight from a mid-stage `ops ws 2` into the ending left the epilogue full width.
+A player who starts in mode 2 is latched from the title on.
 
 ---
 
