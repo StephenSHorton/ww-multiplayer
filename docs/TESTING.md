@@ -1040,7 +1040,7 @@ The culling hook and native widescreen's stage 1 (docs/design/widescreen-culling
 The culling plan's checks, with the hack on (`-C Graphics.Settings.wideScreenHack=True -C Graphics.Settings.AspectRatio=1`):
 
 - [ ] **WS-C1 block and clipper**: `./wwdev.exe peek 0x8041696C` shows the magic `57575753`; `peek 0x803A575C` shows `0x3FDA740E` (1.7067).
-- [ ] **WS-C2 the side band**: turn the camera so actors sit in the band (`./wwdev.exe input 0x0000 -60 0 3000`, repeated), then `cull-probe`: no actor with tanH between 0.739 and 0.985 inside the far plane is NODRAW.
+- [ ] **WS-C2 the side band**: turn the camera so actors sit in the band (`./wwdev.exe input 0x0000 -60 0 3000`, repeated), then `cull-probe`: no actor in the band inside the far plane is NODRAW. The probe prints the band it used: from the 4:3 clipper's edge, tan(fovY/2) x 1.28, to the clipper's own side plane (0.739..0.985 at fovY 60; it follows the camera's fovY, so an actor past the visible edge at fovY 55 is no longer counted).
 - [ ] **WS-C3 off and back**: `ww-multiplayer widescreen off`, then `cull-probe`: the same actors are NODRAW again and the clipper aspect is 1.28. `widescreen 16:9` restores it.
 - [ ] **WS-C4 pictures**: a before/after pair (`widescreen off` / `16:9`) of the same view, on the card, not in git. On the Mac, if `mac-rig.sh shot` fails, dump frames (`-C Dolphin.Movie.DumpFrames=True -C Dolphin.Movie.DumpFramesSilent=True -C Graphics.Settings.DumpFramesAsImages=True`).
 - [ ] **WS-C5 frame rate and pools**: fps in a busy outdoor scene (Windfall at night, or the sea near an island) with `widescreen off` and `16:9`, hack on and off; count the real-shadow slots in use (`dDlst_shadowControl_c` `mReal[8]`, `mState != 0`); no missing shadows or effects near the centre. Report the numbers. If a 4:3 player loses more than 1 fps, make mode 0 the C default.
@@ -1048,8 +1048,8 @@ The culling plan's checks, with the hack on (`-C Graphics.Settings.wideScreenHac
 
 Native widescreen, stage 1 (hack off, Force 16:9 unless the item says otherwise):
 
-- [ ] **WS-1 a single knob store** (can run on an older blob): `./wwdev.exe poke-u32 803FA998 3FE38E39`. The world is round, not wide; `peek 803A575C` reads `0x3FDA740D`. Cross two stage loads and the pause menu: `peek 803FA998` still reads `3FE38E39`. `poke-u32 803FA998 3FAAAAAB` restores it.
-- [ ] **WS-2 mode 2 at 16:9** (from the app, or `./wwdev.exe ops ws 2 16:9` before mp-local): the block reads mode 2, factor `0x3FAAAAAB`; `peek 803FA998` reads `3FE38E39`; `peek 803A575C` reads `0x3FDA740D` (not mode 1's `0x3FDA740E`). `cull-probe`: no CULL actor with tanH between 0.739 and 0.985 is NODRAW.
+- [ ] **WS-1 a single knob store** (can run on an older blob): first `./wwdev.exe ops ws 0 16:9` (the boot's mode 1 would multiply the poked knob into the clipper: 2.2756, `0x4011A2B4`), then `./wwdev.exe poke-u32 803FA998 3FE38E39`. The world is round, not wide; `peek 803A575C` reads `0x3FDA740D`. Cross two stage loads and the pause menu: `peek 803FA998` still reads `3FE38E39`. `poke-u32 803FA998 3FAAAAAB` restores it.
+- [ ] **WS-2 mode 2 at 16:9** (from the app, or `./wwdev.exe ops ws 2 16:9` before mp-local): the block reads mode 2, factor `0x3FAAAAAB`; `peek 803FA998` reads `3FE38E39`; `peek 803A575C` reads `0x3FDA740D` (not mode 1's `0x3FDA740E`). `cull-probe`: no CULL actor in the printed band (0.739..0.985 at fovY 60) is NODRAW.
 - [ ] **WS-3 pictures**: the world is correctly proportioned and the HUD stretched exactly as with the hack. Sun glare is lost only when the sun goes behind something at the screen edge.
 - [ ] **WS-4 fades**: `./wwdev.exe stage-hop --wipe 2 <stage> ...`: the first frames of the OVERLAP2 twist fill the width. Open the pause menu 5+ times: the cloth reaches both edges every time.
 - [ ] **WS-5 picto box** (a save with it): a quest-style photo of the same subject in mode 2 and in mode 1 gets the same verdict.
@@ -1107,6 +1107,30 @@ Stage 3 moves the HUD to the edges (plan section 8 "Stage 3" item 7). It uses th
 - [ ] **WS3-9 leaving a minigame**: the HUD is normal. The slots `0x80389100` and `0x80389110` still point into the REL (`peek`), and they pass through when S is 0.
 - [ ] **WS3-10 mode change mid-stage**: run `wwdev ops ws 0 16:9` mid-stage, as a manual-toggle run. Nothing goes off screen, and the HUD updates at the next stage load.
 - [ ] **WS3-11 file select**: the A/B button cluster is at the right.
+
+### Widescreen stage 4
+
+Native widescreen's stage 4, menus and special screens (docs/design/native-widescreen.md section 8 "Stage 4" item 3). Built on branch `ws-45` over `widescreen-2-5` (T2 ends at 0x80414788, 0x878 bytes below the API region; BlobHash 0x366129D3 before the merge, a new one after it): re-patch and recapture `saves/start.sav` in mode 1 first (`fixtures/start-ws2-<BlobHash>.sav`). Hack off, Force 16:9, 2D compressed (flags 0x03). The THP step reads the latched 2D factor, so the title must load after mode 2 is set: from the start save, `./wwdev.exe ops ws 2 16:9`, then the usual soft reset to the title (`./wwdev.exe input 0x1600 0 0 1500`, which keeps the block; the title stage's `main_parts1` latches it).
+
+- [ ] **WS4-1 the THP offsets** (T-9; proven offline from the disc REL by `TestWsTHPVanillaREL`, owed live): while the title movie plays, find the movie player's `.bss`:
+  1. `./wwdev.exe peek 800030C8 4`: the head of the OS module list.
+  2. For each module m, `./wwdev.exe peek <m> 34`: the id at +0, the next module at +4, the section table at +0x10, `bssSection` (u8) at +0x33. Follow +4 until the id is `0000019F`.
+  3. `./wwdev.exe peek <table + 8*bssSection> 8`: the `.bss` address, then its size `000CB5C8`. A size other than `0xCB5C8` (or a `bssSection` of 0) means the C step finds nothing: note it, the step then never writes.
+  4. `./wwdev.exe peek <bss+CB580> 8`: `000001E0 000001E0` (xSize 480, ySize 480, written by `ws_frame_any`); `peek <bss+CB59C> 4`: `00000050` (DrawPosX 80). `peek <bss+6F0> 8` (`daMP_ActivePlayer.videoInfo`, the texture's size): still `00000280 000001E0`, untouched.
+- [ ] **WS4-2 the title movie**: a screenshot of the title: the movie is 4:3 in the centre (the ship's hull and the sea round, not stretched), with black (or the cleared colour) bands at the sides; the title logo and "Press Start" sit on it as in stage 2. Note any first frame drawn full width.
+- [ ] **WS4-3 back to 4:3**: `./wwdev.exe ops ws 0 16:9`, soft reset to the title: xSize reads `00000280`, DrawPosX `00000000` (the step writes 640 back over its own value), and the movie fills the stretched width as before stage 4. Mode 1 with the hack on: the same, untouched (the step needs `ui_mode` 2).
+- [ ] **WS4-4 the staff roll** (if reachable): `./wwdev.exe stage-hop ENDING 0 --no-check --yes` (stage `ENDING` opens the ending scene, `d_s_play.cpp:310`; not tried before), or a finished save: `end_st_epilogue.thp` is pillarboxed like the title movie. Note which way it was reached.
+- [ ] **WS4-5 the lens flare** (`ws_project_live` at `0x8008C6C0`): on the open sea in the day, turn so the sun sits off-axis near a top corner. The flare's streak points from the sun through the screen centre, in mode 2 as in a mode-1 hack-on run of the same view (screenshots of both).
+- [ ] **WS4-6 the moon's stars** (`0x800994AC`, `0x80099A6C`): at night with the moon off-centre, the star-free area around the moon is round on screen, not a wide ellipse. Compare with `ops ws 1 16:9` and the hack on.
+- [ ] **WS4-7 regression**: at F = 1 (mode 0 or 1) flares, stars and the title movie look exactly as in stage 3.
+
+### Widescreen stage 5
+
+Native widescreen's stage 5 (plan section 8 "Stage 5" item 4). The picto box is option A (decided): nothing beyond stage 2 (WS2-8 covers it). Same blob and rig as stage 4. Needs the telescope (`fixtures/saves/100pct-E`).
+
+- [ ] **WS5-1 the telescope's moon** (`ws_project_live` at `0x8019744C`; the radius 100 is the caller's, so the moon's projected point is moved, not the radius): at night, look at the moon through the telescope and zoom past fovY 20. With the moon about 110 vanilla units (about 165 px of a 1280x720 window) left of the scope centre, the moon line does not trigger; at about 80 units it does. Then the same with the moon above the centre (y is unchanged, so the vertical distances match mode 1).
+- [ ] **WS5-2 Orion and the Big Dipper** (Hokuto): the same look-in test, around the scope centre, triggers at the same on-screen distance as in mode 1.
+- [ ] **WS5-3 picto box**: a quest photo (a Windfall NPC) passes in mode 2 as in mode 1 (WS-5's owed half), and a round subject looks round in the album.
 
 ### Release defaults (pre-release live checklist)
 

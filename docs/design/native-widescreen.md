@@ -7,7 +7,11 @@
   the blob ends 0x5E8 past the API region (section 6, "As built"). Lever 4 is still to be done, and
   neither stage may be patched onto a disc until it is. Their live checks are docs/TESTING.md
   "Widescreen stage 2" and "Widescreen stage 3".
-- **Stages 4 and 5** are a plan only (card #1186, 2026-11-09). It builds on #1184's culling plan
+- **Stages 4 and 5** are built on branch `ws-45` (PC, 2026-11-09, over `widescreen-2-5` db6fc72;
+  section 8 "Stage 4" and "Stage 5", as built). T2 ends at `0x80414788`, 0x878 bytes below the API
+  region. Nothing of them has run in Dolphin: docs/TESTING.md "Widescreen stage 4" and "Widescreen
+  stage 5". The plan was card #1186 (2026-11-09).
+- The plan builds on #1184's culling plan
 (`docs/design/widescreen-culling.md`, "the culling plan" below), whose clipper hook, `WWWS` mailbox
 block and `WWAP_OP_WS_SET` op card #1185 builds. Section 9 lists what this plan corrects in it.
 Every address here was checked against the vanilla GZLE01 DOL and the decomp
@@ -613,8 +617,8 @@ count code ×1.5 at the high end (E3 once overshot by 0x4E0); table data is exac
 | 1 | **0x320 measured** with #1185 (planned 0xE0-0x1C0 for both) | `ws_op_set` 0xB8, `ws_init` 0x88, `ws_live_factor` 0x68, `ws_clip_aspect` 0x5C, `clip_setup_hook` 0x58, `ws_snap_setresult` 0xAC (built `-Os` for that function; `-O2` unrolled it to 0x114), 0x308 in all, plus the module table entry and alignment | 0x320 |
 | 2 | 0x540-0x810 | `ws_2d_factor` + latch, `ws_ortho_hook`, `ws_apply` + 7 entries, hooks A/B + walker + 27 rows and 12 EDGE rules, `ws_project_2d`, scissor wrapper, `ws_screen_draw_full` (2 entries), `ws_persp`, opening fills | 0x860-0xB30 |
 | 3 | 0x140-0x1C0 | shift kinds (code 0x50-0x88), 7 rows + 27 rules (`main_parts1`'s 15 NONE tags, `pn`, `auction2`'s 11) + 3 `ws_apply` entries (data ≈ 0xEF); +0x80-0x120 if the cannon/Sploosh wrappers stay in T2 instead of the REL | 0x9A0-0xCF0 |
-| 4 | 0x70-0xD0 | THP frame step, optional polish | 0xA10-0xDC0 |
-| 5 | 0x20-0x200 | telescope look-in; picto option B or C if chosen (0x78 if B's resample lives in the REL behind a forwarder); option A needs nothing | 0xA30-0xFC0 |
+| 4 | 0x70-0xD0 planned; **0x1A0 measured with stage 5** (`ws_frame_any` 0x150, `ws_project_live` 0x4C) | THP frame step, optional polish (flare, stars) | 0xA10-0xDC0 planned |
+| 5 | 0x20-0x200 planned; nothing more (option A; the telescope shares `ws_project_live`) | telescope look-in; picto option B or C if chosen (0x78 if B's resample lives in the REL behind a forwarder); option A needs nothing | measured: T2 ends `0x80414788`, 0x878 free (lever 4) |
 
 The running totals are from the measured 0x320. Stages 2-3 need 0x680-0x9D0 on top of it, and
 0x8D8 is left: they fit at the low end, not the high. So the levers below are chosen at stage 2
@@ -892,14 +896,17 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
    - wwdev: `ops ws <mode> <aspect> [flags]`; `stage-hop --wipe N` (it always writes wipe 0 today,
      `coop_diag.go` `stageHopWipe`; 2 gives OVERLAP2, 4 OVERLAP4).
 6. **Live checks (Dolphin)** (WS-1..WS-11 in docs/TESTING.md, unchecked):
-   1. Before the build, with today's blob: hack off, Force 16:9, `./wwdev.exe poke-u32 803FA998
-      3FE38E39`. The world is round, not wide; `peek 803A575C` reads `0x3FDA740D`. Cross two stage
+   1. Before the build, with today's blob: hack off, Force 16:9, `./wwdev.exe ops ws 0 16:9` first
+      (on a stage-1 blob the boot's mode 1 multiplies the poked knob into the clipper: 2.2756), then
+      `./wwdev.exe poke-u32 803FA998 3FE38E39`. The world is round, not wide; `peek 803A575C` reads `0x3FDA740D`. Cross two stage
       loads and the pause menu, then `peek 803FA998` (still `3FE38E39`): a single store holds under
       the JIT. `poke-u32 803FA998 3FAAAAAB` restores it.
    2. With the build, at 16:9 (from the app, or `wwdev ops ws 2 16:9` before mp-local): the block
       reads mode 2, factor `0x3FAAAAAB`; `peek 803FA998` `3FE38E39`; `peek 803A575C` (`mClipper+0x50`)
       `0x3FDA740D` (3.1's mode-2 value, not the mode-1 `0x3FDA740E`). The culling plan's `cull-probe`:
-      no CULL actor with tanH between 0.739 and 0.985 is NODRAW.
+      no CULL actor in the band is NODRAW. The band is 0.739..0.985 at fovY 60; since branch
+      `ws-45` the probe takes it from the clipper (tan(fovY/2) × 1.28 up to the clipper's own side
+      plane, or the 16:9 edge when the clipper is not widened), so it follows the camera's fovY.
    3. Pictures: the world is correctly proportioned, the HUD stretched exactly as with today's hack.
       Sun glare is lost exactly when the sun goes behind something at the screen edge.
    4. Fades: `wwdev stage-hop --wipe 2 <stage> ...`: the first frames of the OVERLAP2 twist fill the
@@ -923,7 +930,10 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
    10. Regression: the culling plan's step 7 checks in mode 1 with the hack on, unchanged.
    11. VI aspect: hack off, `-C Graphics.Settings.AspectRatio=2` (Force 4:3), a default-resolution
        frame dump; width/480 is the VI aspect (expect about 1.2534, 602x480). Record it in
-       `wwapi/emu/launch` before any XScale Stretch change.
+       `wwapi/emu/launch` before any XScale Stretch change. **Measured** (PC rig, 2026-11-09, branch
+       `ws-stage1-live`): Dolphin keeps the width and rounds the height up to a multiple of 4 (1x
+       640x512, 4x 2560x2044), so 1.2524..1.2543; recorded as `launch.VIAspect` 1.2534 with
+       `VIAspectMin`/`VIAspectMax` (branch `ws-45`). XScale's Stretch cases are unchanged.
 
 ### Stage 2: 2D proportions (release R2, with stage 3)
 
@@ -1074,6 +1084,37 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
 
 ### Stage 4: menus and special screens (release R3)
 
+**Built on branch `ws-45`** (PC, 2026-11-09; not run in Dolphin). Item 1 and, of item 2, the lens
+flare and the moon's stars. T2 grew 0x1A0 for stages 4 and 5 together (`ws_frame_any` 0x150,
+`ws_project_live` 0x4C); 0x878 bytes stay free. It differs from the items below in these ways:
+- **The THP offsets were proven offline**, not live (`internal/inject/ws_thp_vanilla_test.go`,
+  `TestWsTHPVanillaREL`, on the vanilla disc): `rels/d_a_movie_player.rel` is module 0x19F, its
+  `.bss` (section 6) is 0xCB5C8 bytes and the only section that size; `daMP_ActivePlayer_Draw`
+  (text 0x61DC) builds `&daMP_DrawPosX` from an ADDR16_HA/LO pair to `.bss`+0xCB59C and
+  `&daMP_videoInfo` from one to `.bss`+0xCB580, then loads the polygon's w and h at +0 and +4;
+  `daMP_ActivePlayer_Init` stores DrawPosX from that xSize off r30 = `.bss`+0x20+0xD0000. Both
+  movies' THP headers say 640x480. Only `daMP_videoInfo` (the draw's polygon) is written, never
+  `daMP_ActivePlayer.videoInfo` (`.bss`+0x6F0, the texture's size). The live read-back is
+  docs/TESTING.md WS4-1.
+- **`ws_frame_any`** (`src/ws/widescreen.c`, the WS module's `frame_any` slot) walks
+  `__OSModuleList` (`0x800030C8`) every frame, at most 256 links, each checked inside MEM1; for id
+  0x19F it takes the section-info entry `bssSection` (header +0x33, which OSLink fills) names and
+  uses it only if its size is 0xCB5C8. It never caches the address (the module is unlinked after
+  the movie). It writes only when xSize is 640 or its own last value (a static that starts at 640),
+  ySize is 480 and DrawPosX is still (640 − xSize)/2, and never when xSize is already the target.
+  The movie's first frame may be drawn full width before the step runs (accepted; WS4-2 notes it).
+- **The lens flare and the moon's stars** share stage 5's `ws_project_live` (`src/core/hooks.c`):
+  `mDoLib_project`, then, when `ws_live_factor()` ≠ 1, x′ = 320 + (x − 320)·F. All four sites
+  measure an angle or distance about (320, 240) (`d_kankyo_rain.cpp:520-527`, `4725`, `4862-4864`,
+  `d_kankyo.cpp:3623-3625`), so one function and one pivot serve them; the flare's 3D quad
+  positions and the stars' vertices are untouched. Pinned by `TestWidescreenStage45HookSites`,
+  `TestWidescreenStage45VanillaWords` and `TestWidescreenStage45Source`
+  (`internal/inject/ws_stage45_test.go`).
+- **Skipped from item 2:** the cinema trims (their values are "by screenshot", and the live
+  camera's `mCamSetup` write needs a camera pointer and a field check nobody can make offline);
+  the pause cloth (the stage-1 run, WS-4, saw it cover both edges at every rotation, so k(F) is not
+  needed); the title lobby row spacing (Go, by screenshot). Each stays optional.
+
 1. **THP movies** (T-9). First verify the module-415 (0x19F) `.bss` live: `peek 800030C8` gives
    the OS module list head; per module, `peek <m> 52`: id at +0, next at +4, the section table at
    +0x10, `bssSection` (u8) at +0x33; for id 0x19F, `peek <table + 8*bssSection> 8` gives the bss
@@ -1097,6 +1138,15 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
    hidden in a round area around the moon; the pause cloth covers at every rotation.
 
 ### Stage 5: picto box and telescope (release R3)
+
+**Built on branch `ws-45`** (PC, 2026-11-09; not run in Dolphin):
+- Item 1 is decided: **option A**, nothing beyond stage 2. Item 2 does not apply.
+- Item 3: the telescope look-in (`bl` `0x8019744C` in `dKy_telescope_lookin_chk`) goes through
+  `ws_project_live` (stage 4's as-built note). The radius is the caller's f1, so the projected
+  point is moved about 320 by the live factor, which is exact for the round test about (320, 240);
+  the radius is never touched.
+- The scope-opening view rect (2D-15) is not built: under option A the viewfinder art is drawn
+  uncompressed and already matches the EFB rects (2D-15's row).
 
 1. **Ask the person** (a blocker on the card) whether option A, as stage 2 left it (the picto art
    stretched, photos right), is enough, or B or C (3.6), with stage-2 screenshots of the viewfinder
@@ -1147,8 +1197,8 @@ T2 cost 0x320 (section 6). The live checks below are owed: docs/TESTING.md "Wide
 **Owed live (each is in its stage's checks):** a single knob store holds under the JIT; the pause
 cloth covers at every rotation; boot timing of WS_SET against the title stage; the save iris and
 telescope EDGE bars through their tweens; the `ship_race2.blo` result screen (H-19); Sploosh
-Kaboom's number positions; the THP `.bss` offsets; the VI aspect before any Stretch mode is
-allowed; whether `back_aori.bti` (`operate_wind_mask`'s `BACK`) and `back_auction_00.bti` (the
+Kaboom's number positions; the THP `.bss` offsets read back live (proven offline from the disc
+REL, stage 4 as built); a Stretch mode's own check (the VI aspect is measured, 1.2524..1.2543); whether `back_aori.bti` (`operate_wind_mask`'s `BACK`) and `back_auction_00.bti` (the
 full-screen `BACK` panes of `auction1/2`, siblings of `ROOT`; stage 3's SCR_L moves `auction1`'s
 by −S with the screen) need GEOM.
 
