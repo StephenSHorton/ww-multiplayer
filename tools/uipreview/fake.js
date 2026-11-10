@@ -348,7 +348,7 @@
 		};
 	}
 
-	let widescreen = q.get("ws") || "off";
+	let widescreen = q.get("ws") || "16:9";
 	const answers = {
 		Info: () => info, State: () => { const st = state(); armEnd(); return st; }, Setup: () => setupView,
 		PatchStatus: () => (S === "setup-game" ? patchDone : setupView.patch),
@@ -371,7 +371,7 @@
 		SetCoopShares: (on) => (slow && shareCalls++ === 0
 			? new Promise((done) => setTimeout(() => { setShares(on); done(null); }, 800))
 			: (setShares(on), null)),
-		// Settings' Display card: the saved widescreen aspect (unset = off).
+		// Settings' Display card: the saved widescreen aspect (unset = 16:9, widescreenDefault).
 		Widescreen: () => widescreen,
 		SetWidescreen: (a) => { widescreen = a.trim().toLowerCase() || "off"; return null; },
 		SetMerge: (on) => { coop.merge = on; if (coop.panel) coop.panel.rules.rows.find((r) => r.id === "merge").on = on; return null; },

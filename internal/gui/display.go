@@ -19,9 +19,10 @@ import (
 // widescreenMod is the widescreen mod's id: its settings hold the aspect.
 const widescreenMod = "widescreen"
 
-// widescreenDefault is an unset setting: off in R1 (stage 1 leaves the
-// HUD stretched), 16:9 from the release with stages 2 and 3.
-const widescreenDefault = "off"
+// widescreenDefault is an unset setting: off in R1 (stage 1 left the
+// HUD stretched), 16:9 since stages 2-5 passed their live checks
+// (docs/TESTING.md WS2-WS4, the cannon game WS3-7 and the regressions).
+const widescreenDefault = "16:9"
 
 // widescreenAspect is c's saved aspect as Start passes it on, the default
 // when none is saved.

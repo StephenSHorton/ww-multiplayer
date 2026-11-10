@@ -13,10 +13,10 @@ import (
 // emits "settings", and an invalid one changes nothing.
 func TestBridgeSetWidescreen(t *testing.T) {
 	b, _, path := newTestBridge(t)
-	if got := b.Widescreen(); got != "off" {
-		t.Errorf("unset = %q, want off (R1)", got)
+	if got := b.Widescreen(); got != "16:9" {
+		t.Errorf("unset = %q, want 16:9 (the default since stages 2-5)", got)
 	}
-	if got := b.launchOptions().Widescreen; got != "off" {
+	if got := b.launchOptions().Widescreen; got != "16:9" {
 		t.Errorf("unset launches with %q", got)
 	}
 	on := true
